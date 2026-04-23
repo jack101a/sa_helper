@@ -1,0 +1,53 @@
+app_name: unified-platform
+server:
+  host: 0.0.0.0
+  port: 8080
+  debug: false
+  cors_origins:
+  - moz-extension://*
+  - chrome-extension://*
+  cors_origin_regex: ^(moz-extension|chrome-extension)://.*$
+auth:
+  key_prefix: sk-
+  key_length: 32
+  default_expiry_days: 90
+  hash_salt: ''
+  admin_token: ''
+  admin_username: admin
+  admin_password: ''
+rate_limit:
+  requests_per_minute: 60
+  burst: 10
+queue:
+  workers: 2
+  max_pending_jobs: 500
+  cache_ttl_seconds: 300
+logging:
+  level: INFO
+  debug: false
+  json: true
+model:
+  default: onnx
+  fallback: onnx
+  allow_future_model: false
+  onnx_path: backend/models/model.onnx
+  onnx_vocab: 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
+  onnx_height: 54
+  onnx_width: 250
+storage:
+  sqlite_path: backend/logs/app.db
+retrain:
+  worker_enabled: false
+exam:
+  litellm_endpoint: ''
+  litellm_api_key: ''
+  litellm_model: gemma-4-31b-it_gemini
+  ocr_lang: eng+hin
+  tessdata_path: backend/tessdata
+  question_data_path: backend/app/data/questions.json
+  sign_hashes_path: backend/app/data/sign_hashes.json
+  sign_labels_path: backend/app/data/sign_label.json
+alerts:
+  whatsapp_enabled: false
+  callmebot_phone: ''
+  callmebot_apikey: ''

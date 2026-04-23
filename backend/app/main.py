@@ -64,8 +64,6 @@ async def health() -> dict[str, str]:
 @app.on_event("startup")
 async def startup() -> None:
     await container.solver_service.start()
-    if container.settings.retrain.worker_enabled:
-        await container.retrain_service.start()
     # WhatsApp: notify admin server is online
     container.alert_service.notify_server_start()
 

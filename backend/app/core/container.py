@@ -13,7 +13,6 @@ from app.services.cache_service import CacheService
 from app.services.exam_service import ExamService
 from app.services.key_service import KeyService
 from app.services.model_router import ModelRouter
-from app.services.retrain_service import RetrainService
 from app.services.solver_service import SolverService
 from app.services.usage_service import UsageService
 
@@ -30,7 +29,6 @@ class Container:
     exam_service: ExamService          # MCQ solver (config from DB)
     autofill_service: AutofillService  # form autofill
     alert_service: AlertService        # WhatsApp admin alerts (config from DB)
-    retrain_service: RetrainService
 
 
 def build_container(settings: Settings) -> Container:
@@ -62,10 +60,6 @@ def build_container(settings: Settings) -> Container:
     # Alert service — reads phone/apikey/enabled from DB (admin dashboard)
     alert_service = AlertService(db=db)
 
-    # Retrain
-    models_dir = (Path(__file__).resolve().parents[3] / "backend" / "models").resolve()
-    retrain    = RetrainService(db=db, models_dir=models_dir)
-
     return Container(
         settings=settings,
         db=db,
@@ -75,5 +69,4 @@ def build_container(settings: Settings) -> Container:
         exam_service=exam_service,
         autofill_service=autofill_service,
         alert_service=alert_service,
-        retrain_service=retrain,
     )
