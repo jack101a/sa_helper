@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unified Platform</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    width: 280px; min-height: 360px;
+    background: #0f172a; color: #f1f5f9;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 13px;
+  }
+  .header {
+    background: linear-gradient(135deg, #10b981, #059669);
+    padding: 14px 16px 10px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .logo { font-size: 22px; }
+  .header-text h1 { font-size: 14px; font-weight: 700; color: #fff; letter-spacing: .3px; }
+  .header-text p  { font-size: 10px; color: rgba(255,255,255,.75); margin-top: 2px; }
+  .badge {
+    margin-left: auto; background: rgba(255,255,255,.18);
+    border-radius: 10px; padding: 2px 8px; font-size: 10px; color: #fff;
+  }
+  .status-bar {
+    padding: 8px 16px;
+    display: flex; align-items: center; gap: 8px;
+    background: #1e293b; border-bottom: 1px solid #334155;
+    font-size: 11px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dot.ok   { background: #10b981; box-shadow: 0 0 6px #10b981; }
+  .dot.err  { background: #ef4444; }
+  .dot.idle { background: #64748b; }
+  #status-text { color: #94a3b8; flex: 1; }
+  .section { padding: 10px 16px; border-bottom: 1px solid #1e293b; }
+  .section-title { font-size: 10px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .6px; margin-bottom: 8px; }
+  .toggle-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 0;
+  }
+  .toggle-label { color: #cbd5e1; font-size: 12px; }
+  .toggle-sub   { color: #64748b; font-size: 10px; margin-top: 1px; }
+  /* Toggle switch */
+  .switch { position: relative; width: 36px; height: 20px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider {
+    position: absolute; cursor: pointer; inset: 0;
+    background: #374151; border-radius: 20px; transition: .2s;
+  }
+  .slider:before {
+    content: ''; position: absolute;
+    width: 14px; height: 14px; left: 3px; bottom: 3px;
+    background: #fff; border-radius: 50%; transition: .2s;
+  }
+  input:checked + .slider            { background: #10b981; }
+  input:checked + .slider:before     { transform: translateX(16px); }
+  .footer {
+    padding: 10px 16px;
+    display: flex; gap: 8px;
+  }
+  .btn {
+    flex: 1; padding: 7px; border-radius: 8px; border: none;
+    font-size: 11px; font-weight: 600; cursor: pointer; transition: opacity .15s;
+  }
+  .btn:hover { opacity: .85; }
+  .btn-primary { background: #10b981; color: #fff; }
+  .btn-outline { background: transparent; border: 1px solid #374151; color: #94a3b8; }
+  .usage-row {
+    display: flex; justify-content: space-between;
+    padding: 4px 0; color: #64748b; font-size: 11px;
+  }
+  .usage-val { color: #f1f5f9; font-weight: 600; }
+  a.options-link {
+    display: block; text-align: center; padding: 8px;
+    color: #64748b; font-size: 10px; text-decoration: none;
+  }
+  a.options-link:hover { color: #94a3b8; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">🔷</div>
+  <div class="header-text">
+    <h1>Unified Platform</h1>
+    <p>Captcha · Exam · Autofill</p>
+  </div>
+  <div class="badge" id="plan-badge">Active</div>
+</div>
+
+<div class="status-bar">
+  <div class="dot idle" id="conn-dot"></div>
+  <span id="status-text">Checking connection…</span>
+</div>
+
+<div class="section">
+  <div class="section-title">Services</div>
+
+  <div class="toggle-row">
+    <div>
+      <div class="toggle-label">🔒 Captcha Solver</div>
+      <div class="toggle-sub">Auto-fill text captchas</div>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="tog-captcha">
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="toggle-row">
+    <div>
+      <div class="toggle-label">📝 Exam Solver</div>
+      <div class="toggle-sub">Sarathi MCQ auto-solve</div>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="tog-exam">
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="toggle-row">
+    <div>
+      <div class="toggle-label">✍️ Autofill</div>
+      <div class="toggle-sub">Smart form autofill</div>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="tog-autofill">
+      <span class="slider"></span>
+    </label>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">Today's Usage</div>
+  <div class="usage-row"><span>Captchas Solved</span><span class="usage-val" id="u-captcha">—</span></div>
+  <div class="usage-row"><span>Exams Processed</span><span class="usage-val" id="u-exam">—</span></div>
+  <div class="usage-row"><span>Forms Autofilled</span><span class="usage-val" id="u-fill">—</span></div>
+</div>
+
+<div class="footer">
+  <button class="btn btn-outline" id="btn-verify">Verify Key</button>
+  <button class="btn btn-primary" id="btn-options">Settings</button>
+</div>
+
+<a href="#" class="options-link" id="link-options">Open full options page →</a>
+
+<script src="popup.js"></script>
+</body>
+</html>

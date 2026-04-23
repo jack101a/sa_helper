@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unified Platform — Settings</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{min-height:100vh;background:#0f172a;color:#f1f5f9;font-family:'Segoe UI',system-ui,sans-serif;font-size:13px;display:flex}
+  /* Sidebar */
+  nav{width:200px;min-height:100vh;background:#0a1628;border-right:1px solid #1e293b;display:flex;flex-direction:column;padding:20px 0}
+  .nav-logo{padding:0 18px 20px;border-bottom:1px solid #1e293b;margin-bottom:12px}
+  .nav-logo h1{font-size:15px;font-weight:700;color:#10b981}
+  .nav-logo p{font-size:10px;color:#64748b;margin-top:2px}
+  .nav-item{padding:9px 18px;color:#94a3b8;cursor:pointer;border-left:3px solid transparent;transition:.15s;font-size:12px;display:flex;align-items:center;gap:8px}
+  .nav-item:hover{background:#1e293b;color:#f1f5f9}
+  .nav-item.active{border-left-color:#10b981;background:#1e293b;color:#10b981}
+  /* Main */
+  main{flex:1;padding:24px 32px;overflow-y:auto;max-width:720px}
+  h2{font-size:18px;font-weight:700;margin-bottom:4px}
+  .subtitle{color:#64748b;font-size:12px;margin-bottom:24px}
+  /* Cards */
+  .card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:16px}
+  .card-title{font-size:13px;font-weight:600;color:#10b981;margin-bottom:14px;display:flex;align-items:center;gap:6px}
+  /* Form controls */
+  label{display:block;font-size:11px;color:#94a3b8;margin-bottom:5px;font-weight:500;text-transform:uppercase;letter-spacing:.4px}
+  input[type="text"],input[type="password"],input[type="url"],select,textarea{
+    width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;
+    color:#f1f5f9;padding:9px 12px;font-size:13px;outline:none;transition:.15s;
+    font-family:inherit;
+  }
+  input:focus,select:focus,textarea:focus{border-color:#10b981}
+  input[readonly]{color:#64748b;cursor:default}
+  .form-row{margin-bottom:14px}
+  .form-row-2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+  /* Profile fields */
+  .profile-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  /* Toggle */
+  .toggle-row2{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #0f172a}
+  .toggle-row2:last-child{border:none}
+  .tl{flex:1}
+  .tl strong{display:block;font-size:12px;color:#e2e8f0}
+  .tl span{font-size:10px;color:#64748b}
+  .switch2{position:relative;width:36px;height:20px;flex-shrink:0}
+  .switch2 input{opacity:0;width:0;height:0}
+  .sl2{position:absolute;cursor:pointer;inset:0;background:#374151;border-radius:20px;transition:.2s}
+  .sl2:before{content:'';position:absolute;width:14px;height:14px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s}
+  input:checked+.sl2{background:#10b981}
+  input:checked+.sl2:before{transform:translateX(16px)}
+  /* Buttons */
+  .btn2{padding:9px 20px;border-radius:8px;border:none;font-size:12px;font-weight:600;cursor:pointer;transition:.15s}
+  .btn2:hover{opacity:.85}
+  .btn-save{background:#10b981;color:#fff}
+  .btn-danger{background:#ef4444;color:#fff}
+  .btn-neutral{background:#374151;color:#e2e8f0}
+  .btn-row{display:flex;gap:8px;margin-top:6px}
+  /* Status */
+  .msg{padding:8px 12px;border-radius:8px;font-size:11px;margin-top:10px;display:none}
+  .msg.ok{background:#052e16;border:1px solid #166534;color:#4ade80}
+  .msg.err{background:#2d0a0a;border:1px solid #7f1d1d;color:#fca5a5}
+  /* Tabs */
+  .tab{display:none}
+  .tab.active{display:block}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo"><h1>🔷 Platform</h1><p>v2.0 Settings</p></div>
+  <div class="nav-item active" data-tab="connection">🔑 Connection</div>
+  <div class="nav-item" data-tab="profile">👤 My Profile</div>
+  <div class="nav-item" data-tab="services">⚙️ Services</div>
+  <div class="nav-item" data-tab="exam">📝 Exam Config</div>
+  <div class="nav-item" data-tab="about">ℹ️ About</div>
+</nav>
+
+<main>
+
+  <!-- CONNECTION TAB -->
+  <div class="tab active" id="tab-connection">
+    <h2>Connection</h2>
+    <p class="subtitle">Configure your API key and server URL</p>
+    <div class="card">
+      <div class="card-title">🔑 API Key</div>
+      <div class="form-row">
+        <label>API Key (sk-...)</label>
+        <input type="password" id="api-key" placeholder="Paste your API key here">
+      </div>
+      <div class="form-row">
+        <label>Server URL</label>
+        <input type="url" id="server-url" placeholder="https://your-server.com">
+      </div>
+      <div class="btn-row">
+        <button class="btn2 btn-save" id="btn-save-conn">Save & Verify</button>
+        <button class="btn2 btn-neutral" id="btn-test">Test Connection</button>
+      </div>
+      <div class="msg" id="conn-msg"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">📊 Account Status</div>
+      <div class="form-row"><label>Key Name</label><input type="text" id="key-name" readonly value="—"></div>
+      <div class="form-row"><label>Expires</label><input type="text" id="key-expires" readonly value="—"></div>
+    </div>
+  </div>
+
+  <!-- PROFILE TAB -->
+  <div class="tab" id="tab-profile">
+    <h2>My Profile</h2>
+    <p class="subtitle">Stored locally on your device — never sent to the server</p>
+    <div class="card">
+      <div class="card-title">👤 Personal Information</div>
+      <div class="profile-grid">
+        <div class="form-row"><label>Full Name</label><input type="text" id="p-full_name" placeholder="Ajay Kumar"></div>
+        <div class="form-row"><label>First Name</label><input type="text" id="p-first_name" placeholder="Ajay"></div>
+        <div class="form-row"><label>Last Name</label><input type="text" id="p-last_name" placeholder="Kumar"></div>
+        <div class="form-row"><label>Date of Birth</label><input type="text" id="p-dob" placeholder="DD/MM/YYYY"></div>
+        <div class="form-row"><label>Gender</label>
+          <select id="p-gender"><option value="">Select…</option><option>Male</option><option>Female</option><option>Other</option></select>
+        </div>
+        <div class="form-row"><label>Father's Name</label><input type="text" id="p-father_name" placeholder="Ram Kumar"></div>
+        <div class="form-row"><label>Mother's Name</label><input type="text" id="p-mother_name" placeholder="Sita Devi"></div>
+        <div class="form-row"><label>Email</label><input type="text" id="p-email" placeholder="you@example.com"></div>
+        <div class="form-row"><label>Phone / Mobile</label><input type="text" id="p-phone" placeholder="98XXXXXXXX"></div>
+        <div class="form-row"><label>Aadhar Number</label><input type="text" id="p-aadhar" placeholder="XXXX XXXX XXXX"></div>
+        <div class="form-row"><label>PAN Number</label><input type="text" id="p-pan" placeholder="ABCDE1234F"></div>
+        <div class="form-row"><label>DL Number</label><input type="text" id="p-dl_number" placeholder="DL-XXXXX"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">📍 Address</div>
+      <div class="form-row"><label>Full Address</label><textarea id="p-address" rows="2" placeholder="Street / Area"></textarea></div>
+      <div class="profile-grid">
+        <div class="form-row"><label>City</label><input type="text" id="p-city" placeholder="Delhi"></div>
+        <div class="form-row"><label>State</label><input type="text" id="p-state" placeholder="Delhi"></div>
+        <div class="form-row"><label>Pincode</label><input type="text" id="p-pincode" placeholder="110001"></div>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn2 btn-save" id="btn-save-profile">Save Profile</button>
+    </div>
+    <div class="msg" id="profile-msg"></div>
+  </div>
+
+  <!-- SERVICES TAB -->
+  <div class="tab" id="tab-services">
+    <h2>Services</h2>
+    <p class="subtitle">Enable or disable each automation service</p>
+    <div class="card">
+      <div class="card-title">⚙️ Service Toggles</div>
+      <div class="toggle-row2">
+        <div class="tl"><strong>🔒 Captcha Solver</strong><span>Auto-solve text captchas on any website</span></div>
+        <label class="switch2"><input type="checkbox" id="tog-captcha"><span class="sl2"></span></label>
+      </div>
+      <div class="toggle-row2">
+        <div class="tl"><strong>📝 Exam Solver</strong><span>Sarathi STALL MCQ auto-solve</span></div>
+        <label class="switch2"><input type="checkbox" id="tog-exam"><span class="sl2"></span></label>
+      </div>
+      <div class="toggle-row2">
+        <div class="tl"><strong>✍️ Autofill</strong><span>Smart form field autofill</span></div>
+        <label class="switch2"><input type="checkbox" id="tog-autofill"><span class="sl2"></span></label>
+      </div>
+    </div>
+  </div>
+
+  <!-- EXAM CONFIG TAB -->
+  <div class="tab" id="tab-exam">
+    <h2>Exam Configuration</h2>
+    <p class="subtitle">Settings for the Sarathi MCQ exam solver</p>
+    <div class="card">
+      <div class="card-title">🎯 Exam Rules</div>
+      <div class="form-row-2">
+        <div class="form-row"><label>Total Questions</label><input type="text" value="15" readonly id="e-total"></div>
+        <div class="form-row"><label>Pass Threshold</label><input type="text" value="9 correct" readonly></div>
+      </div>
+      <div class="toggle-row2">
+        <div class="tl"><strong>Auto-Refresh Watchdog</strong><span>Reload page if question gets stuck (36s)</span></div>
+        <label class="switch2"><input type="checkbox" id="tog-refresh" checked><span class="sl2"></span></label>
+      </div>
+      <div class="toggle-row2">
+        <div class="tl"><strong>Screenshot on Pass</strong><span>Auto-download result page as PNG</span></div>
+        <label class="switch2"><input type="checkbox" id="tog-screenshot" checked><span class="sl2"></span></label>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn2 btn-save" id="btn-save-exam">Save</button>
+    </div>
+    <div class="msg" id="exam-msg"></div>
+  </div>
+
+  <!-- ABOUT TAB -->
+  <div class="tab" id="tab-about">
+    <h2>About</h2>
+    <p class="subtitle">Unified Platform — All-in-one automation assistant</p>
+    <div class="card">
+      <div class="card-title">ℹ️ Version</div>
+      <div class="form-row"><label>Extension Version</label><input readonly value="2.0.0"></div>
+      <div class="form-row"><label>Services</label><input readonly value="Text Captcha · MCQ Exam · Autofill"></div>
+    </div>
+  </div>
+
+</main>
+
+<script src="options.js"></script>
+</body>
+</html>

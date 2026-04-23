@@ -1,0 +1,343 @@
+LABEL_MAP = {
+    # Mandatory / Regulatory Signs
+    0: {
+        "label": "sign_stop",
+        "hindi": "रुकना है / ठहरिए"
+    },
+    1: {
+        "label": "sign_give_way",
+        "hindi": "रास्ता दीजिए"
+    },
+    2: {
+        "label": "sign_no_entry",
+        "hindi": "प्रवेश निषेध"
+    },
+    3: {
+        "label": "sign_one_way",
+        "hindi": "एक तरफा रास्ता"
+    },
+    4: {
+        "label": "sign_vehicles_prohibited_in_both_directions",
+        "hindi": "वाहनों का आना व जाना दोनों मना है"
+    },
+    5: {
+        "label": "sign_no_entry_for_motor_vehicles",
+        "hindi": "कार व मोटर साईकल के लिए प्रवेश निषेध"
+    },
+    6: {
+        "label": "sign_no_entry_for_trucks",
+        "hindi": "ट्रक का प्रवेश निषेध है"
+    },
+    7: {
+        "label": "sign_bullock_cart_prohibited",
+        "hindi": "बैलगाडी निषेध है"
+    },
+    8: {
+        "label": "sign_animal_drawn_vehicles_prohibited",
+        "hindi": "जानवर गाड़ी निषेध है"
+    },
+    9: {
+        "label": "sign_handcart_prohibited",
+        "hindi": "हाथ गाड़ी का प्रवेश वर्जित है"
+    },
+    10: {
+        "label": "sign_pedestrians_prohibited",
+        "hindi": "पदयात्री निषेध / पैदल चलना मना है"
+    },
+    11: {
+        "label": "sign_right_turn_prohibited",
+        "hindi": "दायें मुडना निषेध"
+    },
+    12: {
+        "label": "sign_left_turn_prohibited",
+        "hindi": "बायें मुडना वर्जित है"
+    },
+    13: {
+        "label": "sign_no_u_turn",
+        "hindi": "यू-मोड निषेध / वापस मुडना मना है"
+    },
+    14: {
+        "label": "sign_overtaking_prohibited",
+        "hindi": "ओवरटेकिंग निषेध"
+    },
+    15: {
+        "label": "sign_horn_prohibited",
+        "hindi": "हार्न बजाना निषेध"
+    },
+    16: {
+        "label": "sign_no_parking",
+        "hindi": "वाहन खडा करना मना है / नो पार्किंग है"
+    },
+    17: {
+        "label": "sign_no_stopping_or_standing",
+        "hindi": "ठहरना व खड़ा होना मना"
+    },
+    18: {
+        "label": "sign_speed_limit",
+        "hindi": "50 कि.मी / घण्टा की गति सीमा"
+    },
+    19: {
+        "label": "sign_width_limit",
+        "hindi": "चौडाई सीमा (2 मीटर)"
+    },
+    20: {
+        "label": "sign_height_limit",
+        "hindi": "ऊचाई सीमा (3.5 मीटर)"
+    },
+    21: {
+        "label": "sign_length_limit",
+        "hindi": "वाहन की लम्‌बाई सीमा"
+    },
+    22: {
+        "label": "sign_load_limit",
+        "hindi": "भार की सीमा"
+    },
+    23: {
+        "label": "sign_axle_weight_limit",
+        "hindi": "एक्सल की भार सीमा"
+    },
+    24: {
+        "label": "sign_restriction_ends",
+        "hindi": "निषेध समाप्त / प्रतिबन्ध समाप्त"
+    },
+    25: {
+        "label": "sign_compulsory_turn_left",
+        "hindi": "बायें मुडना जरूरी है / अनिवार्य है"
+    },
+    26: {
+        "label": "sign_compulsory_turn_right",
+        "hindi": "दायें मुडना बाध्यकारी है / अनिवार्य है"
+    },
+    27: {
+        "label": "sign_straight_ahead_only",
+        "hindi": "सीधे ही जाना है"
+    },
+    28: {
+        "label": "sign_compulsory_ahead_or_turn_right",
+        "hindi": "आगे जाना या दायें मुडना बाहयकारी है"
+    },
+    29: {
+        "label": "sign_compulsory_ahead_or_turn_left",
+        "hindi": "आगे बढना या बायें मुडना बाध्यकारी है"
+    },
+    30: {
+        "label": "sign_keep_left",
+        "hindi": "बांयी ओर चलना बाहयकारी है"
+    },
+    31: {
+        "label": "sign_compulsory_sound_horn",
+        "hindi": "हार्न बजाना बाहयाकरी / आवश्यक रूप से"
+    },
+    32: {
+        "label": "sign_cycles_only",
+        "hindi": "यह रास्‌ता साईकिल के लिए ही है"
+    },
+
+    # Cautionary / Warning Signs
+    33: {
+        "label": "sign_right_hairpin_bend",
+        "hindi": "दायां चिमटा मोड़ है"
+    },
+    34: {
+        "label": "sign_left_hairpin_bend",
+        "hindi": "बायां चिमटा मोड़ है"
+    },
+    35: {
+        "label": "sign_right_reverse_bend",
+        "hindi": "दांयी ओर उल्टा घुमाव है"
+    },
+    36: {
+        "label": "sign_left_reverse_bend",
+        "hindi": "बांयी ओर उल्टा घुमाव है"
+    },
+    37: {
+        "label": "sign_crossroad",
+        "hindi": "आगे चौराहा है / क्रास रोड"
+    },
+    38: {
+        "label": "sign_side_road_left",
+        "hindi": "बाजू का बायां मोड़ / बायीं ओर सडक है"
+    },
+    39: {
+        "label": "sign_side_road_right",
+        "hindi": "बाजू का दायां मोड़ / दायी तरफ रास्ता"
+    },
+    40: {
+        "label": "sign_y_intersection",
+        "hindi": "वाई इण्टरसैक्शन / वाई क्रॉसिंग है"
+    },
+    41: {
+        "label": "sign_y_intersection_left",
+        "hindi": "बांयी ओर वाई इण्टरसैक्श्न है"
+    },
+    42: {
+        "label": "sign_t_intersection",
+        "hindi": "आगे सड़क पर तिराहा है"
+    },
+    43: {
+        "label": "sign_major_road_ahead",
+        "hindi": "आगे मुख्य सडक है"
+    },
+    44: {
+        "label": "sign_roundabout",
+        "hindi": "गोल घूमिये / गोल चक्र है"
+    },
+    45: {
+        "label": "sign_dangerous_dip",
+        "hindi": "खतरनाक गढ़डा है / खतरनाक खाई है"
+    },
+    46: {
+        "label": "sign_rough_road",
+        "hindi": "ऊंची नीची सडक / उबड़-खाबड़ रास्ता"
+    },
+    47: {
+        "label": "sign_narrow_road_ahead",
+        "hindi": "आगे रास्ता तंग है / संकड़ी सड़क"
+    },
+    48: {
+        "label": "sign_road_widens_ahead",
+        "hindi": "आगे सड़क चौड़ी है"
+    },
+    49: {
+        "label": "sign_narrow_bridge",
+        "hindi": "आगे सकरा पल है / संकडी पुलिया"
+    },
+    50: {
+        "label": "sign_slippery_road",
+        "hindi": "रास्ता फिसलन भरा है"
+    },
+    51: {
+        "label": "sign_loose_gravel",
+        "hindi": "बजरी पड़ी हुई है"
+    },
+    52: {
+        "label": "sign_falling_rocks",
+        "hindi": "चटटानें गिर रही है / पत्थर गिरते हैं"
+    },
+    53: {
+        "label": "sign_pedestrian_crossing",
+        "hindi": "पदयात्री पारपथ / पैदल-पथ-पार"
+    },
+    54: {
+        "label": "sign_school_ahead",
+        "hindi": "आगे स्कूल है / आगे विद्यालय है"
+    },
+    55: {
+        "label": "sign_men_at_work",
+        "hindi": "सड़क पर आदमी काम कर रहे है"
+    },
+    56: {
+        "label": "sign_cattle",
+        "hindi": "रास्ते पर पशु होने की आशंका / मवेशी"
+    },
+    57: {
+        "label": "sign_ferry",
+        "hindi": "नौका / आगे नांव मार्ग है"
+    },
+    58: {
+        "label": "sign_steep_ascent",
+        "hindi": "तीव्र चढाई / खड़ी चढ़ाई"
+    },
+    59: {
+        "label": "sign_steep_descent",
+        "hindi": "तीव्र ढलान / गहरा उतार"
+    },
+    60: {
+        "label": "sign_gap_in_median",
+        "hindi": "बीच में अंतराल है"
+    },
+    61: {
+        "label": "sign_barrier_ahead",
+        "hindi": "आगे अवरोध है / बैरियर है"
+    },
+    62: {
+        "label": "sign_cycle_crossing",
+        "hindi": "साइकिल क्रासिंग"
+    },
+    63: {
+        "label": "sign_unguarded_level_crossing",
+        "hindi": "सुरक्षाप्रहरी रहित लैवल क्रासिंग"
+    },
+    64: {
+        "label": "sign_unguarded_level_crossing_50_100m",
+        "hindi": "बिना फाटक वाला रेल्वे क्रॉसिंग 50-100 मीटर"
+    },
+    65: {
+        "label": "sign_guarded_level_crossing",
+        "hindi": "गार्ड युक्त (सुरक्षाप्रहरी वाला) लेबल क्रासिंग"
+    },
+    66: {
+        "label": "sign_guarded_level_crossing_100m",
+        "hindi": "फाटक वाला रेल्वे क्रॉसिंग 100 मीटर"
+    },
+    67: {
+        "label": "sign_guarded_level_crossing_200m",
+        "hindi": "फाटक वाला रेल्वे क्रॉसिंग 200 मीटर"
+    },
+
+    # Informatory Signs
+    68: {
+        "label": "sign_parking_right",
+        "hindi": "दायीं ओर वाहन खडा करना स्वीकृत है"
+    },
+    69: {
+        "label": "sign_parking_both_sides",
+        "hindi": "दोनों ओर पार्किंग कर सकते है"
+    },
+    70: {
+        "label": "sign_parking_this_side",
+        "hindi": "इस ओर पार्किंग कर सकते हैं"
+    },
+    71: {
+        "label": "sign_scooter_parking",
+        "hindi": "स्कूटर व मोटरसाईकल का पार्किंग स्थल"
+    },
+    72: {
+        "label": "sign_taxi_parking",
+        "hindi": "टैक्सी का पार्किंग स्थल"
+    },
+    73: {
+        "label": "sign_auto_rickshaw_parking",
+        "hindi": "आटोरिक्शा का पार्किंग स्थल"
+    },
+    74: {
+        "label": "sign_hospital",
+        "hindi": "आगे अस्पताल है"
+    },
+    75: {
+        "label": "sign_first_aid_post",
+        "hindi": "प्राथमिक चिकित्सा चौकी / प्राथमिक उपचार केन्द्र"
+    },
+    76: {
+        "label": "sign_eating_place",
+        "hindi": "खान पान की सुविधा है"
+    },
+    77: {
+        "label": "sign_refreshment_stall",
+        "hindi": "अल्‌पाहार मिलता है"
+    },
+    78: {
+        "label": "sign_resting_place",
+        "hindi": "आराम करने की जगह / आराम स्थल"
+    },
+    79: {
+        "label": "sign_no_through_road",
+        "hindi": "रास्ता नहीं है"
+    },
+    80: {
+        "label": "sign_no_through_side_road",
+        "hindi": "पाशर्व की सडक आर पार नहीं है"
+    },
+    81: {
+        "label": "sign_bus_stand",
+        "hindi": "बस स्टैण्ड है"
+    },
+    82: {
+        "label": "sign_petrol_pump",
+        "hindi": "पेट्रोल पम्प"
+    },
+    83: {
+        "label": "sign_telephone",
+        "hindi": "टेलीफोन सुविधा है"
+    }
+}
