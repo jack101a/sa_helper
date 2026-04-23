@@ -44,12 +44,13 @@ _DEFAULT_CONFIG: dict[str, Any] = {
     },
     "storage": {"sqlite_path": "backend/logs/app.db"},
     "retrain": {"worker_enabled": False},
-    # ── NEW: Exam service config ───────────────────────────────────
+    # ── NEW: Exam service config ───────────────────────────────────────────────
     "exam": {
         "litellm_endpoint": "",       # e.g. https://llm.example.com/v1/chat/completions
         "litellm_api_key": "",
         "litellm_model": "gemma-4-31b-it_gemini",
         "ocr_lang": "eng+hin",        # pytesseract language
+        "tessdata_path": "backend/tessdata",  # path to .traineddata files
         "question_data_path": "backend/app/data/questions.json",
         "sign_hashes_path": "backend/app/data/sign_hashes.json",
         "sign_labels_path": "backend/app/data/sign_label.json",

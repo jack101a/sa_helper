@@ -1,4 +1,9 @@
-"""Exam solver service — Hash → OCR → LLM pipeline (server-side)."""
+"""Exam solver service — Hash → OCR → LLM pipeline (server-side).
+
+All heavy processing is server-side. The extension only sends base64 images.
+Runtime config (LiteLLM endpoint/key/model, OCR lang) is read from the
+platform_settings DB table — configurable from the admin dashboard.
+"""
 
 from __future__ import annotations
 
@@ -6,13 +11,17 @@ import base64
 import hashlib
 import json
 import logging
+import os
 import time
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import httpx
 from PIL import Image
+
+if TYPE_CHECKING:
+    from app.core.database import Database
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +35,11 @@ except ImportError:
 
 
 def _phash(img: Image.Image, size: int = 32) -> str:
-    """Perceptual hash (DCT-style): resize → grayscale → flatten → above-mean."""
+    """Perceptual hash: resize → grayscale → flatten → above-mean bits."""
     gray = img.convert("L").resize((size, size), Image.LANCZOS)
     pixels = list(gray.getdata())
     avg = sum(pixels) / len(pixels)
     bits = "".join("1" if p >= avg else "0" for p in pixels)
-    # Pack bits into hex string
     n = int(bits, 2)
     return hex(n)[2:].zfill(size * size // 4)
 
@@ -54,6 +62,11 @@ def _hamming(a: str, b: str) -> int:
     return bin(diff).count("1")
 
 
+def _resolve_project_root() -> Path:
+    """Return the project root (3 levels up from this file)."""
+    return Path(__file__).resolve().parents[3]
+
+
 class ExamService:
     """
     Three-layer exam question solver:
@@ -61,53 +74,66 @@ class ExamService:
       2. Tesseract OCR → text match against question bank
       3. LiteLLM multimodal fallback
 
-    All heavy processing is server-side.
-    The extension only sends base64 images and receives an option number.
+    Runtime config (endpoint, key, model, OCR lang) is read from the
+    platform_settings DB table on every solve call — no restart needed.
     """
 
     HASH_THRESHOLD = 15  # bits — below this is a confident sign match
 
-    def __init__(self, settings_exam: Any, data_dir: Path) -> None:
-        self._cfg = settings_exam
+    def __init__(self, db: "Database", data_dir: Path) -> None:
+        self._db       = db
         self._data_dir = data_dir
+        self._http     = httpx.AsyncClient(timeout=30.0)
 
-        # Load question bank
-        q_path = Path(settings_exam.question_data_path)
+        # Load static data files (these don't change at runtime)
+        q_path = data_dir / "questions.json"
         self._questions: list[dict] = []
         if q_path.exists():
             with q_path.open(encoding="utf-8") as f:
                 self._questions = json.load(f)
             logger.info("exam_db_loaded", extra={"context": {"count": len(self._questions)}})
 
-        # Load sign hashes
-        sh_path = Path(settings_exam.sign_hashes_path)
+        sh_path = data_dir / "sign_hashes.json"
         self._sign_hashes: dict[str, str] = {}  # hash_hex → label
         if sh_path.exists():
             with sh_path.open(encoding="utf-8") as f:
                 raw = json.load(f)
-            # Support both {label: hash} and {hash: label} formats
             if raw:
                 first_val = next(iter(raw.values()))
-                if len(first_val) > 20:
-                    # Values are hashes → invert
-                    self._sign_hashes = {v: k for k, v in raw.items()}
-                else:
-                    self._sign_hashes = raw
+                self._sign_hashes = {v: k for k, v in raw.items()} if len(first_val) > 20 else raw
             logger.info("sign_hashes_loaded", extra={"context": {"count": len(self._sign_hashes)}})
 
-        # Load sign labels for option matching
-        sl_path = Path(settings_exam.sign_labels_path)
-        self._sign_labels: dict[str, str] = {}  # label → description
+        sl_path = data_dir / "sign_label.json"
+        self._sign_labels: dict[str, str] = {}
         if sl_path.exists():
             with sl_path.open(encoding="utf-8") as f:
                 self._sign_labels = json.load(f)
 
-        self._http = httpx.AsyncClient(timeout=30.0)
+    # ── Runtime settings (from admin dashboard DB) ────────────────────────────
 
-    # ── Layer 1: Perceptual Hash ─────────────────────────────────────────────
+    def _litellm_endpoint(self) -> str:
+        return self._db.get_setting("exam.litellm_endpoint", "")
+
+    def _litellm_api_key(self) -> str:
+        return self._db.get_setting("exam.litellm_api_key", "")
+
+    def _litellm_model(self) -> str:
+        return self._db.get_setting("exam.litellm_model", "gemma-4-31b-it_gemini")
+
+    def _ocr_lang(self) -> str:
+        return self._db.get_setting("exam.ocr_lang", "eng+hin")
+
+    def _tessdata_dir(self) -> str | None:
+        """Return absolute path to tessdata dir if it exists, else None."""
+        raw = self._db.get_setting("exam.tessdata_path", "backend/tessdata")
+        if not raw:
+            return None
+        p = (_resolve_project_root() / raw).resolve()
+        return str(p) if p.exists() else None
+
+    # ── Layer 1: Perceptual Hash ──────────────────────────────────────────────
 
     def _match_sign_hash(self, img: Image.Image) -> str | None:
-        """Return sign label if image hash is close to a known sign."""
         img_hash = _phash(img)
         best_dist = self.HASH_THRESHOLD + 1
         best_label: str | None = None
@@ -121,22 +147,27 @@ class ExamService:
                 continue
         return best_label if best_dist <= self.HASH_THRESHOLD else None
 
-    # ── Layer 2: OCR → DB Lookup ─────────────────────────────────────────────
+    # ── Layer 2: OCR → DB Lookup ──────────────────────────────────────────────
 
     def _ocr_text(self, img: Image.Image) -> str:
-        """Run Tesseract on a PIL image and return stripped text."""
         if not _TESSERACT_AVAILABLE:
             return ""
         try:
-            lang = self._cfg.ocr_lang or "eng"
-            text = pytesseract.image_to_string(img, lang=lang, config="--psm 6")
+            lang      = self._ocr_lang()
+            tess_dir  = self._tessdata_dir()
+            env_copy  = {}
+            if tess_dir:
+                env_copy["TESSDATA_PREFIX"] = tess_dir
+            text = pytesseract.image_to_string(
+                img, lang=lang, config="--psm 6",
+                **({"pytesseract_config": ""} if not env_copy else {}),
+            )
             return text.strip()
         except Exception as e:
             logger.warning("ocr_failed", extra={"context": {"error": str(e)}})
             return ""
 
     def _db_lookup(self, question_text: str) -> dict | None:
-        """Fuzzy keyword match against question bank."""
         if not question_text or not self._questions:
             return None
         q_lower = question_text.lower()
@@ -146,7 +177,6 @@ class ExamService:
             entry_q = str(entry.get("question", "")).lower()
             if not entry_q:
                 continue
-            # Count overlapping words
             words = set(q_lower.split())
             entry_words = set(entry_q.split())
             score = len(words & entry_words)
@@ -156,7 +186,6 @@ class ExamService:
         return best
 
     def _sign_to_option(self, sign_label: str, option_images: list[str]) -> int | None:
-        """Given a sign label, OCR each option image and find which one matches."""
         description = self._sign_labels.get(sign_label, "").lower()
         if not description:
             return None
@@ -166,7 +195,6 @@ class ExamService:
                 text = self._ocr_text(img).lower()
                 if not text:
                     continue
-                # Simple overlap check
                 words = set(description.split())
                 opt_words = set(text.split())
                 if len(words & opt_words) >= 2:
@@ -178,12 +206,10 @@ class ExamService:
     # ── Layer 3: LLM Fallback ─────────────────────────────────────────────────
 
     async def _llm_solve(self, question_b64: str, option_b64s: list[str]) -> int | None:
-        """Send question + options to LiteLLM multimodal endpoint."""
-        endpoint = self._cfg.litellm_endpoint
+        endpoint = self._litellm_endpoint()
         if not endpoint:
             return None
         try:
-            # Build content blocks
             content = [
                 {"type": "text", "text": (
                     "You are an expert road safety exam assistant. "
@@ -199,18 +225,17 @@ class ExamService:
             resp = await self._http.post(
                 endpoint,
                 headers={
-                    "Authorization": f"Bearer {self._cfg.litellm_api_key}",
+                    "Authorization": f"Bearer {self._litellm_api_key()}",
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": self._cfg.litellm_model,
+                    "model": self._litellm_model(),
                     "messages": [{"role": "user", "content": content}],
                     "max_tokens": 5,
                 },
             )
             resp.raise_for_status()
             answer = resp.json()["choices"][0]["message"]["content"].strip()
-            # Extract first digit
             digit = next((c for c in answer if c in "1234"), None)
             return int(digit) if digit else None
         except Exception as e:
@@ -243,12 +268,7 @@ class ExamService:
             if opt_num:
                 ms = int((time.perf_counter() - started) * 1000)
                 logger.info("exam_solved_hash", extra={"context": {"sign": sign_label, "option": opt_num}})
-                return {
-                    "option_number": opt_num,
-                    "answer_text": self._sign_labels.get(sign_label, sign_label),
-                    "method": "hash",
-                    "processing_ms": ms,
-                }
+                return {"option_number": opt_num, "answer_text": self._sign_labels.get(sign_label, sign_label), "method": "hash", "processing_ms": ms}
 
         # Layer 2 — OCR + DB
         question_text = self._ocr_text(q_img)
@@ -258,24 +278,14 @@ class ExamService:
             opt_num = int(match["correct_option"])
             answer = match.get(f"option_{opt_num}", f"Option {opt_num}")
             logger.info("exam_solved_ocr_db", extra={"context": {"option": opt_num, "ms": ms}})
-            return {
-                "option_number": opt_num,
-                "answer_text": answer,
-                "method": "ocr_db",
-                "processing_ms": ms,
-            }
+            return {"option_number": opt_num, "answer_text": answer, "method": "ocr_db", "processing_ms": ms}
 
         # Layer 3 — LLM
         opt_num = await self._llm_solve(question_b64, option_b64s)
         ms = int((time.perf_counter() - started) * 1000)
         if opt_num:
             logger.info("exam_solved_llm", extra={"context": {"option": opt_num, "ms": ms}})
-            return {
-                "option_number": opt_num,
-                "answer_text": f"Option {opt_num} (AI)",
-                "method": "llm",
-                "processing_ms": ms,
-            }
+            return {"option_number": opt_num, "answer_text": f"Option {opt_num} (AI)", "method": "llm", "processing_ms": ms}
 
         ms = int((time.perf_counter() - started) * 1000)
         logger.warning("exam_no_match", extra={"context": {"question_text": question_text[:80]}})
