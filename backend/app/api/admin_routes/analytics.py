@@ -3,6 +3,7 @@ import base64
 import os
 from pathlib import Path
 from datetime import datetime
+from typing import Any
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -148,7 +149,7 @@ async def admin_dashboard(request: Request):
     })
 
 @router.get("/api/exam/stats")
-async def get_exam_stats(request: Request) -> JSONResponse:
+async def get_exam_stats(request: Request) -> Any:
     """Get high-level MCQ/exam statistics."""
     denied = _admin_guard(request)
     if denied:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json as _json
+from typing import Any
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import JSONResponse
 from .utils import _admin_guard
@@ -7,7 +8,7 @@ from .utils import _admin_guard
 router = APIRouter(tags=["admin-autofill"])
 
 @router.get("/api/autofill/proposals")
-async def get_autofill_proposals(request: Request) -> JSONResponse:
+async def get_autofill_proposals(request: Request) -> Any:
     """List proposals for admin review."""
     denied = _admin_guard(request)
     if denied:
@@ -20,7 +21,7 @@ async def get_autofill_proposals(request: Request) -> JSONResponse:
     return JSONResponse(proposals)
 
 @router.post("/api/autofill/proposals/{proposal_id}/approve")
-async def approve_autofill_proposal(request: Request, proposal_id: int) -> JSONResponse:
+async def approve_autofill_proposal(request: Request, proposal_id: int) -> Any:
     """Approve a proposal and generate a server_rule_id."""
     denied = _admin_guard(request)
     if denied:
@@ -33,7 +34,7 @@ async def approve_autofill_proposal(request: Request, proposal_id: int) -> JSONR
         raise HTTPException(400, str(e))
 
 @router.post("/api/autofill/proposals/{proposal_id}/reject")
-async def reject_autofill_proposal(request: Request, proposal_id: int) -> JSONResponse:
+async def reject_autofill_proposal(request: Request, proposal_id: int) -> Any:
     """Reject a proposal."""
     denied = _admin_guard(request)
     if denied:
@@ -43,7 +44,7 @@ async def reject_autofill_proposal(request: Request, proposal_id: int) -> JSONRe
     return JSONResponse({"ok": True})
 
 @router.post("/api/autofill/proposals/bulk-approve")
-async def bulk_approve_autofill_proposals(request: Request) -> JSONResponse:
+async def bulk_approve_autofill_proposals(request: Request) -> Any:
     """Approve multiple proposals."""
     denied = _admin_guard(request)
     if denied:
@@ -64,7 +65,7 @@ async def bulk_approve_autofill_proposals(request: Request) -> JSONResponse:
         raise HTTPException(400, str(e))
 
 @router.post("/api/autofill/proposals/bulk-reject")
-async def bulk_reject_autofill_proposals(request: Request) -> JSONResponse:
+async def bulk_reject_autofill_proposals(request: Request) -> Any:
     """Reject multiple proposals."""
     denied = _admin_guard(request)
     if denied:
@@ -81,7 +82,7 @@ async def bulk_reject_autofill_proposals(request: Request) -> JSONResponse:
 
 
 @router.patch("/api/autofill/proposals/{proposal_id}")
-async def edit_autofill_proposal(request: Request, proposal_id: int) -> JSONResponse:
+async def edit_autofill_proposal(request: Request, proposal_id: int) -> Any:
     """Edit an autofill proposal's rule_json and/or status.
 
     Body (JSON): { "rule_json": "...", "status": "pending|approved|rejected" }
@@ -120,7 +121,7 @@ async def edit_autofill_proposal(request: Request, proposal_id: int) -> JSONResp
 
 
 @router.delete("/api/autofill/proposals/{proposal_id}")
-async def delete_autofill_proposal(request: Request, proposal_id: int) -> JSONResponse:
+async def delete_autofill_proposal(request: Request, proposal_id: int) -> Any:
     """Permanently delete an autofill proposal."""
     denied = _admin_guard(request)
     if denied:
@@ -133,7 +134,7 @@ async def delete_autofill_proposal(request: Request, proposal_id: int) -> JSONRe
 
 
 @router.get("/api/autofill/export")
-async def export_autofill_rules(request: Request) -> JSONResponse:
+async def export_autofill_rules(request: Request) -> Any:
     """Export all approved autofill rules as JSON."""
     denied = _admin_guard(request)
     if denied:
@@ -144,7 +145,7 @@ async def export_autofill_rules(request: Request) -> JSONResponse:
 
 
 @router.post("/api/autofill/import")
-async def import_autofill_rules(request: Request) -> JSONResponse:
+async def import_autofill_rules(request: Request) -> Any:
     """Import autofill rules from a JSON file."""
     denied = _admin_guard(request)
     if denied:

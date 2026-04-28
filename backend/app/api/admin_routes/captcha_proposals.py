@@ -5,6 +5,7 @@ The approve flow mirrors the old tata_captcha-test project:
   - If no model_id is sent, returns 400 with list of available models
 """
 from __future__ import annotations
+from typing import Any
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import JSONResponse
 from .utils import _admin_guard
@@ -45,7 +46,7 @@ def _approve_one(container, proposal_id: int, model_id: int) -> None:
 
 
 @router.get("/api/captcha/proposals")
-async def get_captcha_proposals(request: Request) -> JSONResponse:
+async def get_captcha_proposals(request: Request) -> Any:
     """List field-mapping (captcha route) proposals.
 
     ?status=pending (default) | all | approved | rejected
@@ -73,7 +74,7 @@ async def get_captcha_proposals(request: Request) -> JSONResponse:
 
 
 @router.post("/api/captcha/proposals/{proposal_id}/approve")
-async def approve_captcha_proposal(request: Request, proposal_id: int) -> JSONResponse:
+async def approve_captcha_proposal(request: Request, proposal_id: int) -> Any:
     """Approve a captcha route proposal.
 
     Body (JSON): { "model_id": <int> }
@@ -115,7 +116,7 @@ async def approve_captcha_proposal(request: Request, proposal_id: int) -> JSONRe
 
 
 @router.post("/api/captcha/proposals/{proposal_id}/reject")
-async def reject_captcha_proposal(request: Request, proposal_id: int) -> JSONResponse:
+async def reject_captcha_proposal(request: Request, proposal_id: int) -> Any:
     """Reject a captcha route proposal."""
     denied = _admin_guard(request)
     if denied:
@@ -133,7 +134,7 @@ async def reject_captcha_proposal(request: Request, proposal_id: int) -> JSONRes
 
 
 @router.post("/api/captcha/proposals/bulk-approve")
-async def bulk_approve_captcha_proposals(request: Request) -> JSONResponse:
+async def bulk_approve_captcha_proposals(request: Request) -> Any:
     """Approve multiple proposals with an explicit model.
 
     Body: { "proposal_ids": [1, 2, 3], "model_id": <int> }
@@ -179,7 +180,7 @@ async def bulk_approve_captcha_proposals(request: Request) -> JSONResponse:
 
 
 @router.post("/api/captcha/proposals/bulk-reject")
-async def bulk_reject_captcha_proposals(request: Request) -> JSONResponse:
+async def bulk_reject_captcha_proposals(request: Request) -> Any:
     """Reject multiple captcha route proposals.
 
     Body: { "proposal_ids": [1, 2, 3] }
@@ -199,7 +200,7 @@ async def bulk_reject_captcha_proposals(request: Request) -> JSONResponse:
 
 
 @router.patch("/api/captcha/proposals/{proposal_id}")
-async def edit_captcha_proposal(request: Request, proposal_id: int) -> JSONResponse:
+async def edit_captcha_proposal(request: Request, proposal_id: int) -> Any:
     """Edit editable fields of a captcha/field-mapping proposal.
 
     Body (JSON): any subset of {domain, task_type, source_selector, target_selector,
@@ -227,7 +228,7 @@ async def edit_captcha_proposal(request: Request, proposal_id: int) -> JSONRespo
 
 
 @router.delete("/api/captcha/proposals/{proposal_id}")
-async def delete_captcha_proposal(request: Request, proposal_id: int) -> JSONResponse:
+async def delete_captcha_proposal(request: Request, proposal_id: int) -> Any:
     """Permanently delete a captcha/field-mapping proposal."""
     denied = _admin_guard(request)
     if denied:

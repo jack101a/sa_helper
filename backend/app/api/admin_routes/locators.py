@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Any
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import RedirectResponse
 from .utils import _admin_guard
@@ -25,7 +26,7 @@ async def reject_locator(request: Request, locator_id: int = Form(...)):
 
 
 @router.get("/api/captcha/export")
-async def export_captcha_config(request: Request) -> JSONResponse:
+async def export_captcha_config(request: Request) -> Any:
     """Export all field mappings and approved locators as JSON."""
     denied = _admin_guard(request)
     if denied:
@@ -38,7 +39,7 @@ async def export_captcha_config(request: Request) -> JSONResponse:
 
 
 @router.post("/api/captcha/import")
-async def import_captcha_config(request: Request) -> JSONResponse:
+async def import_captcha_config(request: Request) -> Any:
     """Import field mappings and locators from a JSON file."""
     denied = _admin_guard(request)
     if denied:
