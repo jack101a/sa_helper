@@ -288,37 +288,37 @@
 
                 // --- STEP 6: Language & Finish ---
                 if (state.step === 6 && (url.includes('ExamDisclaimer') || url.includes('examSelection'))) {
-                    const langSelect = document.getElementById("language");
-                    if (langSelect && langSelect.value !== "HINDI") {
-                        langSelect.value = "HINDI";
-                        langSelect.dispatchEvent(new Event("change", { bubbles: true }));
-                        return;
-                    }
+                    if (this._finishing) return;
 
-                    const d1 = document.querySelector('input[name="disclaimer1"]');
-                    const d2 = document.querySelector('input[name="disclaimer2"]');
                     const btn = document.getElementById('subm');
-
-                    if (btn && !this._finishing) {
+                    if (btn) {
                         this._finishing = true;
-                        [d1, d2].forEach(el => {
-                            if (el) {
-                                el.checked = true;
-                                el.dispatchEvent(new Event('click', { bubbles: true }));
-                            }
-                        });
-
                         this.setStartNowStatus('Finishing...', 'ok');
-                        setTimeout(async () => {
-                            await this.runConsoleAction(`
-                                if (typeof validateExamSelection === 'function') validateExamSelection();
-                                var b = document.getElementById('subm');
-                                if (b) b.click();
-                            `);
-                            await sendMessage({ type: 'FINISH_STALL_AUTOMATION' });
-                            this._finishing = false;
-                        }, 500);
+                        await this.runConsoleAction(`
+                            const langSelect = document.getElementById("language");
+                            if (langSelect) {
+                                langSelect.value = "HINDI";
+                                langSelect.dispatchEvent(new Event("change", { bubbles: true }));
+                            }
+
+                            const d1 = document.querySelector('input[name="disclaimer1"]');
+                            const d2 = document.querySelector('input[name="disclaimer2"]');
+                            const b = document.getElementById('subm');
+
+                            [d1, d2].forEach(el => {
+                                if (el) {
+                                    el.checked = true;
+                                    el.dispatchEvent(new Event('click', { bubbles: true }));
+                                }
+                            });
+
+                            if (b) {
+                                setTimeout(() => b.click(), 500);
+                            }
+                        `);
+                        await sendMessage({ type: 'UPDATE_STALL_STEP', step: 7 });
                     }
+                    return;
                 }
 
             } catch (e) {
