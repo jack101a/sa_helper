@@ -310,6 +310,7 @@ class Database:
                     CREATE TABLE IF NOT EXISTS exam_learned (
                         id               INTEGER PRIMARY KEY AUTOINCREMENT,
                         question_hash    TEXT NOT NULL UNIQUE,
+                        question_phash   TEXT NOT NULL DEFAULT '',
                         question_text    TEXT DEFAULT '',
                         option_1         TEXT DEFAULT '',
                         option_2         TEXT DEFAULT '',
@@ -320,7 +321,10 @@ class Database:
                         seen_count       INTEGER NOT NULL DEFAULT 1,
                         first_seen       TEXT NOT NULL,
                         last_seen        TEXT NOT NULL,
-                        source           TEXT NOT NULL DEFAULT 'exam_feedback'
+                        source           TEXT NOT NULL DEFAULT 'exam_feedback',
+                        learning_mode    TEXT NOT NULL DEFAULT 'hash_based',
+                        ocr_quality      TEXT NOT NULL DEFAULT 'unverified',
+                        ocr_preview_unreliable INTEGER NOT NULL DEFAULT 1
                     );
                     """
                 )
@@ -369,11 +373,22 @@ class Database:
                 if "target_selector" not in mapping_columns:
                     conn.execute("ALTER TABLE field_mappings ADD COLUMN target_selector TEXT NOT NULL DEFAULT ''")
 
+                learned_columns = {row["name"] for row in conn.execute("PRAGMA table_info(exam_learned)")}
+                if "question_phash" not in learned_columns:
+                    conn.execute("ALTER TABLE exam_learned ADD COLUMN question_phash TEXT NOT NULL DEFAULT ''")
+                if "learning_mode" not in learned_columns:
+                    conn.execute("ALTER TABLE exam_learned ADD COLUMN learning_mode TEXT NOT NULL DEFAULT 'hash_based'")
+                if "ocr_quality" not in learned_columns:
+                    conn.execute("ALTER TABLE exam_learned ADD COLUMN ocr_quality TEXT NOT NULL DEFAULT 'unverified'")
+                if "ocr_preview_unreliable" not in learned_columns:
+                    conn.execute("ALTER TABLE exam_learned ADD COLUMN ocr_preview_unreliable INTEGER NOT NULL DEFAULT 1")
+
                 # ── Performance indexes ──────────────────────────────
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_task_status ON usage_events(task_type, status)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_key_id ON usage_events(key_id)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_field_proposals_status ON field_mapping_proposals(status)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_autofill_proposals_status ON autofill_rule_proposals(status, created_at)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_exam_learned_phash ON exam_learned(question_phash)")
 
                 conn.execute("INSERT OR IGNORE INTO access_control (key, value) VALUES ('global_access', 'true')")
                 conn.commit()

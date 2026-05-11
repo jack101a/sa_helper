@@ -32,7 +32,7 @@ _DEFAULT_CONFIG: dict[str, Any] = {
         "admin_password": "",
     },
     "rate_limit": {"requests_per_minute": 60, "burst": 10},
-    "queue": {"workers": 2, "max_pending_jobs": 500, "cache_ttl_seconds": 300},
+    "queue": {"workers": 4, "max_pending_jobs": 500, "cache_ttl_seconds": 300},
     "logging": {"level": "INFO", "debug": False, "json": True},
     "model": {
         "default": "onnx",
@@ -52,6 +52,7 @@ _DEFAULT_CONFIG: dict[str, Any] = {
         "litellm_api_key": "",
         "litellm_model": "gemma-4-31b-it_gemini",
         "ocr_lang": "eng+hin",        # pytesseract language
+        "ocr_concurrency": 2,          # max concurrent Tesseract calls per API worker
         "tessdata_path": "backend/tessdata",  # path to .traineddata files
         "question_data_path": "data/questions/questions.json",
         "sign_hashes_path": "data/hashes/sign_hashes.json",
@@ -120,7 +121,7 @@ class RateLimitConfig(BaseModel):
 
 
 class QueueConfig(BaseModel):
-    workers: int = 2
+    workers: int = 4
     max_pending_jobs: int = 500
     cache_ttl_seconds: int = 300
 
@@ -173,6 +174,7 @@ class ExamConfig(BaseModel):
     litellm_api_key: str = ""
     litellm_model: str = "gemma-4-31b-it_gemini"
     ocr_lang: str = "eng+hin"
+    ocr_concurrency: int = 2
     tessdata_path: str = "backend/tessdata"
     question_data_path: str = "data/questions/questions.json"
     sign_hashes_path: str = "data/hashes/sign_hashes.json"
@@ -273,6 +275,10 @@ def get_settings() -> Settings:
     config_dict.setdefault("exam", {})
     config_dict["exam"]["litellm_endpoint"] = os.getenv("LITELLM_ENDPOINT", config_dict["exam"].get("litellm_endpoint", ""))
     config_dict["exam"]["litellm_api_key"]  = os.getenv("LITELLM_API_KEY",  config_dict["exam"].get("litellm_api_key", ""))
+    config_dict["exam"]["ocr_concurrency"] = int(os.getenv("EXAM_OCR_CONCURRENCY", config_dict["exam"].get("ocr_concurrency", 2)))
+
+    config_dict.setdefault("queue", {})
+    config_dict["queue"]["workers"] = int(os.getenv("QUEUE_WORKERS", config_dict["queue"].get("workers", 4)))
 
     config_dict.setdefault("alerts", {})
     config_dict["alerts"]["callmebot_phone"]  = os.getenv("CALLMEBOT_PHONE",  config_dict["alerts"].get("callmebot_phone", ""))

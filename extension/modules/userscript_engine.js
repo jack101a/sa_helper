@@ -161,6 +161,17 @@
         return meta.matches.some(pattern => urlMatchesPattern(url, pattern));
     }
 
+    function scriptNeedsGMShim(scriptData) {
+        const meta = scriptData.parsedMeta || {};
+        const grants = Array.isArray(meta.grants) ? meta.grants : [];
+        const resources = Array.isArray(meta.resources) ? meta.resources : [];
+        if (resources.length > 0 || (scriptData.bundledResources || []).length > 0) return true;
+        return grants.some(grant => {
+            const clean = String(grant || '').trim();
+            return clean && clean !== 'none';
+        });
+    }
+
     function buildWrappedCode(scriptData) {
         const meta = scriptData.parsedMeta || {};
         const id = scriptData.id || scriptData.name || 'unknown';
@@ -198,6 +209,9 @@ ${scriptData.rawCode || ''}
 
     async function executeScriptData(scriptData) {
         try {
+            if (scriptNeedsGMShim(scriptData)) {
+                await injectShim();
+            }
             const response = await chrome.runtime.sendMessage({
                 type: 'EXECUTE_IN_MAIN',
                 code: buildWrappedCode(scriptData),
@@ -292,7 +306,6 @@ ${scriptData.rawCode || ''}
     }
     
     try {
-        await injectShim();
         let data = await chrome.storage.local.get(['normalized_userscripts', 'userscriptsEnabled']);
         if (data.userscriptsEnabled === false) {
             console.log('[Userscript Engine] Global userscripts toggle is disabled.');

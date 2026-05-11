@@ -15,9 +15,10 @@ if [ -f "../config/.env" ]; then
 fi
 
 mkdir -p logs
-$PYTHON_BIN -u -m uvicorn app.main:app --host 0.0.0.0 --port 8780 > logs/server.log 2>&1 &
+UVICORN_WORKERS="${UVICORN_WORKERS:-2}"
+$PYTHON_BIN -u -m uvicorn app.main:app --host 0.0.0.0 --port 8780 --workers "$UVICORN_WORKERS" > logs/server.log 2>&1 &
 disown
-echo "Backend started on port 8780. Logs: backend/logs/server.log"
+echo "Backend started on port 8780 with $UVICORN_WORKERS uvicorn worker(s). Logs: backend/logs/server.log"
 
 # Start Telegram bot (reads TELEGRAM_BOT_TOKEN from env or DB)
 $PYTHON_BIN -u -m app.services.telegram_bot > logs/telegram_bot.log 2>&1 &

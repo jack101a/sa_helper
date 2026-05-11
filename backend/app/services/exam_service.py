@@ -160,7 +160,7 @@ class ExamService:
         self._db       = db
         self._data_dir = data_dir
         self._http     = httpx.AsyncClient(timeout=30.0)
-        self._ocr_lock = threading.Lock()
+        self._ocr_semaphore = threading.BoundedSemaphore(self._ocr_concurrency())
 
         # Load static data files (these don't change at runtime)
         q_path = data_dir / "questions" / "questions.json"
@@ -241,6 +241,12 @@ class ExamService:
     def _ocr_lang(self) -> str:
         return self._db.get_setting("exam.ocr_lang", "eng+hin")
 
+    def _ocr_concurrency(self) -> int:
+        try:
+            return max(1, int(self._db.get_setting("exam.ocr_concurrency", "2")))
+        except ValueError:
+            return 2
+
     def _tessdata_dir(self) -> str | None:
         """Return absolute path to tessdata dir if it exists, else None."""
         raw = self._db.get_setting("exam.tessdata_path", "backend/tessdata")
@@ -248,6 +254,12 @@ class ExamService:
             return None
         p = (_resolve_project_root() / raw).resolve()
         return str(p) if p.exists() else None
+
+    def _tesseract_config(self) -> str:
+        tess_dir = self._tessdata_dir()
+        if tess_dir:
+            return f'--psm 6 --tessdata-dir "{tess_dir}"'
+        return "--psm 6"
 
     # ── Layer 1: Perceptual Hash ──────────────────────────────────────────────
 
@@ -290,18 +302,11 @@ class ExamService:
             return ""
         try:
             lang      = self._ocr_lang()
-            tess_dir  = self._tessdata_dir()
-            
-            with self._ocr_lock:
-                orig_env  = os.environ.copy()
-                if tess_dir:
-                    os.environ["TESSDATA_PREFIX"] = tess_dir
-                try:
-                    text = pytesseract.image_to_string(img, lang=lang, config="--psm 6")
-                    return text.strip()
-                finally:
-                    os.environ.clear()
-                    os.environ.update(orig_env)
+            config    = self._tesseract_config()
+
+            with self._ocr_semaphore:
+                text = pytesseract.image_to_string(img, lang=lang, config=config)
+                return text.strip()
         except Exception as e:
             logger.warning("ocr_failed", extra={"context": {"error": str(e)}})
             return ""
@@ -548,6 +553,20 @@ class ExamService:
             ms = int((time.perf_counter() - started) * 1000)
             logger.info("exam_solved_learned", extra={"context": {"hash": question_hash[:12], "option": opt_num, "confidence": learned.get("confidence")}})
             return {"option_number": opt_num, "answer_text": answer, "method": "learned_db", "processing_ms": ms}
+
+        question_phash = _phash(q_img)
+        learned = self._db.exam_learned.get_by_phash(question_phash, max_distance=10)
+        if learned and learned.get("correct_option"):
+            opt_num = int(learned["correct_option"])
+            answer  = learned.get(f"option_{opt_num}", f"Option {opt_num}")
+            ms = int((time.perf_counter() - started) * 1000)
+            logger.info("exam_solved_learned_phash", extra={"context": {
+                "hash": question_hash[:12],
+                "phash_distance": learned.get("_phash_distance"),
+                "option": opt_num,
+                "confidence": learned.get("confidence"),
+            }})
+            return {"option_number": opt_num, "answer_text": answer, "method": "learned_phash", "processing_ms": ms}
 
         # Layer 2 — OCR + DB (question text / option text / Hindi fuzzy)
         # We run OCR for question and 4 options in parallel to save time

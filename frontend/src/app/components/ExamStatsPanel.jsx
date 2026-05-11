@@ -220,9 +220,9 @@ export function ExamStatsPanel({
               <GraduationCap size={20}/>
             </div>
             <div>
-              <h3 className={`text-lg font-semibold ${t_textHeading}`}>Self-Learning System</h3>
+              <h3 className={`text-lg font-semibold ${t_textHeading}`}>Hash-Based Self-Learning</h3>
               <p className={`text-xs ${t_textMuted}`}>
-                Learns from correct answers on the actual exam — no LLM involved
+                Stores question image hashes and correct options; OCR text is preview only
               </p>
             </div>
           </div>
@@ -249,7 +249,7 @@ export function ExamStatsPanel({
         {learningStats && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className={`rounded-xl p-4 border ${t_borderLight} ${learningStats?.learning_enabled ? '' : 'opacity-50'}`}>
-              <p className={`text-xs ${t_textMuted}`}>Questions Learned</p>
+              <p className={`text-xs ${t_textMuted}`}>Hash Entries Learned</p>
               <p className="text-2xl font-bold text-indigo-400">
                 {learningStats.learned?.total_learned || 0}
               </p>
@@ -280,8 +280,8 @@ export function ExamStatsPanel({
           <ol className="list-decimal list-inside space-y-0.5 opacity-80">
             <li>Extension solves question on real exam</li>
             <li>Score counter confirms answer was correct</li>
-            <li>Question image + options + answer saved to learning DB</li>
-            <li>Next time same question appears → instant answer (no LLM)</li>
+            <li>Question image hash, pHash, selected option, and OCR preview are saved in SQLite</li>
+            <li>Same/similar question images are answered by hash match without LLM</li>
           </ol>
         </div>
       </div>

@@ -28,9 +28,11 @@
             enabled:       true,
             learningEnabled: true,
             lastSolve:     null,  // { questionB64, optionB64s, selectedOption, method, processingMs }
+            pendingChecked: false,
         };
 
         let panelEls = null;
+        const PENDING_FEEDBACK_KEY = 'examPendingFeedback';
 
         function createPanel() {
             if (document.getElementById('mcq-panel-host')) return;
@@ -221,12 +223,58 @@
                 questionNum: state.totalSeen,
             };
             try {
-                chrome.runtime.sendMessage(payload);
-                console.log('[Exam] Feedback sent:', wasCorrect ? 'CORRECT' : 'WRONG', 'opt', state.lastSolve.selectedOption);
+                window.up_sendMsg('EXAM_FEEDBACK', payload).then(resp => {
+                    if (resp?.ok) {
+                        console.log('[Exam] Feedback recorded:', wasCorrect ? 'CORRECT' : 'WRONG', resp.data);
+                    } else {
+                        console.warn('[Exam] Feedback failed:', resp?.error || 'No response');
+                    }
+                });
             } catch (e) {
-                // Silent fail — feedback is best-effort
+                console.warn('[Exam] Feedback failed:', e.message);
             }
             state.lastSolve = null; // Clear after sending
+        }
+
+        async function storePendingFeedback(solveData) {
+            if (!state.learningEnabled || !solveData) return;
+            try {
+                await chrome.storage.local.set({
+                    [PENDING_FEEDBACK_KEY]: {
+                        ...solveData,
+                        scoreBefore: state.prevScore,
+                        questionNum: state.totalSeen,
+                        createdAt: Date.now(),
+                    }
+                });
+            } catch (e) {
+                console.warn('[Exam] Pending feedback save failed:', e.message);
+            }
+        }
+
+        async function checkPendingFeedback() {
+            if (state.pendingChecked || !state.learningEnabled) return;
+            state.pendingChecked = true;
+            try {
+                const data = await window.up_getStorage([PENDING_FEEDBACK_KEY]);
+                const pending = data[PENDING_FEEDBACK_KEY];
+                if (!pending || !pending.questionB64 || !pending.selectedOption) return;
+
+                const qNum = parseInt(getQNum(), 10) || 0;
+                if (qNum && pending.questionNum && qNum <= pending.questionNum) {
+                    state.pendingChecked = false;
+                    return;
+                }
+
+                const scoreBefore = Number.isFinite(Number(pending.scoreBefore)) ? Number(pending.scoreBefore) : 0;
+                const currScore = parseScore();
+                const wasCorrect = currScore > scoreBefore;
+                state.lastSolve = pending;
+                sendFeedback(wasCorrect);
+                await chrome.storage.local.remove(PENDING_FEEDBACK_KEY);
+            } catch (e) {
+                console.warn('[Exam] Pending feedback check failed:', e.message);
+            }
         }
 
         async function mainLoop() {
@@ -241,6 +289,8 @@
             if (!state.enabled || state.examComplete) return;
 
             if (!qSrc || qSrc === state.lastQSrc || state.processing) return;
+
+            await checkPendingFeedback();
 
             if (state.prevScore >= 0 && state.totalSeen > 0) {
                 const curr = parseScore();
@@ -301,6 +351,7 @@
                         method:      resp.data.method,
                         processingMs: resp.data.processing_ms,
                     };
+                    await storePendingFeedback(state.lastSolve);
 
                     const delay = window.up_rndInt(CFG.CLICK_MIN, CFG.CLICK_MAX);
                     const elapsed = Date.now() - state.questionStart;
@@ -359,6 +410,7 @@
                         method:      isTimeout ? 'timeout' : 'random_fallback',
                         processingMs: 0,
                     };
+                    await storePendingFeedback(state.lastSolve);
                     
                     const isLast = state.totalSeen >= CFG.TOTAL_QUESTIONS;
                     await clickOption(randomOpt);

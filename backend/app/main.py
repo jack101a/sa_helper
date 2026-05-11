@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path as _Path
 
@@ -40,11 +41,13 @@ async def lifespan(application: FastAPI):
     # Wire user key service for auth middleware (from container)
     application.state.user_key_service = container.user_key_service
 
-    # Start Telegram bot (always, in background thread)
-    from app.services.telegram_bot import start_bot
-    bot = start_bot(settings=settings, session_factory=get_session)
-    if bot:
-        application.state.telegram_bot = bot
+    # Telegram polling must be a single process. Run it separately when using
+    # multiple uvicorn workers, or opt in for single-worker development.
+    if os.getenv("START_TELEGRAM_BOT_IN_API", "").lower() in {"1", "true", "yes", "on"}:
+        from app.services.telegram_bot import start_bot
+        bot = start_bot(settings=settings, session_factory=get_session)
+        if bot:
+            application.state.telegram_bot = bot
 
 
     yield

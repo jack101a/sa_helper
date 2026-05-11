@@ -1,41 +1,52 @@
-# STATE.md — Bug Fix Sprint
+# STATE.md - Docker image plug-and-play packaging
 
 ## Status
-**COMPLETE** — All fixes implemented, frontend rebuilt, and server relaunched.
+**READY TO PUSH** - Docker packaging has been updated so the GHCR image contains runtime dependencies and bundled data assets.
+
+## Active Task
+Make the SA Helper Docker image self-contained and publish the updated branch to `sa_helper/before-scale`.
 
 ## Last Action
-Relaunched backend server using `/workspace/sa_helper/scripts/start_backend.sh`. Health check returns OK.
+Updated Docker packaging to include bundled data seed assets, Hindi/English Tesseract packages, entrypoint volume seeding, GHCR compose usage, and `before-scale` image publishing workflow. Docker is not installed locally, so verification used Python/YAML/static checks instead of a local Docker build.
 
-## Files Modified
+## Last Files Modified
+- `.gitattributes`
+- `.github/workflows/docker.yml`
+- `Dockerfile`
+- `docker-entrypoint.sh`
+- `docker-compose.yml`
+- `infra/backend/Dockerfile`
+- `infra/docker-compose.yml`
+- `TASK.md`
+- `STATE.md`
 
-### Bot (1 file):
-1. `sa_helper/backend/app/services/telegram_bot.py`:
-   - Added `_has_pending_payment()` helper
-   - Implemented inline keyboard for plan selection (`_build_plan_keyboard`, `plan_callback`)
-   - Updated `register_cmd` and text handlers to block re-registration during pending payments
-   - Allowed UPI reference text submission in `STATE_PAYMENT_INSTRUCTIONS`
+## Last Commands Run
+- `python -m py_compile backend\app\core\config.py backend\app\main.py backend\app\services\exam_service.py`
+- YAML parse check for `docker-compose.yml`, `infra/docker-compose.yml`, `.github/workflows/docker.yml`, and `backend/config/config.yaml`
+- Runtime asset existence check for ONNX, question JSON, sign hashes, mappings, tessdata, and automation scripts
+- Settings load check for Docker-style env paths and concurrency settings
+- `docker --version`
+- `docker compose -f docker-compose.yml config`
+- `docker compose -f infra\docker-compose.yml config`
 
-### Extension (1 file):
-2. `sa_helper/extension/modules/exam.js`:
-   - Added robust error handling for API key/auth and network errors to prevent random fallback clicks
+## Last Output/Error
+- Python compile passed.
+- YAML parse checks passed.
+- Required bundled assets exist locally:
+  - `data/models/model.onnx`
+  - `data/questions/questions.json`
+  - `data/hashes/sign_hashes.json`
+  - `data/hashes/sign_label.json`
+  - `data/mappings/index.json`
+  - `backend/tessdata/eng.traineddata`
+  - `backend/tessdata/hin.traineddata`
+  - `backend/app/data/automation_scripts/step3.js`
+  - `backend/app/data/automation_scripts/step4.js`
+- Settings check loaded `queue.workers=4` and `exam.ocr_concurrency=2`.
+- Docker verification could not run locally because `docker` is not installed in this Windows environment.
 
-## Verification Results
+## Immediate Next Step
+Commit the packaging changes and push the current HEAD to `sa_helper` branch `before-scale`, letting GitHub Actions perform the real multi-arch Docker build/publish.
 
-| Check | Result |
-|-------|--------|
-| Bot syntax (py_compile) | OK |
-| exam.js syntax (node -c) | OK |
-| Frontend build | OK (vite build) |
-| Existing tests (4/4) | All pass |
-| Server health | OK (port 8780) |
-| Bot polling | OK |
-
-## Summary of Fixes
-
-- **B1: Bot State Machine**: Prevents users from starting registration if they already have a pending payment.
-- **B2: Plan Selection**: Replaced text-based plan selection with a modern inline keyboard.
-- **B3: UPI Text Submission**: Users can now paste their UPI reference ID directly into the bot.
-- **B4: Extension Error Handling**: Fixed "silent" failures where auth errors led to random guesses; now prompts user to configure API key.
-
-## Next Step
-Final review by user.
+## Task Status
+In progress: push pending.

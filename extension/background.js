@@ -956,10 +956,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             domain:             msg.domain,
             question_num:       msg.questionNum,
         })
-        .then(() => console.log('[Feedback] Sent:', msg.wasCorrect ? 'CORRECT' : 'WRONG'))
-        .catch(err => console.warn('[Feedback] Failed:', err.message));
-        // Fire-and-forget — don't wait for response
-        return false;
+        .then(data => {
+            console.log('[Feedback] Sent:', msg.wasCorrect ? 'CORRECT' : 'WRONG', data);
+            sendResponse({ ok: true, data });
+        })
+        .catch(err => {
+            console.warn('[Feedback] Failed:', err.message);
+            sendResponse({ ok: false, error: err.message });
+        });
+        return true;
     }
 
     // ── Manual sync trigger (from popup/options) ─────────────────
@@ -1278,8 +1283,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             sendResponse({ ok: false, error: 'No tab ID' });
             return false;
         }
+        const frameId = Number.isInteger(sender?.frameId) ? sender.frameId : undefined;
+        const target = frameId === undefined ? { tabId } : { tabId, frameIds: [frameId] };
         chrome.scripting.executeScript({
-            target: { tabId },
+            target,
             world: 'MAIN',
             func: (c, n, i) => {
                 if (i) {

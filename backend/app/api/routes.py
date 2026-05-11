@@ -359,9 +359,10 @@ async def exam_feedback(request: Request, payload: ExamFeedbackRequest) -> ExamF
 
     # Compute perceptual hash of the question image
     try:
-        from app.services.exam_service import _b64_to_pil, _djb2_hash
+        from app.services.exam_service import _b64_to_pil, _djb2_hash, _phash
         q_img = _b64_to_pil(payload.question_image_b64)
         question_hash = _djb2_hash(q_img)
+        question_phash = _phash(q_img)
     except Exception as e:
         logger.warning("exam_feedback_hash_failed", extra={"context": {"error": str(e)}})
         return ExamFeedbackResponse(recorded=False, learned=False, message=f"Hash failed: {e}")
@@ -400,6 +401,7 @@ async def exam_feedback(request: Request, payload: ExamFeedbackRequest) -> ExamF
     # Upsert into learned database
     result = db.upsert_exam_learned(
         question_hash=question_hash,
+        question_phash=question_phash,
         question_text=question_text,
         option_1=opt_texts[0] if len(opt_texts) > 0 else "",
         option_2=opt_texts[1] if len(opt_texts) > 1 else "",
@@ -407,11 +409,15 @@ async def exam_feedback(request: Request, payload: ExamFeedbackRequest) -> ExamF
         option_4=opt_texts[3] if len(opt_texts) > 3 else "",
         correct_option=payload.selected_option,
         source="exam_feedback",
+        learning_mode="hash_based",
+        ocr_quality="unverified_preview",
+        ocr_preview_unreliable=True,
     )
 
     logger.info("exam_feedback_learned", extra={
         "context": {
             "hash": question_hash[:12],
+            "phash": question_phash[:12],
             "action": result["action"],
             "confidence": result["confidence"],
             "option": payload.selected_option,

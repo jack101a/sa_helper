@@ -12,6 +12,7 @@ class SettingsRepository(BaseRepository):
         "exam.litellm_model":     "gemma-4-31b-it_gemini",
         # OCR
         "exam.ocr_lang":          "eng+hin",
+        "exam.ocr_concurrency":   "2",
         "exam.tessdata_path":     "backend/tessdata",
         # WhatsApp alerts
         "alerts.whatsapp_enabled":  "false",
@@ -32,6 +33,7 @@ class SettingsRepository(BaseRepository):
         "exam.litellm_api_key":     "API key for the LiteLLM endpoint",
         "exam.litellm_model":       "Model name to pass to LiteLLM (e.g. gemma-4-31b-it_gemini)",
         "exam.ocr_lang":            "Tesseract OCR language codes, e.g. eng or eng+hin",
+        "exam.ocr_concurrency":     "Maximum concurrent Tesseract OCR calls per API worker",
         "exam.tessdata_path":       "Path to .traineddata files (relative to project root)",
         "alerts.whatsapp_enabled":  "Enable WhatsApp admin alerts (true/false)",
         "alerts.callmebot_phone":   "Admin WhatsApp number in E.164 format (+91XXXXXXXXXX)",

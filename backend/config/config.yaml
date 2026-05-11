@@ -19,7 +19,7 @@ rate_limit:
   requests_per_minute: 60
   burst: 10
 queue:
-  workers: 2
+  workers: 4
   max_pending_jobs: 500
   cache_ttl_seconds: 300
 logging:
@@ -43,6 +43,7 @@ exam:
   litellm_api_key: ''
   litellm_model: gemma-4-31b-it_gemini
   ocr_lang: eng+hin
+  ocr_concurrency: 2
   tessdata_path: backend/tessdata
   question_data_path: data/questions/questions.json
   sign_hashes_path: data/hashes/sign_hashes.json

@@ -1,21 +1,33 @@
-# TASK.md — B1: Fix Bot State Machine — Prevent Re-entering Payment Flow
+# TASK.md - Make Docker Image Plug and Play
 
 ## Goal
-When a user has already submitted a payment (screenshot submitted, pending approval), pressing "Register" again should NOT re-enter the plan selection → payment flow. Instead, it should show current payment status and block re-registration.
+Make the SA Helper Docker image self-contained so users can run it without installing Tesseract, ONNX models, question JSON, sign hashes, or userscript mappings on the host. Publish the updated image from GHCR on the `before-scale` branch.
 
 ## Scope
-- Modify `register_cmd` handler to check for existing pending payments
-- Modify `text_handler` for "📝 Register" button to also check
-- Show clear message: "Payment already submitted — awaiting admin approval"
+- Bundle required runtime assets in the root Docker image.
+- Keep Tesseract Hindi/English OCR available inside the image.
+- Update Docker Compose to use the GHCR image and persist only mutable runtime data.
+- Keep concurrency defaults from the previous task: 2 uvicorn workers, 4 captcha workers, MCQ OCR concurrency 2.
+- Update GHCR workflow so pushes to `before-scale` build/publish multi-arch images.
+- Verify config loading and container build path as far as practical locally.
 
-## Files
-- `sa_helper/backend/app/services/telegram_bot.py`
+## Excluded
+- No Redis/distributed queue.
+- No new model training or data regeneration.
+- No unrelated app refactor.
 
-## Steps
-1. Add helper method `_has_pending_payment(user_id)` to check for pending payments
-2. In `register_cmd` and text_handler "📝 Register" button: if user has pending payment, show status message and return early
-3. Verify syntax
+## Plan
+1. [done] Read current Dockerfiles, compose files, workflow, and runtime asset paths.
+2. [done] Patch Dockerfile/compose/workflow for bundled assets and plug-and-play runtime.
+3. [done] Verify syntax/config and Docker build health where possible.
+4. [in-progress] Update STATE.md.
+5. [pending] Commit and push to `sa_helper` `before-scale`.
 
 ## Verification
-- Python syntax check on telegram_bot.py
-- Review state machine logic
+- Run backend py_compile for touched Python if any.
+- Confirm settings resolve bundled `/app/data` and `/app/backend/tessdata` paths.
+- Run Docker Compose config validation.
+- Build Docker image if local Docker is available.
+
+## Result
+Docker image now seeds bundled `/app/data` assets from `/opt/sa-helper-seed`, includes Hindi/English Tesseract packages and traineddata, and exposes `/health` for container health checks. Compose files use the GHCR image with named volumes for logs/config/data so users do not have to install or mount ONNX, question JSON, sign hashes, userscript mappings, or tessdata manually. Local Docker is not installed in this environment, so Docker build/compose execution must be verified by GitHub Actions.
