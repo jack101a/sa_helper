@@ -929,6 +929,21 @@ function installDomImageValueWatcher(){
 // ========== VIRTUAL WEBCAM SHIM (MAIN world via SP_EXEC) ==========
 (function installVirtualWebcamShimInMainWorld(){
   if (location.hostname !== "sarathi.parivahan.gov.in") return;
+  function isAllowedStallVcamUrl(){
+    try {
+      const url = new URL(location.href);
+      if (url.hostname !== 'sarathi.parivahan.gov.in') return false;
+      if (url.pathname !== '/sarathiservice/authenticationaction.do'
+          && url.pathname !== '/sarathiservice/instruction.do'
+          && url.pathname !== '/sarathiservice/examselectaction.do') return false;
+      if (url.pathname === '/sarathiservice/authenticationaction.do') {
+        const authType = (url.searchParams.get('authtype') || '').toLowerCase();
+        return authType === 'anugyna' || authType === 'anugnya';
+      }
+      return true;
+    } catch { return false; }
+  }
+  if (!isAllowedStallVcamUrl()) return;
   if (window.__SARATHI_VCAM_INSTALLED__ || window.__sp_vcam_installed) return;
   if (window.__sp_vcam_requested) return; window.__sp_vcam_requested = true;
 
@@ -1149,7 +1164,12 @@ function installDomImageValueWatcher(){
       } catch{}
     })();
   `;
-  if (chrome.runtime?.id) chrome.runtime.sendMessage({ type: 'SP_EXEC', code: shimCode }, ()=>{
+  if (chrome.runtime?.id) chrome.storage.local.get([STALL_VCAM_ACTIVE_KEY], activeData => {
+    if (activeData[STALL_VCAM_ACTIVE_KEY] !== true) {
+      window.__sp_vcam_requested = false;
+      return;
+    }
+    chrome.runtime.sendMessage({ type: 'SP_EXEC', code: shimCode }, ()=>{
     chrome.storage.local.get([SP_VCAM_ENABLED_KEY, SP_VCAM_FORCE_KEY, SP_VCAM_ZOOM_KEY, STALL_VCAM_ACTIVE_KEY], d=>{
       const enabled = d[STALL_VCAM_ACTIVE_KEY] === true && d[SP_VCAM_ENABLED_KEY] === true;
       const forceAll = enabled && d[SP_VCAM_FORCE_KEY] === true;
@@ -1161,6 +1181,7 @@ function installDomImageValueWatcher(){
         try { window.postMessage({ __sp_vcam_frame: true, dataUrl: latestCapturedDataUrl }, '*'); } catch{}
       }
     });
+  });
   });
 })();
 

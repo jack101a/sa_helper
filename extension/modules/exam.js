@@ -10,8 +10,8 @@
             REQUIRED_CORRECT:  9,
             MAX_WRONG:         6,
             ABORT_MIN_Q:       14,   // only abort if failing is certain at the very end
-            CLICK_MIN:         16000,
-            CLICK_MAX:         19000,
+            CLICK_MIN:         10000,
+            CLICK_MAX:         13000,
             DEADLINE:          29000,
             SUBMIT_POLL:       300,
             AUTO_REFRESH:      36000,
@@ -29,6 +29,7 @@
             targetClickAt:  0,
             enabled:       true,
             learningEnabled: true,
+            showPanel:     false,
             lastSolve:     null,  // { questionB64, optionB64s, selectedOption, method, processingMs }
             pendingChecked: false,
         };
@@ -37,6 +38,7 @@
         const PENDING_FEEDBACK_KEY = 'examPendingFeedback';
 
         function createPanel() {
+            if (!state.showPanel) return;
             if (document.getElementById('mcq-panel-host')) return;
             const host = document.createElement('div');
             host.id = 'mcq-panel-host';
@@ -283,7 +285,7 @@
             const qSrc = getQImage();
             
             // Lazy create panel only when a question image is actually found
-            if (!panelEls && qSrc) {
+            if (state.showPanel && !panelEls && qSrc) {
                 createPanel();
             }
 
@@ -291,6 +293,13 @@
             if (!state.enabled || state.examComplete) return;
 
             if (!qSrc || qSrc === state.lastQSrc || state.processing) return;
+
+            const questionPayload = imageToPayload(getQImageEl());
+            const optImgs = getOptImgEls().map(imageToPayload).filter(Boolean);
+            if (!questionPayload || optImgs.length < 2) {
+                setStatus('Waiting for options...', 'work');
+                return;
+            }
 
             await checkPendingFeedback();
 
@@ -323,14 +332,6 @@
             setStatus('Solving…', 'work');
 
             try {
-                const questionPayload = imageToPayload(getQImageEl());
-                const optImgs = getOptImgEls().map(imageToPayload).filter(Boolean);
-                if (!questionPayload || optImgs.length < 2) {
-                    setStatus('Waiting for images...', 'work');
-                    state.processing = false;
-                    return;
-                }
-                
                 // Solve with a 20-second timeout. If it takes longer, we'll click randomly.
                 const solvePromise = window.up_sendMsg('SOLVE_EXAM', {
                     questionB64: questionPayload,
@@ -439,9 +440,10 @@
                 const isExam = /stallexamaction|examselectaction/i.test(window.location.href);
                 if (!isExam) return;
                 // createPanel() is now called lazily in mainLoop()
-                window.up_getStorage(['solverEnabled', 'learningEnabled']).then(d => {
+                window.up_getStorage(['solverEnabled', 'learningEnabled', 'isMaster']).then(d => {
                     state.enabled = d.solverEnabled !== false;
                     state.learningEnabled = d.learningEnabled !== false;
+                    state.showPanel = d.isMaster === true;
                 });
                 seedFromPage();
                 if (_mainInterval) clearInterval(_mainInterval);

@@ -63,8 +63,7 @@
         "https://sarathi.parivahan.gov.in/*"
       ],
       "js": [
-        "modules/main_inject.js",
-        "modules/vcam_inject.js"
+        "modules/main_inject.js"
       ],
       "run_at": "document_start",
       "world": "MAIN",

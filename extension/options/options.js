@@ -122,17 +122,101 @@ function showMsg(msgId, text, isOk = true) {
     setTimeout(() => { el2.style.display = 'none'; }, 4000);
 }
 
+function firstValue(data, keys, fallback = '-') {
+    for (const key of keys) {
+        const value = data?.[key];
+        if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+    }
+    return fallback;
+}
+
+function formatAccountExpiry(value) {
+    if (!value) return '-';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function connectionLight(data) {
+    if (!data.apiKey || !data.serverUrl) return 'red';
+    const age = Date.now() - Number(data.lastVerify || 0);
+    if (age >= 0 && age < 2 * 60 * 1000) return 'green';
+    if (age >= 0 && age < 15 * 60 * 1000) return 'yellow';
+    return 'red';
+}
+
+function renderServiceList(data) {
+    const services = firstValue(data, ['enabledServices', 'services', 'subscribedServices'], []);
+    if (Array.isArray(services)) return services.length ? services.join(', ') : '-';
+    if (services && typeof services === 'object') {
+        const active = Object.entries(services)
+            .filter(([, enabled]) => enabled)
+            .map(([name]) => name);
+        return active.length ? active.join(', ') : '-';
+    }
+    return String(services || '-');
+}
+
+function renderUserOptions(data) {
+    document.body.classList.add('user-mode');
+    const view = el('user-options-view');
+    if (view) view.hidden = false;
+
+    const setText = (id, value) => {
+        const node = el(id);
+        if (node) node.textContent = String(value || '-');
+    };
+
+    setText('user-info-name', firstValue(data, ['userName', 'name', 'keyName', 'key_name']));
+    setText('user-info-plan', firstValue(data, ['planName', 'plan', 'subscriptionPlan', 'subscription_status']));
+    setText('user-info-mobile', firstValue(data, ['mobile', 'phone', 'mobileNo', 'phoneNumber']));
+    setText('user-info-expiry', formatAccountExpiry(firstValue(data, ['expiresAt', 'expires_at'], '')));
+    setText('user-info-telegram', firstValue(data, ['telegramId', 'telegram_id', 'tgId', 'tg_id']));
+    setText('user-info-services', renderServiceList(data));
+
+    const light = el('user-conn-light');
+    if (light) light.className = `conn-light ${connectionLight(data)}`;
+
+    const autofill = el('user-opt-autofill');
+    const captcha = el('user-opt-captcha');
+    const stall = el('user-opt-stall');
+    if (autofill) {
+        autofill.checked = data.autofillEnabled !== false;
+        autofill.onchange = e => chrome.storage.local.set({ autofillEnabled: e.target.checked });
+    }
+    if (captcha) {
+        captcha.checked = data.captchaEnabled !== false;
+        captcha.onchange = e => chrome.storage.local.set({ captchaEnabled: e.target.checked });
+    }
+    if (stall) {
+        stall.checked = data.solverEnabled !== false;
+        stall.onchange = e => chrome.storage.local.set({ solverEnabled: e.target.checked });
+    }
+}
+
 // ── Initialization ───────────────────────────────────────────────────────────
 async function init() {
     const data = await storageGet([
         'apiKey', 'serverUrl', 'isMaster', 'rules', 'autofillSettings',
         'captchaEnabled', 'solverEnabled', 'autofillEnabled', 'autoRefresh',
         'autoScreenshot', 'theme', 'normalized_userscripts', 'userscriptsEnabled',
-        'globalFieldRoutes', 'globalLocators', 'domainFieldRoutes', 'activeOptionsTab'
+        'globalFieldRoutes', 'globalLocators', 'domainFieldRoutes', 'activeOptionsTab',
+        'keyName', 'expiresAt', 'lastVerify', 'userName', 'name', 'planName',
+        'plan', 'subscriptionPlan', 'subscription_status', 'mobile', 'phone',
+        'mobileNo', 'phoneNumber', 'telegramId', 'telegram_id', 'tgId', 'tg_id',
+        'enabledServices', 'services', 'subscribedServices'
     ]);
     
-    // Check Master Access
+    state.theme = data.theme || 'dark';
+    applyTheme(state.theme);
+
     if (!data.isMaster && data.apiKey) {
+        renderUserOptions(data);
+        return;
+    }
+
+    // Check Master Access
+    if (false && !data.isMaster && data.apiKey) {
         document.body.innerHTML = `
             <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding: 40px; text-align:center;">
                 <div style="font-size: 48px; margin-bottom: 20px;">🛡️</div>
@@ -161,9 +245,6 @@ async function init() {
         return;
     }
 
-    // Theme
-    state.theme = data.theme || 'dark';
-    applyTheme(state.theme);
     // Restore last active tab
     if (data.activeOptionsTab) {
         activateTab(data.activeOptionsTab);

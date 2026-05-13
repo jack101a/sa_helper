@@ -100,6 +100,7 @@
             inp.dispatchEvent(new Event('input', { bubbles: true }));
             setNativeVal(inp, value);
             dispatchFillEvents(inp, value);
+            try { inp.blur(); } catch (_) {}
         }
 
         // Priority 1: server/local domain field routes

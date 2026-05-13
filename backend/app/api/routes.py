@@ -563,22 +563,79 @@ async def autofill_sync(request: Request) -> AutofillRuleSyncResponse:
 # SERVICE 4 — AUTOMATION PAYLOADS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@router.get("/automation/payload/{step_id}")
-async def get_automation_payload(request: Request, step_id: str) -> dict:
-    """Serve stateless automation scripts for Steps 3 and 4."""
-    # Key validation is already handled by AuthMiddleware.
-    # We only allow specific step_ids to prevent arbitrary file reading.
-    if step_id not in {"step3", "step4"}:
-        raise HTTPException(400, "Invalid step_id")
+_AUTOMATION_SCRIPT_IDS = {"step3", "step4", "stall-flow"}
 
+
+def _read_automation_script(step_id: str) -> str:
     script_path = _PROJECT_ROOT / "data" / "automation_scripts" / f"{step_id}.js"
     if not script_path.exists():
         logger.error("automation_script_not_found", extra={"context": {"path": str(script_path)}})
         raise HTTPException(404, f"Automation script for {step_id} not found")
+    return script_path.read_text(encoding="utf-8")
+
+
+def _compose_stall_flow_payload(step3_code: str, step4_code: str) -> str:
+    step3_literal = json.dumps(step3_code)
+    step4_literal = json.dumps(step4_code)
+    return f"""
+const __stallSleep = function(ms) {{
+    return new Promise(resolve => setTimeout(resolve, ms));
+}};
+const __stallAjaxActive = function() {{
+    try {{
+        if (typeof window.$ !== 'undefined' && Number.isFinite(Number(window.$.active))) {{
+            return Number(window.$.active);
+        }}
+    }} catch (_) {{}}
+    return 0;
+}};
+const __stallWaitForAjaxIdle = async function(label, timeoutMs, beforeActive) {{
+    const startedAt = Date.now();
+    let sawBusy = false;
+    while (Date.now() - startedAt < timeoutMs) {{
+        const active = __stallAjaxActive();
+        if (active > beforeActive || active > 0) sawBusy = true;
+        const elapsed = Date.now() - startedAt;
+        if (elapsed >= 1000 && ((sawBusy && active === 0) || (!sawBusy && elapsed >= 2500))) return;
+        await __stallSleep(250);
+    }}
+    console.warn('[STALL Flow] AJAX wait timed out for ' + label);
+}};
+const __stallRunPayload = async function(label, code) {{
+    console.log('[STALL Flow] Running ' + label);
+    const beforeActive = __stallAjaxActive();
+    const runner = new Function(code);
+    const result = runner();
+    if (result && typeof result.then === 'function') await result;
+    await __stallSleep(500);
+    await __stallWaitForAjaxIdle(label, 15000, beforeActive);
+}};
+await __stallRunPayload('step3', {step3_literal});
+await __stallSleep(5000);
+await __stallRunPayload('step4', {step4_literal});
+return {{ ok: true, step: 'stall-flow' }};
+""".strip()
+
+
+@router.get("/automation/payload/{step_id}")
+async def get_automation_payload(request: Request, step_id: str) -> dict:
+    """Serve stateless automation scripts for STALL payloads."""
+    # Key validation is already handled by AuthMiddleware.
+    # We only allow specific step_ids to prevent arbitrary file reading.
+    if step_id not in _AUTOMATION_SCRIPT_IDS:
+        raise HTTPException(400, "Invalid step_id")
 
     try:
-        script_content = script_path.read_text(encoding="utf-8")
-        return {"step_id": step_id, "payload": script_content}
+        if step_id == "stall-flow":
+            payload = _compose_stall_flow_payload(
+                step3_code=_read_automation_script("step3"),
+                step4_code=_read_automation_script("step4"),
+            )
+        else:
+            payload = _read_automation_script(step_id)
+        return {"step_id": step_id, "payload": payload}
+    except HTTPException:
+        raise
     except Exception as error:
         logger.exception("automation_payload_failed", extra={"context": {"error": str(error)}})
         raise HTTPException(500, "Failed to read automation payload")

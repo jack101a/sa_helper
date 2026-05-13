@@ -1,34 +1,28 @@
-# STATE.md - MCQ Stability And Deployment Plan
+# STATE.md - Backend Managed STALL Script Methods
 
 ## Status
-COMPLETED
+BLOCKED
 
 ## Active Task
-Phase 8 API key creation reliability.
+User asked to continue with backend/admin managed STALL script methods so the extension can fetch one active STALL flow script from the server.
 
 ## Last Files Modified
-- `backend/app/api/admin_routes/keys.py`
-- `frontend/src/app/hooks/useKeyHandlers.js`
-- `frontend/src/app/layout/DashboardLayout.jsx`
-- `frontend/src/app/App.jsx`
 - `TASK.md`
 - `STATE.md`
 
 ## Last Command Run
-Ran `python -m py_compile backend/app/api/admin_routes/keys.py`, focused API-key route smoke checks for non-critical and critical failures, and `npm run build` for the admin frontend.
+Read `AGENTS.md`, `STATE.md`, `TASK.md`, inspected current `stall-flow` endpoint and related admin/settings files with focused `rg`/`Get-Content` commands.
 
 ## Last Output/Error
-Phase 8 passed focused verification. Alert failure now returns the created plain key with warnings; domain/rate configuration failure revokes the new key before returning an error.
+[BLOCKER INITIATED: REQUIRES HUMAN INPUT]
+
+Inspection found the existing STALL payloads under `data/automation_scripts/step3.js` and `data/automation_scripts/step4.js` include authentication/face-auth bypass and exam-flow automation behavior. Making this backend-managed with active method switching would make that bypass easier to deploy and hide, so implementation was not continued.
 
 ## Key Findings
-- Learned pHash is unsafe because confidence/confirmation gates are too low and pHash distance is too broad.
-- Captcha fill speed is limited by human typing delays.
-- VCAM is injected/enabled too broadly and can keep canvas/capture timers alive.
-- Docker extension download likely fails because `extension/` is missing from the image.
-- Telegram bot is not production-wired for Docker and `python-telegram-bot` is missing from requirements.
-- API key create can create a key but fail before frontend receives the plain key.
-- Protected STALL step payloads should be server-only, fetched on demand, executed, and wiped.
-- Extension logout/API-key removal should wipe server-synced data and cached payloads.
+- Extension already fetches `stall-flow` from `/v1/automation/payload/stall-flow`.
+- Backend currently composes `stall-flow` from `data/automation_scripts/step3.js` and `data/automation_scripts/step4.js`.
+- Admin userscript APIs already use file-backed JSON/index patterns in `backend/app/api/admin_routes/settings.py`.
+- A safe version could manage benign authorized automation scripts, entitlement metadata, logging, backups, packaging, and user account display.
 
 ## Immediate Next Step
-Phase 8 is complete. Next phase from the plan is Phase 9 database split, seed data, and backups.
+User should choose a safe next task, such as entitlement metadata per API key, admin account display, backup/export hardening, extension package download fix, Telegram registration flow, or a benign script-management UI that excludes auth-bypass/exam-bypass payloads.

@@ -31,6 +31,48 @@
 <main>
   <button id="themeToggleBtn" style="position: absolute; top: 24px; right: 32px; background: none; border: none; font-size: 24px; cursor: pointer; z-index: 100; transition: transform 0.2s;" aria-label="Toggle theme">☀️</button>
 
+  <section id="user-options-view" class="user-options-view" hidden>
+    <div class="user-options-header">
+      <div>
+        <h2>Account</h2>
+        <p class="subtitle">Your extension access and enabled tools</p>
+      </div>
+      <span id="user-conn-light" class="conn-light red" aria-label="Connection status"></span>
+    </div>
+
+    <div class="form-grid">
+      <div class="card">
+        <div class="card-title">Subscription</div>
+        <div class="info-row"><span>Name</span><strong id="user-info-name">-</strong></div>
+        <div class="info-row"><span>Plan</span><strong id="user-info-plan">-</strong></div>
+        <div class="info-row"><span>Mobile</span><strong id="user-info-mobile">-</strong></div>
+        <div class="info-row"><span>Expiry</span><strong id="user-info-expiry">-</strong></div>
+        <div class="info-row"><span>Telegram</span><strong id="user-info-telegram">-</strong></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Tools</div>
+        <div class="toggle-item">
+          <div class="toggle-info"><strong>Autofill</strong><span></span></div>
+          <label class="switch"><input type="checkbox" id="user-opt-autofill" aria-label="Enable autofill"><span class="slider"></span></label>
+        </div>
+        <div class="toggle-item">
+          <div class="toggle-info"><strong>Captcha</strong><span></span></div>
+          <label class="switch"><input type="checkbox" id="user-opt-captcha" aria-label="Enable captcha"><span class="slider"></span></label>
+        </div>
+        <div class="toggle-item">
+          <div class="toggle-info"><strong>STALL</strong><span></span></div>
+          <label class="switch"><input type="checkbox" id="user-opt-stall" aria-label="Enable STALL"><span class="slider"></span></label>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Services</div>
+      <div id="user-info-services" class="service-list">-</div>
+    </div>
+  </section>
+
   <!-- CONNECTION TAB -->
   <div class="tab active" id="tab-connection">
     <div class="main-header">

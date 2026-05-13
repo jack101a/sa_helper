@@ -39,7 +39,10 @@
         // 1. Initialize Sarathi Hardening & Image Detector (Runs immediately)
         if (window.SarathiHarden) window.SarathiHarden.init();
         if (window.SarathiImageDetector) window.SarathiImageDetector.init();
-        if (window.VcamController) window.VcamController.init();
+        if (window.VcamController) {
+            const stallData = await window.up_getStorage(['stallVcamActive']);
+            if (stallData.stallVcamActive === true) window.VcamController.init();
+        }
 
         // 2. Activate solver modules based on settings
         if (window.ExamModule && data.solverEnabled !== false) window.ExamModule.activate();

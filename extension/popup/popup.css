@@ -133,6 +133,7 @@ body {
 }
 .toggle-row:not(:last-child) { border-bottom: 1px solid var(--panel-border); }
 .toggle-row:hover { background: rgba(255,255,255,0.02); }
+.user-hidden-control { display: none; }
 
 .label-main { font-weight: 600; font-size: 13px; }
 .label-sub { font-size: 10px; color: var(--muted); margin-top: 1px; }

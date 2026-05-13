@@ -324,6 +324,7 @@ const SENSITIVE_STORAGE_KEYS = [
     '_stall_step4_started_at',
     '_stall_step4_lock_at',
     '_stall_step4_done_at',
+    '_stall_flow_done_at',
     '_locatedSource',
     '_locatedTarget',
     '_popupPendingField',
@@ -399,6 +400,16 @@ function _stallKeepAliveTick() {
     if (!automationState.active || !automationState.tabId) return;
     chrome.tabs.get(automationState.tabId, tab => {
         if (chrome.runtime.lastError || !tab) return;
+        try {
+            chrome.tabs.update(automationState.tabId, { active: true }, () => {
+                void chrome.runtime.lastError;
+            });
+            if (tab.windowId) {
+                chrome.windows.update(tab.windowId, { focused: true }, () => {
+                    void chrome.runtime.lastError;
+                });
+            }
+        } catch (_) {}
         _injectStallKeepAlive(automationState.tabId);
         chrome.tabs.sendMessage(automationState.tabId, { type: 'STALL_KEEPALIVE_TICK' }, () => {
             void chrome.runtime.lastError;
@@ -555,6 +566,7 @@ async function clearStallData() {
                 '_stall_step4_started_at',
                 '_stall_step4_lock_at',
                 '_stall_step4_done_at',
+                '_stall_flow_done_at',
                 'sp_vcam_image',
                 'stallVcamActive'
             ], resolve);
@@ -599,7 +611,7 @@ async function wipeSyncedExtensionData(options = {}) {
 
 async function fetchServerStallPayload(stepId) {
     const cleanStepId = String(stepId || '');
-    if (cleanStepId !== 'step3' && cleanStepId !== 'step4') {
+    if (!['step3', 'step4', 'stall-flow'].includes(cleanStepId)) {
         throw new Error('Invalid STALL step id');
     }
     const data = await apiGet(`/v1/automation/payload/${cleanStepId}`);
@@ -1173,6 +1185,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                     isMaster: !!d.is_master,
                     keyName: d.key_name || '',
                     expiresAt: d.expires_at || null,
+                    userName: d.user_name || d.name || d.key_name || '',
+                    planName: d.plan_name || d.plan || d.subscription_plan || '',
+                    mobile: d.mobile || d.phone || d.mobile_no || '',
+                    telegramId: d.telegram_id || d.tg_id || '',
+                    enabledServices: d.enabled_services || d.services || d.subscribed_services || [],
                     lastVerify: Date.now()
                 });
                 sendResponse({ ok: true, data: d });
@@ -1432,7 +1449,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 sp_vcam_enabled: true,
                 sp_vcam_force_all: true
             });
-            await chrome.storage.local.remove(['stallStepScripts', '_stall_appNo', '_stall_captcha', '_stall_step4_started_at', '_stall_step4_lock_at', '_stall_step4_done_at']);
+            await chrome.storage.local.remove(['stallStepScripts', '_stall_appNo', '_stall_captcha', '_stall_step4_started_at', '_stall_step4_lock_at', '_stall_step4_done_at', '_stall_flow_done_at']);
 
             // Set up state for semi-auto mode
             automationState = {
@@ -1505,7 +1522,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         _persistAutomationState();
         _setStallKeepAlive(false);
         chrome.storage.local.set({ stallVcamActive: false, sp_vcam_enabled: false, sp_vcam_force_all: false }, () => {
-            chrome.storage.local.remove(['stallStepScripts', '_stall_appNo', '_stall_captcha', '_stall_step4_started_at', '_stall_step4_lock_at', '_stall_step4_done_at', 'stall_user_photo', 'sp_vcam_image']);
+            chrome.storage.local.remove(['stallStepScripts', '_stall_appNo', '_stall_captcha', '_stall_step4_started_at', '_stall_step4_lock_at', '_stall_step4_done_at', '_stall_flow_done_at', 'stall_user_photo', 'sp_vcam_image']);
         });
         console.log('[Automation] STALL session complete. MCQ Solver taking over.');
         sendResponse({ ok: true });
@@ -1525,7 +1542,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         chrome.scripting.executeScript({
             target,
             world: 'MAIN',
-            func: (c, n, i) => {
+            func: async (c, n, i) => {
                 if (i) {
                     window.__USERSCRIPT_INSTALLED__ = window.__USERSCRIPT_INSTALLED__ || {};
                     if (window.__USERSCRIPT_INSTALLED__[i]) {
@@ -1533,13 +1550,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                     }
                 }
                 try {
+                    const markInstalled = () => {
+                        if (i) {
+                            window.__USERSCRIPT_INSTALLED__ = window.__USERSCRIPT_INSTALLED__ || {};
+                            window.__USERSCRIPT_INSTALLED__[i] = true;
+                        }
+                    };
                     const runner = new Function(c);
-                    runner();
-                    if (i) {
-                        window.__USERSCRIPT_INSTALLED__ = window.__USERSCRIPT_INSTALLED__ || {};
-                        window.__USERSCRIPT_INSTALLED__[i] = true;
+                    const result = runner();
+                    if (result && typeof result.then === 'function') {
+                        const value = await result;
+                        markInstalled();
+                        return { ok: true, result: value };
                     }
-                    return { ok: true };
+                    markInstalled();
+                    return { ok: true, result };
                 } catch (e) {
                     return { ok: false, error: String(e) };
                 }

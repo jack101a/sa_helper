@@ -4,6 +4,25 @@
 (function () {
     'use strict';
 
+    function isAllowedStallVcamUrl(urlValue = location.href) {
+        try {
+            const url = new URL(urlValue);
+            if (url.hostname !== 'sarathi.parivahan.gov.in') return false;
+            if (url.pathname !== '/sarathiservice/authenticationaction.do'
+                && url.pathname !== '/sarathiservice/instruction.do'
+                && url.pathname !== '/sarathiservice/examselectaction.do') {
+                return false;
+            }
+            if (url.pathname === '/sarathiservice/authenticationaction.do') {
+                const authType = (url.searchParams.get('authtype') || '').toLowerCase();
+                return authType === 'anugyna' || authType === 'anugnya';
+            }
+            return true;
+        } catch (_) {
+            return false;
+        }
+    }
+
     window.VcamController = {
         state: {
             enabled: false,
@@ -16,6 +35,7 @@
         },
 
         init() {
+            if (!isAllowedStallVcamUrl()) return;
             this.syncFromStorage();
             // Listen for storage changes
             chrome.storage.onChanged.addListener(async (changes, area) => {
@@ -117,6 +137,7 @@
 
         pushToPage() {
             try {
+                if (!isAllowedStallVcamUrl()) return;
                 window.postMessage({
                     __sp_vcam_state: true,
                     enabled: !!this.state.enabled,

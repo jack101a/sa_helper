@@ -13,6 +13,7 @@
     const STEP4_STARTED_KEY = '_stall_step4_started_at';
     const STEP4_LOCK_KEY = '_stall_step4_lock_at';
     const STEP4_DONE_KEY = '_stall_step4_done_at';
+    const STALL_FLOW_DONE_KEY = '_stall_flow_done_at';
     const STEP4_FALLBACK_DELAY_MS = 5000;
     const STEP4_LOCK_TTL_MS = 20000;
 
@@ -24,6 +25,7 @@
         _finishing: false,
         _lastActionAt: {},
         _loadStartedAt: 0,
+        _pageWatcherTimer: null,
 
         async sleep(ms) {
             return new Promise(resolve => setTimeout(resolve, ms));
@@ -38,6 +40,100 @@
                 }
             })();`;
             return sendMessage({ type: 'SP_EXEC', code });
+        },
+
+        async runPageSequence(action) {
+            const code = `return (async function(){
+                const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+                try {
+                    ${action}
+                } catch (e) {
+                    console.error('[Automation] Page sequence error:', e);
+                    return { ok: false, error: e.message || String(e) };
+                }
+            })();`;
+            return sendMessage({ type: 'SP_EXEC', code });
+        },
+
+        async runExactContinueSnippet(source = 'watcher') {
+            const guardKey = `__stall_continue_${source}_${location.pathname}`;
+            if (window[guardKey]) return { ok: true, alreadyRan: true };
+            const btn = document.querySelector('input[type="submit"][value="CONTINUE"]');
+            if (!btn) return { ok: false, missing: true };
+            window[guardKey] = true;
+            console.log(`[Automation] Running Continue snippet via ${source}`);
+            return this.runPageSequence(`
+                const humanDelay = (min, max) => Math.floor(min + Math.random() * (max - min + 1));
+                await sleep(humanDelay(220, 620));
+                (function() {
+                    'use strict';
+                    document.querySelector('input[type="submit"][value="CONTINUE"]').click();
+                })();
+                await sleep(humanDelay(260, 720));
+                return { ok: true, clicked: true };
+            `);
+        },
+
+        async runExactLanguageSnippet(source = 'watcher') {
+            const guardKey = `__stall_language_${source}_${location.pathname}`;
+            if (window[guardKey]) return { ok: true, alreadyRan: true };
+            if (!document.getElementById('language')
+                || !document.getElementById('subm')
+                || !document.getElementsByName('disclaimer1')[0]
+                || !document.getElementsByName('disclaimer2')[0]) {
+                return { ok: false, missing: true };
+            }
+            window[guardKey] = true;
+            console.log(`[Automation] Running Language snippet via ${source}`);
+            return this.runPageSequence(`
+                const humanDelay = (min, max) => Math.floor(min + Math.random() * (max - min + 1));
+                (function() {
+                  'use strict';
+
+                  const languageSelect = document.getElementById("language");
+                  setTimeout(() => {
+                    languageSelect.value = "HINDI";
+                    languageSelect.dispatchEvent(new Event('change'));
+                  }, humanDelay(180, 420));
+
+                  ["disclaimer1", "disclaimer2"].forEach((name, index) => {
+                    setTimeout(() => {
+                      const checkbox = document.getElementsByName(name)[0];
+                      checkbox.checked = true;
+                      checkbox.dispatchEvent(new Event('click'));
+                    }, humanDelay(430 + (index * 280), 760 + (index * 360)));
+                  });
+
+                  setTimeout(() => {
+                    document.getElementById("subm").click();
+                  }, humanDelay(1250, 1900));
+                })();
+                await sleep(2200);
+                return { ok: true, clicked: true };
+            `);
+        },
+
+        async runStallPageUserscriptWatcher() {
+            const resp = await sendMessage({ type: 'GET_STALL_STATE' });
+            if (!resp?.ok || !resp.state?.active) return;
+
+            const url = location.href;
+            if (url.includes('/sarathiservice/authenticationaction.do')) {
+                const flowData = await chrome.storage.local.get([STALL_FLOW_DONE_KEY, STEP4_DONE_KEY]);
+                if (!flowData[STALL_FLOW_DONE_KEY] && !flowData[STEP4_DONE_KEY]) return;
+                const result = await this.runExactContinueSnippet('watcher');
+                if (result?.ok !== false && result?.missing !== true) {
+                    await sendMessage({ type: 'UPDATE_STALL_STEP', step: 6 });
+                }
+                return;
+            }
+
+            if (url.includes('/sarathiservice/instruction.do')) {
+                const result = await this.runExactLanguageSnippet('watcher');
+                if (result?.ok !== false && result?.missing !== true) {
+                    await sendMessage({ type: 'UPDATE_STALL_STEP', step: 7 });
+                }
+            }
         },
 
         async retry(label, fn, attempts = 3) {
@@ -180,7 +276,7 @@
                     _stall_appNo: fields.appNo,
                     _stall_captcha: fields.captcha
                 });
-                await chrome.storage.local.remove([STEP4_STARTED_KEY, STEP4_LOCK_KEY, STEP4_DONE_KEY]);
+                await chrome.storage.local.remove([STEP4_STARTED_KEY, STEP4_LOCK_KEY, STEP4_DONE_KEY, STALL_FLOW_DONE_KEY]);
 
                 if (btn) {
                     btn.disabled = true;
@@ -188,13 +284,19 @@
                     btn.style.opacity = '0.8';
                     btn.style.cursor = 'wait';
                 }
-                this.setStartNowStatus('Running Step 3...', 'ok');
+                this.setStartNowStatus('Running STALL flow...', 'ok');
                 await sendMessage({ type: 'UPDATE_STALL_STEP', step: 3 });
-                await this.executePayload('step3');
+                const flowResp = await this.executePayload('stall-flow');
+                if (flowResp?.ok === false) {
+                    throw new Error(flowResp.error || 'STALL flow failed');
+                }
 
-                this.setStartNowStatus('Waiting 5 seconds for Step 4...', 'ok');
-                await chrome.storage.local.set({ [STEP4_STARTED_KEY]: Date.now() });
-                await sendMessage({ type: 'UPDATE_STALL_STEP', step: 4 });
+                this.setStartNowStatus('Face auth complete. Continuing...', 'ok');
+                await chrome.storage.local.set({
+                    [STALL_FLOW_DONE_KEY]: Date.now(),
+                    [STEP4_DONE_KEY]: Date.now()
+                });
+                await sendMessage({ type: 'UPDATE_STALL_STEP', step: 5 });
             } catch (e) {
                 console.error('[Automation] Start Now error:', e);
                 this.setStartNowStatus('Start Now failed. Check console.', 'error');
@@ -223,37 +325,53 @@
                     const appNoLiteral = JSON.stringify(appNo);
                     const captchaLiteral = JSON.stringify(captcha);
                     
-                    wrappedPayload = `(function(){
-                        try {
-                            var appNo = ${appNoLiteral};
-                            var captcha = ${captchaLiteral};
-                            var ensureField = function(name, id, value) {
-                                var el = document.querySelector('[name="' + name + '"]') || (id ? document.getElementById(id) : null);
-                                if (!el) {
-                                    el = document.createElement('input');
-                                    el.type = 'hidden';
-                                    el.name = name;
-                                    if (id) el.id = id;
-                                    (document.body || document.documentElement).appendChild(el);
-                                }
-                                if (value) {
-                                    el.value = value;
-                                    el.setAttribute('value', value);
-                                    try { el.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
-                                    try { el.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
-                                }
-                                return el;
-                            };
-                            ensureField('llappln', 'llappln', appNo);
-                            ensureField('entcaptxt', 'entcaptxt', captcha);
-                            var visibleCaptcha = document.getElementById('txtCaptcha');
-                            if (visibleCaptcha && captcha) {
-                                visibleCaptcha.value = captcha;
-                                visibleCaptcha.setAttribute('value', captcha);
+                    const prelude = `
+                        var appNo = ${appNoLiteral};
+                        var captcha = ${captchaLiteral};
+                        var ensureField = function(name, id, value) {
+                            var el = document.querySelector('[name="' + name + '"]') || (id ? document.getElementById(id) : null);
+                            if (!el) {
+                                el = document.createElement('input');
+                                el.type = 'hidden';
+                                el.name = name;
+                                if (id) el.id = id;
+                                (document.body || document.documentElement).appendChild(el);
                             }
+                            if (value) {
+                                el.value = value;
+                                el.setAttribute('value', value);
+                                try { el.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
+                                try { el.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+                            }
+                            return el;
+                        };
+                        ensureField('llappln', 'llappln', appNo);
+                        ensureField('entcaptxt', 'entcaptxt', captcha);
+                        var visibleCaptcha = document.getElementById('txtCaptcha');
+                        if (visibleCaptcha && captcha) {
+                            visibleCaptcha.value = captcha;
+                            visibleCaptcha.setAttribute('value', captcha);
+                        }
+                    `;
+
+                    if (stepId === 'stall-flow') {
+                        wrappedPayload = `return (async function(){
+                            try {
+                                ${prelude}
+                                ${payload}
+                            } catch (e) {
+                                console.error('[Automation] Script Error:', e);
+                                throw e;
+                            }
+                        })();`;
+                    } else {
+                        wrappedPayload = `(function(){
+                        try {
+                            ${prelude}
                             ${payload}
                         } catch (e) { console.error('[Automation] Script Error:', e); }
                     })()`;
+                    }
                     return await this.retry(`execute ${stepId}`, () => sendMessage({ type: 'SP_EXEC', code: wrappedPayload }));
                 } finally {
                     payload = '';
@@ -357,13 +475,9 @@
                 // --- STEP 5: Continue ---
                 if (state.step === 5) {
                     if (url.includes('authenticationaction.do')) {
-                        const btn = document.querySelector('input[value="CONTINUE"]');
-                        if (btn) {
-                            await this.runConsoleAction(`
-                                if (typeof validateExamSelection === 'function') validateExamSelection();
-                                var b = document.querySelector('input[value="CONTINUE"]');
-                                if (b) b.click();
-                            `);
+                        this.setStartNowStatus('Continuing to instructions...', 'ok');
+                        const resp = await this.runExactContinueSnippet('step5');
+                        if (resp?.ok !== false && resp?.missing !== true) {
                             await sendMessage({ type: 'UPDATE_STALL_STEP', step: 6 });
                         }
                     }
@@ -371,36 +485,19 @@
                 }
 
                 // --- STEP 6: Language & Finish ---
-                if (state.step === 6 && (url.includes('ExamDisclaimer') || url.includes('examSelection'))) {
+                if (state.step === 6 && url.includes('instruction.do')) {
                     if (this._finishing) return;
 
                     const btn = document.getElementById('subm');
                     if (btn) {
                         this._finishing = true;
-                        this.setStartNowStatus('Finishing...', 'ok');
-                        await this.runConsoleAction(`
-                            const langSelect = document.getElementById("language");
-                            if (langSelect) {
-                                langSelect.value = "HINDI";
-                                langSelect.dispatchEvent(new Event("change", { bubbles: true }));
-                            }
-
-                            const d1 = document.querySelector('input[name="disclaimer1"]');
-                            const d2 = document.querySelector('input[name="disclaimer2"]');
-                            const b = document.getElementById('subm');
-
-                            [d1, d2].forEach(el => {
-                                if (el) {
-                                    el.checked = true;
-                                    el.dispatchEvent(new Event('click', { bubbles: true }));
-                                }
-                            });
-
-                            if (b) {
-                                setTimeout(() => b.click(), 500);
-                            }
-                        `);
-                        await sendMessage({ type: 'UPDATE_STALL_STEP', step: 7 });
+                        this.setStartNowStatus('Selecting Hindi and continuing...', 'ok');
+                        const resp = await this.runExactLanguageSnippet('step6');
+                        if (resp?.ok !== false && resp?.missing !== true) {
+                            await sendMessage({ type: 'UPDATE_STALL_STEP', step: 7 });
+                        } else {
+                            this._finishing = false;
+                        }
                     }
                     return;
                 }
@@ -429,12 +526,18 @@
 
             this.tick();
             this._timerId = setInterval(() => this.tick(), 1000);
+            this.runStallPageUserscriptWatcher();
+            this._pageWatcherTimer = setInterval(() => this.runStallPageUserscriptWatcher(), 700);
         },
 
         stop() {
             if (this._timerId) {
                 clearInterval(this._timerId);
                 this._timerId = null;
+            }
+            if (this._pageWatcherTimer) {
+                clearInterval(this._pageWatcherTimer);
+                this._pageWatcherTimer = null;
             }
         },
 

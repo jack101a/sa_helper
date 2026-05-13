@@ -13,6 +13,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import threading
 import time
 from io import BytesIO
@@ -28,25 +29,37 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Try importing pytesseract; gracefully degrade if Tesseract not installed
+# Try importing pytesseract; gracefully degrade if Tesseract binary is not installed.
 try:
     import pytesseract
-    
-    # Common Windows installation paths for Tesseract
-    _TESS_PATHS = [
-        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Tesseract-OCR", "tesseract.exe"),
-    ]
-    
-    for path in _TESS_PATHS:
-        if os.path.exists(path):
-            pytesseract.pytesseract.tesseract_cmd = path
-            break
-            
-    _TESSERACT_AVAILABLE = True
+
+    def _configure_tesseract() -> tuple[bool, str]:
+        candidates = [
+            os.environ.get("TESSERACT_CMD", ""),
+            shutil.which("tesseract") or "",
+            r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Tesseract-OCR", "tesseract.exe"),
+        ]
+        for path in candidates:
+            if not path:
+                continue
+            if os.path.exists(path) or path == "tesseract":
+                pytesseract.pytesseract.tesseract_cmd = path
+                try:
+                    version = pytesseract.get_tesseract_version()
+                    logger.info("tesseract_ready", extra={"context": {"cmd": path, "version": str(version)}})
+                    return True, path
+                except Exception as e:
+                    logger.warning("tesseract_probe_failed", extra={"context": {"cmd": path, "error": str(e)}})
+        return False, ""
+
+    _TESSERACT_AVAILABLE, _TESSERACT_CMD = _configure_tesseract()
+    if not _TESSERACT_AVAILABLE:
+        logger.warning("tesseract binary not found — OCR layer disabled")
 except ImportError:
     _TESSERACT_AVAILABLE = False
+    _TESSERACT_CMD = ""
     logger.warning("pytesseract not installed — OCR layer disabled")
 
 
@@ -285,7 +298,14 @@ class ExamService:
     def _tesseract_config(self) -> str:
         tess_dir = self._tessdata_dir()
         if tess_dir:
-            return f'--psm 6 --tessdata-dir "{tess_dir}"'
+            return f"--psm 6 --tessdata-dir {tess_dir}"
+        return "--psm 6"
+
+    @staticmethod
+    def _static_tesseract_config() -> str:
+        tess_dir = (_resolve_project_root() / "backend" / "tessdata").resolve()
+        if tess_dir.exists():
+            return f"--psm 6 --tessdata-dir {tess_dir}"
         return "--psm 6"
 
     # ── Layer 1: Perceptual Hash ──────────────────────────────────────────────
@@ -345,9 +365,10 @@ class ExamService:
         if not _TESSERACT_AVAILABLE:
             return ""
         try:
-            text = pytesseract.image_to_string(img, lang="eng+hin", config="--psm 6")
+            text = pytesseract.image_to_string(img, lang="eng+hin", config=ExamService._static_tesseract_config())
             return text.strip()
-        except Exception:
+        except Exception as e:
+            logger.warning("ocr_static_failed", extra={"context": {"error": str(e), "tesseract_cmd": _TESSERACT_CMD}})
             return ""
 
     # ─────────────────────────────────────────────────────────────────────

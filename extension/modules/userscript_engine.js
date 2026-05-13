@@ -239,6 +239,40 @@
         });
     }
 
+    function isAuthenticationHandlerScript(scriptData) {
+        const id = String(scriptData.id || '').toLowerCase();
+        const name = String(scriptData.name || scriptData.parsedMeta?.name || '').toLowerCase();
+        return id.includes('authentication_handler') || name === 'authentication handler';
+    }
+
+    function isAllowedStallAuthUrl(urlValue = location.href) {
+        try {
+            const url = new URL(urlValue);
+            if (url.hostname !== 'sarathi.parivahan.gov.in') return false;
+            if (url.pathname !== '/sarathiservice/authenticationaction.do'
+                && url.pathname !== '/sarathiservice/instruction.do'
+                && url.pathname !== '/sarathiservice/examselectaction.do') {
+                return false;
+            }
+            if (url.pathname === '/sarathiservice/authenticationaction.do') {
+                const authType = (url.searchParams.get('authtype') || '').toLowerCase();
+                return authType === 'anugyna' || authType === 'anugnya';
+            }
+            return true;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    async function isStallFlowActive() {
+        try {
+            const data = await chrome.storage.local.get(['_automationState', 'stallVcamActive']);
+            return data.stallVcamActive === true || data._automationState?.active === true;
+        } catch (_) {
+            return false;
+        }
+    }
+
     function buildWrappedCode(scriptData) {
         const meta = scriptData.parsedMeta || {};
         const id = scriptData.id || scriptData.name || 'unknown';
@@ -372,8 +406,13 @@ ${scriptData.rawCode || ''}
                 console.debug('[Userscript Engine] On-demand sync failed:', e);
             }
         }
+        const stallFlowActive = await isStallFlowActive();
+        scripts = scripts.filter(script => {
+            if (!isAuthenticationHandlerScript(script)) return true;
+            return stallFlowActive && isAllowedStallAuthUrl(location.href);
+        });
         const runForUrl = (url, reason) => runtime.runMatchingScripts({
-            scripts,
+            scripts: scripts.filter(script => !isAuthenticationHandlerScript(script) || (stallFlowActive && isAllowedStallAuthUrl(url))),
             url,
             reason,
             execute: executeScriptData,
