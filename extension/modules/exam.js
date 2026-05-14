@@ -154,6 +154,14 @@
             return true;
         }
 
+        async function waitForClickWindow(label = 'Click window') {
+            const waitMs = Math.max(0, state.targetClickAt - Date.now());
+            if (waitMs > 0) {
+                setStatus(label, 'work');
+                await new Promise(r => setTimeout(r, waitMs));
+            }
+        }
+
         function imageToPayload(imgEl) {
             if (!imgEl) return null;
             if (typeof window.up_imgToB64 === 'function') {
@@ -332,15 +340,16 @@
             setStatus('Solving…', 'work');
 
             try {
-                // Solve with a 20-second timeout. If it takes longer, we'll click randomly.
+                // If no usable answer is ready by the click window, fall back then.
                 const solvePromise = window.up_sendMsg('SOLVE_EXAM', {
                     questionB64: questionPayload,
                     optionB64s:  optImgs,
                     domain:      window.location.hostname,
                 });
 
-                const timeout = new Promise(r => setTimeout(() => r({ ok: false, error: 'TIMEOUT_29S' }), 28500));
-                const resp = await Promise.race([solvePromise, timeout]);
+                const clickWindowMs = Math.max(0, state.targetClickAt - Date.now());
+                const clickWindow = new Promise(r => setTimeout(() => r({ ok: false, error: 'CLICK_WINDOW_NO_ANSWER' }), clickWindowMs));
+                const resp = await Promise.race([solvePromise, clickWindow]);
 
                 if (resp?.ok && resp.data?.train_only) {
                     const candidate = resp.data.candidate_option;
@@ -366,8 +375,7 @@
                     };
                     await storePendingFeedback(state.lastSolve);
 
-                    const waitMs = state.targetClickAt - Date.now();
-                    if (waitMs > 0) await new Promise(r => setTimeout(r, waitMs));
+                    await waitForClickWindow('Waiting for click window...');
 
                     const isLast = state.totalSeen >= CFG.TOTAL_QUESTIONS;
                     const deadline = state.questionStart + CFG.DEADLINE;
@@ -377,7 +385,7 @@
                 } else {
                     // ── Improved error handling ──────────────────────────
                     const errMsg = resp?.error || '';
-                    const isTimeout = errMsg === 'TIMEOUT_29S';
+                    const isClickWindowFallback = errMsg === 'CLICK_WINDOW_NO_ANSWER';
 
                     // Auth / config errors — show clear message, don't interact
                     if (/no api key|api key invalid|unauthorized|forbidden|blocked|inactive|payment pending/i.test(errMsg)) {
@@ -388,45 +396,34 @@
                     }
 
                     // Network errors — skip this question, don't click random
-                    if (/network|fetch|failed to fetch|timeout/i.test(errMsg) && !isTimeout) {
+                    if (/network|fetch|failed to fetch|timeout/i.test(errMsg) && !isClickWindowFallback) {
                         setStatus('🌐 Network Error', 'fail');
                         setResult('Cannot reach server. Check your connection.');
                         state.processing = false;
                         return;
                     }
 
-                    // FALLBACK: Pick random option at the very last second (29s)
-                    
-                    // If we got "No Match" early, we MUST wait until 29s before clicking random
-                    if (!isTimeout) {
-                        const now = Date.now();
-                        const targetTime = state.questionStart + 29000;
-                        const waitTime = targetTime - now;
-                        if (waitTime > 0) {
-                            setStatus('✗ No Match (Wait 29s)', 'fail');
-                            await new Promise(r => setTimeout(r, waitTime));
-                        }
-                    }
+                    await waitForClickWindow(isClickWindowFallback ? 'No answer by click window' : 'No match, waiting for click window');
 
                     const optCount = optImgs.length || 3;
                     const randomOpt = window.up_rndInt(1, optCount);
                     
-                    setStatus(isTimeout ? '⏰ Time Limit!' : '✗ Random Fallback', 'fail');
-                    setResult(`${isTimeout ? '29s reached.' : 'No result.'} Picking random: ${randomOpt}`);
+                    setStatus(isClickWindowFallback ? 'Click Window Fallback' : 'Random Fallback', 'fail');
+                    setResult(`${isClickWindowFallback ? 'No answer in time.' : 'No match.'} Picking random: ${randomOpt}`);
                     
                     // Store for feedback (random fallback — likely wrong, but track anyway)
                     state.lastSolve = {
                         questionB64: questionPayload,
                         optionB64s:  optImgs,
                         selectedOption: randomOpt,
-                        method:      isTimeout ? 'timeout' : 'random_fallback',
+                        method:      isClickWindowFallback ? 'click_window_fallback' : 'random_fallback',
                         processingMs: 0,
                     };
                     await storePendingFeedback(state.lastSolve);
                     
                     const isLast = state.totalSeen >= CFG.TOTAL_QUESTIONS;
                     await clickOption(randomOpt);
-                    waitAndSubmit(Date.now(), isLast);
+                    waitAndSubmit(state.questionStart + CFG.DEADLINE, isLast);
                 }
             } catch (err) {
                 setStatus('✗ Error', 'fail');

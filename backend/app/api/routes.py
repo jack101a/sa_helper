@@ -18,6 +18,7 @@ from fastapi import APIRouter, HTTPException, Request
 from app.core.database import Database
 from app.core.security import is_valid_base64
 from app.core.userscript_utils import parse_userscript_meta
+from app.core.automation_method_utils import validate_automation_method_payload, compose_dynamic_stall_flow
 from app.models.schemas import (
     AutofillFillRequest,
     AutofillFillResponse,
@@ -111,6 +112,11 @@ def _userscript_sync_status(meta: dict) -> str:
     diagnostics = meta.get("diagnostics") if isinstance(meta, dict) else {}
     errors = diagnostics.get("errors") if isinstance(diagnostics, dict) else []
     return "error" if errors else "ready"
+
+
+def _dynamic_automation_enabled(container) -> bool:
+    """Check if dynamic automation methods are enabled in platform settings."""
+    return container.db.get_setting("automation.dynamic_methods_enabled", "false").lower() in ("1", "true", "yes", "on")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -580,8 +586,6 @@ async def autofill_sync(request: Request) -> AutofillRuleSyncResponse:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SERVICE 1 — TEXT CAPTCHA  (/v1/solve, /v1/report)
-# ═══════════════════════════════════════════════════════════════════════════════
 # SERVICE 4 — AUTOMATION PAYLOADS
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -643,19 +647,40 @@ return {{ ok: true, step: 'stall-flow' }};
 async def get_automation_payload(request: Request, step_id: str) -> dict:
     """Serve stateless automation scripts for STALL payloads."""
     _ensure_service_allowed(request, "stall")
+    container = request.app.state.container
     # Key validation is already handled by AuthMiddleware.
     # We only allow specific step_ids to prevent arbitrary file reading.
     if step_id not in _AUTOMATION_SCRIPT_IDS:
         raise HTTPException(400, "Invalid step_id")
 
     try:
+        payload = None
+
         if step_id == "stall-flow":
-            payload = _compose_stall_flow_payload(
-                step3_code=_read_automation_script("step3"),
-                step4_code=_read_automation_script("step4"),
-            )
+            # 1. Try dynamic method if enabled
+            if _dynamic_automation_enabled(container):
+                method = container.db.get_active_automation_method("stall-flow")
+                if method:
+                    try:
+                        payload_data = json.loads(method["payload_json"])
+                        errors = validate_automation_method_payload(payload_data)
+                        if not errors:
+                            payload = compose_dynamic_stall_flow(payload_data)
+                        else:
+                            logger.error("active_automation_method_invalid", extra={"context": {"method_id": method["id"], "errors": errors}})
+                    except Exception as e:
+                        logger.error("active_automation_method_parse_failed", extra={"context": {"method_id": method["id"], "error": str(e)}})
+
+            # 2. Fallback to file-based composition
+            if not payload:
+                payload = _compose_stall_flow_payload(
+                    step3_code=_read_automation_script("step3"),
+                    step4_code=_read_automation_script("step4"),
+                )
         else:
+            # For other steps (step3/step4 individually), always use file-based for now
             payload = _read_automation_script(step_id)
+
         return {"step_id": step_id, "payload": payload}
     except HTTPException:
         raise

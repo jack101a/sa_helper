@@ -352,7 +352,7 @@ function _persistAutomationState() {
 
 function _setStallKeepAlive(active) {
     if (active) {
-        chrome.alarms.create(STALL_KEEPALIVE_ALARM, { periodInMinutes: 1 });
+        chrome.alarms.create(STALL_KEEPALIVE_ALARM, { periodInMinutes: 0.5 });
     } else {
         chrome.alarms.clear(STALL_KEEPALIVE_ALARM);
     }
@@ -384,7 +384,7 @@ function _injectStallKeepAlive(tabId) {
                     document.dispatchEvent(new Event('visibilitychange'));
                     document.body?.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 1, clientY: 1 }));
                 } catch (_) {}
-            }, 15000);
+            }, 5000);
             try {
                 navigator.wakeLock?.request?.('screen').then(lock => {
                     window.__stall_wake_lock = lock;

@@ -19,6 +19,7 @@ from app.core.repositories.exam_attempts import ExamAttemptsRepository
 from app.core.repositories.exam_learned import ExamLearnedRepository
 from app.core.repositories.training import TrainingRepository
 from app.core.repositories.settings import SettingsRepository
+from app.core.repositories.automation_methods import AutomationMethodRepository
 
 
 class Database:
@@ -38,6 +39,7 @@ class Database:
         self.exam_learned = ExamLearnedRepository(self)
         self.training = TrainingRepository(self)
         self.settings = SettingsRepository(self)
+        self.automation_methods = AutomationMethodRepository(self)
 
     @staticmethod
     def _normalize_domain(domain: str | None) -> str:
@@ -330,6 +332,18 @@ class Database:
                         last_verified_at TEXT,
                         status           TEXT NOT NULL DEFAULT 'training'
                     );
+
+                    CREATE TABLE IF NOT EXISTS automation_methods (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        description TEXT NOT NULL DEFAULT '',
+                        method_type TEXT NOT NULL DEFAULT 'stall-flow',
+                        enabled INTEGER NOT NULL DEFAULT 1,
+                        active INTEGER NOT NULL DEFAULT 0,
+                        payload_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    );
                     """
                 )
                 # ── Column migrations (idempotent) ─────────────────────────
@@ -526,3 +540,12 @@ class Database:
     def release_job_claims(self, job_id: int): return self.training.release_job_claims(job_id)
     def insert_active_learning(self, *args, **kwargs): return self.training.insert_active_learning(*args, **kwargs)
     def get_active_learning_samples(self, *args, **kwargs): return self.training.get_active_learning_samples(*args, **kwargs)
+
+    # Automation Methods
+    def list_automation_methods(self, *args, **kwargs): return self.automation_methods.list_automation_methods(*args, **kwargs)
+    def get_automation_method(self, *args, **kwargs): return self.automation_methods.get_automation_method(*args, **kwargs)
+    def get_active_automation_method(self, *args, **kwargs): return self.automation_methods.get_active_automation_method(*args, **kwargs)
+    def create_automation_method(self, *args, **kwargs): return self.automation_methods.create_automation_method(*args, **kwargs)
+    def update_automation_method(self, *args, **kwargs): return self.automation_methods.update_automation_method(*args, **kwargs)
+    def activate_automation_method(self, *args, **kwargs): return self.automation_methods.activate_automation_method(*args, **kwargs)
+    def delete_automation_method(self, *args, **kwargs): return self.automation_methods.delete_automation_method(*args, **kwargs)

@@ -208,6 +208,7 @@ export function App() {
           <Route path="/autofill" element={<AutofillProposalsPanel autofillProposals={autofillProposals} {...proposalHandlers} />} />
           <Route path="/captcha" element={<CaptchaProposalsPanel mappings={mappings} handleRemoveMapping={modelHandlers.handleRemoveMapping} handleQuickEditMapping={modelHandlers.handleQuickEditMapping} captchaProposals={captchaProposals} models={models} {...proposalHandlers} />} />
           <Route path="/exam" element={<ExamStatsPanel examStats={examStats} showToast={showToast} />} />
+          <Route path="/automation" element={<Navigate to="/exam" replace />} />
           <Route path="/settings" element={<SettingsPanel apiKeys={apiKeys} access={access} settingsKeyId={settingsKeyId} settingsAllDomains={settingsAllDomains} setSettingsAllDomains={setSettingsAllDomains} settingsDomainSelections={settingsDomainSelections} settingsKeyRpm={settingsKeyRpm} setSettingsKeyRpm={setSettingsKeyRpm} settingsKeyBurst={settingsKeyBurst} setSettingsKeyBurst={setSettingsKeyBurst} settingsCustomDomain={settingsCustomDomain} setSettingsCustomDomain={setSettingsCustomDomain} cloudBackupConfigured={cloudBackupConfigured} showToast={showToast} {...settingsHandlers} />} />
         </Routes>
         </Suspense>

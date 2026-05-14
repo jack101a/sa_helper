@@ -5,7 +5,7 @@ from fastapi import APIRouter
 from app.api.admin_routes import (
     auth, keys, models, datasets, backups, autofill, locators,
     settings, analytics, captcha_proposals, users, payments, subscriptions,
-    user_keys, system,
+    user_keys, system, automation_methods,
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -25,5 +25,6 @@ router.include_router(payments.router)
 router.include_router(subscriptions.router)
 router.include_router(user_keys.router)
 router.include_router(system.router)
+router.include_router(automation_methods.router)
 # Analytics MUST be last — its catch-all /{full_path:path} serves the SPA
 router.include_router(analytics.router)
