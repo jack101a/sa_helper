@@ -4,7 +4,7 @@
 Verify the current codebase is ready for Docker/startup usage, then commit and push source changes to `sa_helper/before-scale`.
 
 ## Status
-IN PROGRESS
+COMPLETE
 
 ## Scope Included
 - Run backend/frontend/extension verification commands.
@@ -18,11 +18,11 @@ IN PROGRESS
 - No runtime DB commit.
 
 ## Plan
-- [ ] Verify backend compile and frontend build.
-- [ ] Verify extension JS syntax and package extension.
-- [ ] Stage intended files only.
-- [ ] Commit and push.
-- [ ] Update `STATE.md`.
+- [x] Verify backend compile and frontend build.
+- [x] Verify extension JS syntax and package extension.
+- [x] Stage intended files only.
+- [x] Commit and push.
+- [x] Update `STATE.md`.
 
 ## Verification Approach
 - `python -m py_compile` for changed backend files.
