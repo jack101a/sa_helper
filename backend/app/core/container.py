@@ -71,9 +71,6 @@ def build_container(settings: Settings) -> Container:
     if create_tables:
         from app.core.db import create_all_tables
         create_all_tables()
-    if db.legacy_sqlalchemy_enabled:
-        db.ensure_master_key()
-
     # Captcha solver (existing ONNX pipeline)
     model_router = ModelRouter(settings=settings, db=db)
     cache = CacheService(ttl_seconds=settings.queue.cache_ttl_seconds)
@@ -133,4 +130,3 @@ def build_container(settings: Settings) -> Container:
         backup_service=backup_service,
         user_key_service=user_key_service,
     )
-
