@@ -146,6 +146,14 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - ${CONFIG_PATH}/sa_helper/postgres:/var/lib/postgresql/data
+    command: >
+      bash -c "
+        docker-entrypoint.sh postgres &
+        PG_PID=$$!
+        until pg_isready -U $$POSTGRES_USER; do sleep 1; done
+        psql -U $$POSTGRES_USER -d $$POSTGRES_DB -c \"ALTER USER $$POSTGRES_USER WITH PASSWORD '$$POSTGRES_PASSWORD';\"
+        wait $$PG_PID
+      "
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
