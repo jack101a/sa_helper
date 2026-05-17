@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import PropTypes from "prop-types";
+import { CreditCard, Loader2, CheckCircle, XCircle, Clock, Search, ShieldCheck, AlertTriangle } from "lucide-react";
 import { useThemeContext } from "../context/ThemeContext";
 import { apiGet, apiPostJson } from "../../api/client";
 

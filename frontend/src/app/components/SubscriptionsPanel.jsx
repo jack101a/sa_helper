@@ -1,7 +1,10 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import PropTypes from "prop-types";
 import { Users, CreditCard, Tag } from "lucide-react";
 import { useThemeContext } from "../context/ThemeContext";
+import { UsersPanel } from "./UsersPanel";
+import { PaymentsPanel } from "./PaymentsPanel";
+import { PlansPanel } from "./PlansPanel";
 
 const TABS = [
   { id: "users",    label: "Users",    icon: Users },

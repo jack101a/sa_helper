@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import PropTypes from "prop-types";
-import { AlertCircle, CheckCircle2, Loader2, X } from "lucide-react";
+import { CheckCircle2, AlertCircle, Loader2, X } from "lucide-react";
 import { Sidebar } from "../components/Sidebar";
 import { useThemeContext } from "../context/ThemeContext";
 

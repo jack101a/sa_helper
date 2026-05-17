@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
 import PropTypes from "prop-types";
-import { Code } from "lucide-react";
+import { Plus, Edit2, Trash2, RefreshCw, X, Code } from "lucide-react";
 import { useThemeContext } from "../context/ThemeContext";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import { apiPostJson, apiPutJson, apiDelete } from "../../api/client";
+import { EmptyState } from "./EmptyState";
 
 export function UserscriptsPanel({
   userscripts,

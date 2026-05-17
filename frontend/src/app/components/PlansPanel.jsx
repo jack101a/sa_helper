@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import PropTypes from "prop-types";
+import { Tag, Loader2, Plus, Edit3, Save, X } from "lucide-react";
 import { useThemeContext } from "../context/ThemeContext";
 import { apiGet, apiPostJson, apiPutJson } from "../../api/client";
 

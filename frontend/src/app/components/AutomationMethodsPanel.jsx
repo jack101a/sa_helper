@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
-import { Server } from "lucide-react";
+import { CheckCircle2, Edit2, Plus, RefreshCw, Server, Trash2, X, Zap } from "lucide-react";
 import { useThemeContext } from "../context/ThemeContext";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import { apiDelete, apiGet, apiPostJson, apiPutJson } from "../../api/client";
+import { EmptyState } from "./EmptyState";
 
 const DEFAULT_WAIT_MS = 5000;
 

@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import React, { useEffect } from "react";
 import PropTypes from "prop-types";
-import { Inbox } from "lucide-react";
+import { Database, Inbox } from "lucide-react";
 import { useThemeContext } from "../context/ThemeContext";
+import { EmptyState } from "./EmptyState";
 
 export function MappingsPanel({
   mappingsByDomain,

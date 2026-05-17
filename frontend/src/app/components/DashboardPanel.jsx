@@ -1,6 +1,9 @@
+import React from "react";
 import PropTypes from "prop-types";
-import { Inbox } from "lucide-react";
+import { FileX2, Trash2, Download, Inbox } from "lucide-react";
 import { useThemeContext } from "../context/ThemeContext";
+import { EmptyState } from "./EmptyState";
+import { SkeletonTableRow } from "./Skeleton";
 
 export function DashboardPanel({
   failedPayloads,

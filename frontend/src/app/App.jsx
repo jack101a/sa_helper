@@ -1,9 +1,9 @@
-import React, { Suspense, useEffect, useState } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import React, { useEffect, useState, Suspense } from "react";
+import { Routes, Route, Navigate } from "react-router-dom";
 
 import { DashboardLayout } from "./layout/DashboardLayout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { SkeletonCard } from "./components/Skeleton";
+import { SkeletonCard, SkeletonTableRow } from "./components/Skeleton";
 
 const DashboardPanel         = React.lazy(() => import("./components/DashboardPanel").then(m => ({ default: m.DashboardPanel })));
 const SubscriptionsPanel      = React.lazy(() => import("./components/SubscriptionsPanel").then(m => ({ default: m.SubscriptionsPanel })));

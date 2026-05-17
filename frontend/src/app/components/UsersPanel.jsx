@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import PropTypes from "prop-types";
+import { Users, UserPlus, Search, Loader2, ChevronLeft, ChevronRight, Edit3, Ban, CheckCircle, XCircle, Trash2 } from "lucide-react";
 import { useThemeContext } from "../context/ThemeContext";
 import { apiGet, apiPostJson, apiPutJson, apiDelete } from "../../api/client";
 

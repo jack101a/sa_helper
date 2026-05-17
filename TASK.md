@@ -1,15 +1,14 @@
-# TASK.md - Docker Runtime Blank Dashboard and Service Fixes
+# TASK.md - Admin Dashboard Runtime Import Recovery
 
 ## Goal
-Fix deployed Docker runtime issues: blank admin dashboard, Postgres password sync SQL error, and Telegram Markdown parse failures.
+Fix deployed admin dashboard runtime failures caused by missing JSX imports after frontend cleanup.
 
 ## Status
 COMPLETED
 
 ## Scope Included
-- Restore stripped frontend imports used at runtime by the admin shell.
-- Fix Postgres password sync command to avoid psql variable syntax errors.
-- Remove fragile Markdown parse mode from Telegram text replies that include dynamic content.
+- Restore known-good frontend component imports.
+- Add `react/jsx-no-undef` lint coverage to catch missing JSX imports before deployment.
 - Verify frontend build/lint, backend lint/tests, and compose config.
 
 ## Scope Excluded
@@ -17,10 +16,9 @@ COMPLETED
 - Changing production secrets or stopping external Telegram bot processes.
 
 ## Plan
-- [x] Diagnose blank admin dashboard from missing runtime imports.
-- [x] Patch frontend imports.
-- [x] Patch Postgres password sync command.
-- [x] Patch Telegram reply parse mode.
+- [x] Diagnose dashboard crash from missing JSX imports like `NavLink`.
+- [x] Restore frontend app/component imports from known-good history.
+- [x] Add strict JSX undefined lint coverage.
 - [x] Run verification commands.
 
 ## Verification Approach

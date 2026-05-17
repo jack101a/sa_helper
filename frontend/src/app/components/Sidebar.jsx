@@ -1,8 +1,10 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import PropTypes from "prop-types";
-import { useLocation } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { 
-  LayoutDashboard, Database, Activity, BrainCircuit, Settings, MapPin, Code, CreditCard
+  LayoutDashboard, Database, Activity, BrainCircuit, Settings, 
+  Sun, Moon, LogOut, MapPin, Download, Code, Menu, X,
+  Users, CreditCard
 } from "lucide-react";
 import { useThemeContext } from "../context/ThemeContext";
 

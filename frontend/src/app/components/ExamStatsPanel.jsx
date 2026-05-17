@@ -1,7 +1,9 @@
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import PropTypes from "prop-types";
+import { BrainCircuit, Loader2, Save, GraduationCap, ToggleLeft, ToggleRight } from "lucide-react";
 import { useThemeContext } from "../context/ThemeContext";
 import { apiGet, apiPostJson } from "../../api/client";
+import { AutomationMethodsPanel } from "./AutomationMethodsPanel";
 
 export function ExamStatsPanel({
   examStats,
