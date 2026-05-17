@@ -1,43 +1,32 @@
-# STATE.md - Plain Compose Rewrite
+# STATE.md - Use CONFIG_PATH For Host Volumes
 
 ## Status
 COMPLETE
 
 ## Active Task
-Rewrote Docker Compose in the user's preferred plain explicit style, without YAML anchors or hidden merges.
+Switched Docker Compose host volume paths back to the user's required `${CONFIG_PATH}` variable.
 
 ## Last Files Modified
 - `docker-compose.yml`
+- `.env`
 - `TASK.md`
 - `STATE.md`
 
 ## Last Command Run
-`python -c "import yaml; c=yaml.safe_load(open('backend/config/config.yaml', encoding='utf-8')); print(c['storage']['db_type'], c['redis']['url'], c['telegram']['api_base_url'])"`
+`python -c "import yaml; c=yaml.safe_load(open('docker-compose.yml', encoding='utf-8')); print('yaml_ok'); print(c['services']['api']['volumes']); print(c['services']['postgres']['volumes'])"`
 
 ## Last Output/Error
 Completed:
-- Removed all `x-` extension blocks and `<<` YAML merges from `docker-compose.yml`.
-- Made each service explicit:
-  - `api`
-  - `worker`
-  - `telegram-bot`
-  - `telegram-bot-api`
-  - `postgres`
-  - `redis`
-- Kept app service env minimal and visible in each service:
-  - `CONFIG_PATH=/app/backend/config/config.yaml`
-  - seed import controls
-- Kept host paths clear through `SA_HELPER_HOST_ROOT`.
+- Replaced all Docker Compose host volume prefixes from `${SA_HELPER_HOST_ROOT:-/srv/ajaxhs/config}` to `${CONFIG_PATH}`.
+- Replaced root `.env` `SA_HELPER_HOST_ROOT=/srv/ajaxhs/config` with `CONFIG_PATH=/srv/ajaxhs/config`.
+- Kept app service environment `CONFIG_PATH: /app/backend/config/config.yaml` unchanged because the app still needs the container-side config file path.
+- Kept PUID/PGID user support unchanged.
 
 Verification:
-- YAML parse passed for `docker-compose.yml` and `backend/config/config.yaml`.
-- Parsed key config values:
-  - `postgresql`
-  - `redis://redis:6379/0`
-  - `http://telegram-bot-api:8081`
-
-Note:
-- Docker is not installed in this workspace, so `docker compose config` could not be run here.
+- Docker Compose YAML parsed successfully.
+- API volumes parse as `${CONFIG_PATH}/sa_helper/...`.
+- Postgres volume parses as `${CONFIG_PATH}/sa_helper/postgres:/var/lib/postgresql/data`.
+- No `SA_HELPER_HOST_ROOT` references remain in `docker-compose.yml` or root `.env`.
 
 ## Immediate Next Step
-Use the plain `docker-compose.yml` in Portainer/deployment. App settings remain in mounted `sa_helper/config/config.yaml`.
+Use `CONFIG_PATH=/srv/ajaxhs/config` in Portainer/root `.env` before deploying.

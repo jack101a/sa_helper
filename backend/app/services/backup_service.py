@@ -176,6 +176,31 @@ class BackupService:
             logger.exception("restore_failed", extra={"context": {"error": str(exc)}})
             return {"status": "failed", "error": str(exc)}
 
+    def import_system_bundle(self, package_path: str | Path) -> dict:
+        package = Path(package_path)
+        try:
+            validation = self.validate_package(package)
+            if not validation.get("ok"):
+                return {"status": "failed", "error": validation.get("error")}
+            clear_bytes = self._read_package_bytes(package)
+            with zipfile.ZipFile(io.BytesIO(clear_bytes)) as zf:
+                names = set(zf.namelist())
+                if "system-data.json" in names:
+                    system_data = json.loads(zf.read("system-data.json").decode("utf-8"))
+                    if system_data:
+                        self._restore_system_data(system_data)
+                self._restore_files(zf)
+            manifest = validation["manifest"]
+            return {
+                "status": "completed",
+                "bundle": str(package),
+                "file_count": int(manifest.get("file_count") or 0),
+                "manifest": manifest,
+            }
+        except Exception as exc:
+            logger.exception("system_bundle_import_failed", extra={"context": {"error": str(exc)}})
+            return {"status": "failed", "error": str(exc)}
+
     def list_backups(self) -> list[dict]:
         backups = []
         for item in sorted(self._backup_dir.glob("backup_*.*"), key=lambda p: p.stat().st_mtime, reverse=True):

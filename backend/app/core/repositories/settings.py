@@ -405,7 +405,7 @@ class SettingsRepository(BaseRepository):
                     if rule_json and approved_id:
                         conn.execute(
                             """
-                            INSERT INTO autofill_rule_proposals 
+                            INSERT OR IGNORE INTO autofill_rule_proposals
                                 (idempotency_key, device_id, api_key_id, status, submitted_at, rule_json, approved_rule_id, reviewed_at, created_at)
                             VALUES (?, ?, ?, 'approved', ?, ?, ?, ?, ?)
                             """,

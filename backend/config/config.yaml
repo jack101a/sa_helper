@@ -3,7 +3,7 @@ app_name: unified-platform
 server:
   host: 0.0.0.0
   port: 8080
-  debug: true
+  debug: false
   cors_origins:
     - moz-extension://*
     - chrome-extension://*
@@ -13,10 +13,10 @@ auth:
   key_prefix: sk-
   key_length: 32
   default_expiry_days: 90
-  hash_salt: change_me_random_32_chars
-  admin_token: your_admin_token_here
+  hash_salt: ""
+  admin_token: ""
   admin_username: admin
-  admin_password: 123456
+  admin_password: ""
 
 rate_limit:
   requests_per_minute: 60
@@ -29,7 +29,7 @@ queue:
 
 logging:
   level: INFO
-  debug: true
+  debug: false
   json: true
 
 model:
@@ -43,8 +43,8 @@ model:
 
 storage:
   db_type: postgresql
-  # Password must match POSTGRES_PASSWORD in docker/Portainer .env.
-  database_url: "postgresql+psycopg2://sa_helper:change-me-postgres-password@postgres:5432/sa_helper"
+  # Leave blank in Docker. The app builds this from POSTGRES_DB/POSTGRES_USER/POSTGRES_PASSWORD.
+  database_url: ""
   sqlite_path: backend/logs/app.db
 
 redis:
@@ -56,7 +56,7 @@ retrain:
   worker_enabled: false
 
 exam:
-  litellm_endpoint: "https://llm.ajaxhs.duckdns.org/v1/"
+  litellm_endpoint: ""
   litellm_api_key: ""
   litellm_model: gemma-4-31b-it_gemini
   ocr_lang: eng+hin

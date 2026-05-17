@@ -7,6 +7,7 @@ from copy import deepcopy
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import yaml
 from dotenv import load_dotenv
@@ -244,6 +245,20 @@ def _resolve_path(raw_path: str) -> Path:
     return (get_project_root() / raw_path).resolve()
 
 
+def _postgres_url_from_env() -> str:
+    database = os.getenv("POSTGRES_DB", "sa_helper").strip() or "sa_helper"
+    user = os.getenv("POSTGRES_USER", "sa_helper").strip() or "sa_helper"
+    password = os.getenv("POSTGRES_PASSWORD", "").strip()
+    host = os.getenv("POSTGRES_HOST", "postgres").strip() or "postgres"
+    port = os.getenv("POSTGRES_PORT", "5432").strip() or "5432"
+    if not password:
+        return ""
+    return (
+        f"postgresql+psycopg2://{quote(user, safe='')}:"
+        f"{quote(password, safe='')}@{host}:{port}/{database}"
+    )
+
+
 @lru_cache
 def get_settings() -> Settings:
     project_root = get_project_root()
@@ -262,8 +277,11 @@ def get_settings() -> Settings:
     config_dict.setdefault("storage", {})
     sqlite_raw = os.getenv("SQLITE_PATH", config_dict["storage"].get("sqlite_path", ""))
     config_dict["storage"]["sqlite_path"] = str(_resolve_path(sqlite_raw))
-    config_dict["storage"]["database_url"] = os.getenv("DATABASE_URL", config_dict["storage"].get("database_url", ""))
     config_dict["storage"]["db_type"] = os.getenv("DB_TYPE", config_dict["storage"].get("db_type", "sqlite")).lower()
+    database_url = os.getenv("DATABASE_URL", config_dict["storage"].get("database_url", ""))
+    if config_dict["storage"]["db_type"] == "postgresql" and not database_url:
+        database_url = _postgres_url_from_env()
+    config_dict["storage"]["database_url"] = database_url
 
     config_dict.setdefault("redis", {})
     config_dict["redis"]["enabled"] = os.getenv("REDIS_ENABLED", str(config_dict["redis"].get("enabled", False))).lower() in ("1", "true", "yes")

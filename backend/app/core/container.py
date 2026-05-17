@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -66,9 +67,11 @@ def build_container(settings: Settings) -> Container:
     init_sqlalchemy_db(settings)
     # Import models to register them with Base.metadata before creating tables
     import app.core.models  # noqa: F401
-    # Create tables if they don't exist (dev convenience; production uses migrations)
-    from app.core.db import create_all_tables
-    create_all_tables()
+    # Local/dev convenience. Production containers run Alembic in the entrypoint.
+    create_tables = os.getenv("CREATE_ALL_TABLES", "true").strip().lower() in {"1", "true", "yes", "on"}
+    if create_tables:
+        from app.core.db import create_all_tables
+        create_all_tables()
     if db.legacy_sqlalchemy_enabled:
         db.ensure_master_key()
 

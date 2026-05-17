@@ -224,6 +224,23 @@ export function SettingsPanel({
     }
   };
 
+  const importSystemBundle = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBackupBusy("import-bundle");
+    try {
+      const fd = new FormData();
+      fd.append("bundle_file", file);
+      const result = await apiPostForm("/admin/api/system/import-bundle", fd);
+      showToast(result.status === "completed" ? `Bundle imported (${result.file_count || 0} files)` : result.error || "Bundle import failed", result.status === "completed" ? "success" : "error");
+    } catch (err) {
+      showToast(err.message || "Bundle import failed", "error");
+    } finally {
+      e.target.value = "";
+      setBackupBusy("");
+    }
+  };
+
   const restoreBackupPackage = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -730,8 +747,13 @@ export function SettingsPanel({
                 <input type="file" accept=".upbak,.zip" className="hidden" onChange={validateBackupPackage} />
               </label>
               <label className={`cursor-pointer ${glassButton}`}>
+                {backupBusy === "import-bundle" ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                Import Bundle
+                <input type="file" accept=".zip,.upbak" className="hidden" onChange={importSystemBundle} />
+              </label>
+              <label className={`cursor-pointer ${glassButton}`}>
                 {backupBusy === "restore" ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                Restore Package
+                Full Restore
                 <input type="file" accept=".upbak,.zip" className="hidden" onChange={restoreBackupPackage} />
               </label>
             </div>

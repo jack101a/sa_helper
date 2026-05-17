@@ -108,6 +108,19 @@ async def restore_backup_package(request: Request, backup_file: UploadFile = Fil
     return JSONResponse(result)
 
 
+@router.post("/api/system/import-bundle")
+async def import_system_bundle(request: Request, bundle_file: UploadFile = File(...)) -> Any:
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    container = request.app.state.container
+    filename = bundle_file.filename or "sa-helper-import-bundle.zip"
+    target = Path(container.backup_service._backup_dir) / filename
+    target.write_bytes(await bundle_file.read())
+    result = container.backup_service.import_system_bundle(target)
+    return JSONResponse(result, status_code=200 if result.get("status") == "completed" else 400)
+
+
 @router.post("/api/system/backups/{backup_id}/telegram")
 async def upload_backup_to_telegram(request: Request, backup_id: str) -> Any:
     denied = _admin_guard(request)

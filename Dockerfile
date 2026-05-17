@@ -42,7 +42,6 @@ RUN mkdir -p /app/backend/app/templates && \
 # Environment variables
 ENV PYTHONPATH=/app/backend \
     CONFIG_PATH=/app/backend/config/config.yaml \
-    SQLITE_PATH=/app/backend/logs/app.db \
     ONNX_PATH=/app/data/models/model.onnx
 EXPOSE 8080
 
@@ -52,4 +51,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
 
 # Start command
 ENTRYPOINT ["docker-entrypoint.sh"]
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "2"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]

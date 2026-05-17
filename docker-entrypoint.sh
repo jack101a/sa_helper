@@ -13,12 +13,13 @@ seed_path() {
   fi
 }
 
-seed_path "$seed_dir/backend/config" "/app/backend/config"
-
 mkdir -p /app/backend/logs /app/backend/app/static/extensions /app/backend/app/templates /app/data /app/import
 
-if [ "${SEED_BUNDLE_ON_START:-true}" = "true" ] && [ "${1:-}" = "uvicorn" ]; then
-  python /app/backend/scripts/import_seed_bundle.py
+seed_path "$seed_dir/backend/config" "/app/backend/config"
+
+if [ "${RUN_ALEMBIC_MIGRATIONS:-false}" = "true" ]; then
+  cd /app/backend
+  alembic upgrade head
 fi
 
 exec "$@"

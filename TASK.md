@@ -1,28 +1,25 @@
-# TASK.md - Plain Compose Rewrite
+# TASK.md - Use CONFIG_PATH For Host Volumes
 
 ## Goal
-Rewrite Docker Compose in a plain explicit style like the user's original compose, without YAML anchors or hidden merges.
+Switch Docker Compose host volume paths back to the user's required `${CONFIG_PATH}` variable.
 
 ## Status
 COMPLETE
 
 ## Scope Included
-- Remove `x-` anchors and `<<` merges.
-- Keep all services explicit: api, worker, telegram-bot, telegram-bot-api, postgres, redis.
-- Keep minimal app env in each app service.
-- Keep clear host path variable `SA_HELPER_HOST_ROOT`.
-- Verify YAML and app settings load.
+- Replace `${SA_HELPER_HOST_ROOT:-/srv/ajaxhs/config}` volume prefixes with `${CONFIG_PATH}`.
+- Add `CONFIG_PATH=/srv/ajaxhs/config` to the root `.env`.
+- Keep container environment `CONFIG_PATH: /app/backend/config/config.yaml` for the app config file.
 
 ## Scope Excluded
-- Running Docker locally; Docker is not installed in this workspace.
+- Renaming the container app config environment key.
+- Changing PUID/PGID support.
 
 ## Plan
-- [x] Read AGENTS/STATE/TASK and check worktree.
-- [x] Inspect current compose.
-- [x] Rewrite compose explicitly.
-- [x] Validate YAML and config values.
-- [x] Update `STATE.md`.
+- [x] Read AGENTS/STATE/TASK and Compose/env files.
+- [x] Patch Compose and root `.env`.
+- [x] Validate YAML and update `STATE.md`.
 
 ## Verification Approach
-- YAML parse for `docker-compose.yml` and `backend/config/config.yaml`.
-- Parse key config values.
+- Parse `docker-compose.yml`.
+- Confirm volume paths use `${CONFIG_PATH}`.
