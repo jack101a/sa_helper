@@ -1,18 +1,15 @@
-# STATE.md - Full Codebase Standardization
+# STATE.md - Docker Deployment Runtime Hotfix
 
 ## Status
 COMPLETED
 
 ## Active Task
-Complete full-codebase standardization and enforce strict quality/deployment checks.
+Fix deployed Docker runtime issues for admin dashboard, Postgres sync, and Telegram services.
 
 ## Last Files Modified
-- `backend/app/middleware/auth_middleware.py`
-- `backend/app/api/admin_routes/payments.py`
-- `backend/pyproject.toml`
-- `frontend/eslint.config.js`
-- `frontend/package.json`
-- `.github/workflows/quality.yml`
+- `docker-compose.yml`
+- `frontend/src/main.jsx`
+- `frontend/src/app/App.jsx`
 - `TASK.md`
 - `STATE.md`
 
@@ -20,10 +17,9 @@ Complete full-codebase standardization and enforce strict quality/deployment che
 `docker compose config`
 
 ## Last Output/Error
-- Ruff: `All checks passed!`
-- Pytest: `10 passed`
-- Frontend lint: passed with `--max-warnings=0`
-- Compose config: rendered successfully (`exit code 0`).
+- Frontend build passed: Vite produced production assets successfully.
+- Frontend lint passed with `--max-warnings=0`.
+- Compose config rendered successfully (`exit code 0`).
 
 ## Immediate Next Step
-Optional: tighten lint rule profile progressively (re-enable selected warning classes as errors) once teams are ready for stricter style enforcement.
+Push this hotfix and redeploy after the production image is rebuilt; then verify `/admin/` renders and `telegram-bot-api` starts without temp directory errors.

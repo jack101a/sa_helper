@@ -1,6 +1,9 @@
-import { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter } from "react-router-dom";
+import { App } from "./app/App";
+import { ThemeProvider } from "./app/context/ThemeContext";
 import "./styles/globals.css";
 
 const THEME_KEY = "tata_admin_theme";
