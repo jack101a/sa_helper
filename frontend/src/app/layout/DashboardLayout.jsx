@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
+import { AlertCircle, CheckCircle2, Loader2, X } from "lucide-react";
+import { Sidebar } from "../components/Sidebar";
 import { useThemeContext } from "../context/ThemeContext";
 
 export function DashboardLayout({

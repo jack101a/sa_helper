@@ -823,11 +823,11 @@ class TelegramBotService:
                     return
                 if text == "📊 My Status":
                     msg = self.handle_my_status(uid)
-                    await update.message.reply_text(msg, parse_mode="Markdown")
+                    await update.message.reply_text(msg)
                     return
                 if text == "💳 Payments":
                     msg = self.handle_payment_status(uid)
-                    await update.message.reply_text(msg, parse_mode="Markdown")
+                    await update.message.reply_text(msg)
                     return
                 if text == "🔑 My Key":
                     msg = self.handle_my_key(uid)
@@ -835,7 +835,7 @@ class TelegramBotService:
                     return
                 if text == "🔄 New Key":
                     msg = self.handle_regenerate_key(uid)
-                    await update.message.reply_text(msg, parse_mode="Markdown")
+                    await update.message.reply_text(msg)
                     return
                 if text == "❓ Help":
                     await update.message.reply_text(

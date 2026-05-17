@@ -1,25 +1,28 @@
-# STATE.md - Docker Deployment Runtime Hotfix
+# STATE.md - Docker Runtime Blank Dashboard and Service Fixes
 
 ## Status
 COMPLETED
 
 ## Active Task
-Fix deployed Docker runtime issues for admin dashboard, Postgres sync, and Telegram services.
+Fix production Docker runtime failures reported after deploying image docker-42.
 
 ## Last Files Modified
+- `frontend/src/app/components/ErrorBoundary.jsx`
+- `frontend/src/app/layout/DashboardLayout.jsx`
+- `backend/app/services/telegram_bot.py`
 - `docker-compose.yml`
-- `frontend/src/main.jsx`
-- `frontend/src/app/App.jsx`
 - `TASK.md`
 - `STATE.md`
 
 ## Last Command Run
-`docker compose config`
+`python -m pytest backend/tests -q`
 
 ## Last Output/Error
-- Frontend build passed: Vite produced production assets successfully.
+- Frontend build passed.
 - Frontend lint passed with `--max-warnings=0`.
-- Compose config rendered successfully (`exit code 0`).
+- Ruff passed: `All checks passed!`.
+- Pytest passed: `10 passed`.
+- Compose config rendered successfully.
 
 ## Immediate Next Step
-Push this hotfix and redeploy after the production image is rebuilt; then verify `/admin/` renders and `telegram-bot-api` starts without temp directory errors.
+Push hotfix, wait for the production Docker image to build, redeploy with the new image tag/latest, and hard-refresh `/admin/`.

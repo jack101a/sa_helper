@@ -152,14 +152,16 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - ${CONFIG_PATH:-./runtime}/sa_helper/postgres:/var/lib/postgresql/data
-    command: >
-      bash -c "
+    command:
+      - bash
+      - -ec
+      - |
         docker-entrypoint.sh postgres &
         PG_PID=$$!
-        until pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB; do sleep 1; done
-        psql -U $$POSTGRES_USER -d $$POSTGRES_DB -v postgres_user=\"$$POSTGRES_USER\" -v postgres_password=\"$$POSTGRES_PASSWORD\" -c \"ALTER USER :\\\"postgres_user\\\" WITH PASSWORD :'postgres_password';\"
-        wait $$PG_PID
-      "
+        until pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"; do sleep 1; done
+        escaped_password=$$(printf '%s' "$$POSTGRES_PASSWORD" | sed "s/'/''/g")
+        psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -c "ALTER USER \"$$POSTGRES_USER\" WITH PASSWORD '$$escaped_password';"
+        wait "$$PG_PID"
     healthcheck:
       test: ["CMD-SHELL", "PGPASSWORD=$${POSTGRES_PASSWORD} psql -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB} -tAc 'SELECT 1' >/dev/null 2>&1"]
       interval: 10s
