@@ -177,6 +177,24 @@ class APIKeyRepository(BaseRepository):
 
     def delete_revoked_api_key_by_id(self, key_id: int) -> bool:
         """Delete revoked key and dependent rows. Active keys cannot be deleted."""
+        if self._use_sqlalchemy:
+            session = get_session()
+            try:
+                row = session.get(ApiKeyRecord, key_id)
+                if not row or int(row.enabled or 0) == 1 or not row.revoked_at:
+                    return False
+                session.query(UsageEventRecord).filter(UsageEventRecord.key_id == key_id).delete()
+                session.query(ApiKeyAllowedDomainRecord).filter(ApiKeyAllowedDomainRecord.key_id == key_id).delete()
+                session.query(ApiKeyRateLimitRecord).filter(ApiKeyRateLimitRecord.key_id == key_id).delete()
+                session.query(ApiKeyDeviceBindingRecord).filter(ApiKeyDeviceBindingRecord.key_id == key_id).delete()
+                session.delete(row)
+                session.commit()
+                return True
+            except Exception:
+                session.rollback()
+                raise
+            finally:
+                session.close()
         with self._lock:
             with self.connect() as conn:
                 row = conn.execute(

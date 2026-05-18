@@ -62,6 +62,16 @@ _REPORT_PRUNE_INTERVAL = 300  # seconds between prune passes
 _last_prune: float = 0.0
 
 
+def _should_use_worker(container, mode: str) -> bool:
+    solve_cfg = getattr(container.settings, "solve", {}) or {}
+    backend = str(solve_cfg.get("backend", "inprocess")).strip().lower()
+    if backend == "inprocess":
+        return False
+    if backend in {"celery_sync", "celery_async"}:
+        return bool(container.settings.redis.enabled)
+    return bool(container.settings.redis.enabled and mode in {"captcha", "exam", "feedback"})
+
+
 def _ensure_master_key(request: Request) -> None:
     """Raise 403 if the current API key is not a master key."""
     key_record = request.state.api_key_record
@@ -531,7 +541,7 @@ async def solve(request: Request, payload: SolveRequest) -> SolveResponse:
         raise HTTPException(400, "payload_base64 invalid")
 
     try:
-        if container.settings.redis.enabled:
+        if _should_use_worker(container, "captcha"):
             try:
                 started = time.perf_counter()
                 solved = await run_task_with_timeout(
@@ -650,7 +660,7 @@ async def exam_solve(request: Request, payload: ExamSolveRequest) -> ExamSolveRe
     normalized = Database._normalize_domain(payload.domain)
 
     try:
-        if container.settings.redis.enabled:
+        if _should_use_worker(container, "exam"):
             try:
                 result = await run_task_with_timeout(
                     "solve.exam",
@@ -729,9 +739,9 @@ async def exam_feedback(
     container = request.app.state.container
     payload_data = payload.model_dump()
 
-    if container.settings.redis.enabled:
+    if _should_use_worker(container, "feedback"):
         try:
-            result = run_task_with_timeout(
+            result = await run_task_with_timeout(
                 "feedback.exam",
                 kwargs={"payload": payload_data},
                 queue="feedback",

@@ -12,6 +12,7 @@ from urllib.parse import quote_plus
 
 from fastapi import Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from app.core.paths import get_project_root
 
 _TRUSTED_IDENTITY_HEADERS = (
     "cf-access-authenticated-user-email",
@@ -114,7 +115,7 @@ def _model_upload_success(request: Request, message: str, filename_on_disk: str)
 def _write_auto_backup(container, reason: str) -> None:
     """Persist periodic safety snapshot for admin configuration."""
     try:
-        _BACKUPS_DIR = Path(container.settings.storage.sqlite_path).parent / "backups"
+        _BACKUPS_DIR = (get_project_root() / "backend" / "backups").resolve()
         _BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
         payload = container.db.export_master_setup()
         payload["backup_reason"] = reason

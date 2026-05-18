@@ -1,0 +1,129 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: sa-helper-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - ${SA_RUNTIME_ROOT}/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "PGPASSWORD=$${POSTGRES_PASSWORD} psql -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB} -tAc 'SELECT 1' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - ajax_network
+
+  api:
+    image: ${SA_HELPER_IMAGE:-ghcr.io/jack101a/sa-helper:latest}
+    container_name: sa-helper-api
+    restart: unless-stopped
+    init: true
+    user: "${PUID}:${PGID}"
+    stop_grace_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-8088}:8080"
+    environment:
+      # Required auth secrets
+      - AUTH_HASH_SALT=${AUTH_HASH_SALT}
+      - ADMIN_TOKEN=${ADMIN_TOKEN}
+      - ADMIN_USERNAME=${ADMIN_USERNAME}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+
+      # Postgres (production)
+      - DB_TYPE=postgresql
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - RUN_ALEMBIC_MIGRATIONS=${RUN_ALEMBIC_MIGRATIONS:-true}
+      - CREATE_ALL_TABLES=false
+
+      # Default solve mode: no Redis required
+      - SOLVE_BACKEND=inprocess
+      - REDIS_ENABLED=false
+
+      # Telegram: API must not poll
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_BOT_ENABLED=false
+      - START_TELEGRAM_BOT_IN_API=false
+      - TELEGRAM_API_BASE_URL=${TELEGRAM_API_BASE_URL:-https://api.telegram.org}
+
+      # Optional model endpoint
+      - LITELLM_ENDPOINT=${LITELLM_ENDPOINT}
+      - LITELLM_API_KEY=${LITELLM_API_KEY}
+
+      # Keep runtime config path stable inside container
+      - CONFIG_PATH=/app/backend/config/config.yaml
+      - BACKUP_RUNTIME_ROOT=/app/data/runtime/sa_helper
+
+    volumes:
+      - ${SA_RUNTIME_ROOT}/logs:/app/backend/logs
+      - ${SA_RUNTIME_ROOT}/data:/app/data
+      - ${SA_RUNTIME_ROOT}/config:/app/backend/config
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/readyz"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ajax_network
+
+  telegram-bot:
+    image: ${SA_HELPER_IMAGE:-ghcr.io/jack101a/sa-helper:latest}
+    container_name: sa-helper-telegram-bot
+    restart: unless-stopped
+    init: true
+    user: "${PUID}:${PGID}"
+    stop_grace_period: 60s
+    depends_on:
+      api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    command:
+      - python
+      - -m
+      - app.services.telegram_bot
+    environment:
+      # Auth + DB for bot registration/key flows
+      - AUTH_HASH_SALT=${AUTH_HASH_SALT}
+      - ADMIN_TOKEN=${ADMIN_TOKEN}
+      - ADMIN_USERNAME=${ADMIN_USERNAME}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - DB_TYPE=postgresql
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+
+      # Dedicated bot container behavior
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_BOT_ENABLED=true
+      - START_TELEGRAM_BOT_IN_API=false
+      - TELEGRAM_API_BASE_URL=${TELEGRAM_API_BASE_URL:-https://api.telegram.org}
+
+      - RUN_ALEMBIC_MIGRATIONS=false
+      - CREATE_ALL_TABLES=false
+      - CONFIG_PATH=/app/backend/config/config.yaml
+      - BACKUP_RUNTIME_ROOT=/app/data/runtime/sa_helper
+
+    volumes:
+      - ${SA_RUNTIME_ROOT}/logs:/app/backend/logs
+      - ${SA_RUNTIME_ROOT}/data:/app/data
+      - ${SA_RUNTIME_ROOT}/config:/app/backend/config
+    networks:
+      - ajax_network
+
+networks:
+  ajax_network:
+    external: true

@@ -135,6 +135,59 @@ class SolverService:
 
         return await future
 
+    async def solve_direct(
+        self,
+        task_type: str,
+        payload_base64: str,
+        mode: str,
+        domain: str | None = None,
+        field_name: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Solve immediately in current coroutine using shared cache logic.
+
+        This is useful for worker contexts that should reuse solver behavior
+        without depending on in-process queue workers.
+        """
+        cached = self._cache.get(
+            task_type,
+            payload_base64,
+            mode,
+            domain=domain,
+            field_name=field_name,
+        )
+        if cached:
+            return {
+                "result": cached["result"],
+                "processing_ms": 0,
+                "model_used": cached.get("model_used", "cache"),
+                "cached": True,
+            }
+
+        started = time.perf_counter()
+        routing_result = await self._model_router.solve(
+            task_type=task_type,
+            payload_base64=payload_base64,
+            mode=mode,
+            domain=domain,
+            field_name=field_name,
+        )
+        payload = {
+            "result": routing_result["result"],
+            "processing_ms": int((time.perf_counter() - started) * 1000),
+            "model_used": routing_result["model_used"],
+            "cached": False,
+        }
+        self._cache.set(
+            task_type,
+            payload_base64,
+            mode,
+            payload,
+            domain=domain,
+            field_name=field_name,
+        )
+        return payload
+
     async def _worker_loop(self, worker_id: int) -> None:
         """Process jobs from queue forever."""
 

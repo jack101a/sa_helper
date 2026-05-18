@@ -23,17 +23,9 @@ if config.config_file_name is not None:
 settings = get_settings()
 
 # Determine dialect from settings (supports SQLite and PostgreSQL)
-db_type = os.getenv("DB_TYPE", "sqlite").lower()
+db_type = os.getenv("DB_TYPE", "postgresql").lower()
 if db_type == "postgresql":
     db_url = os.getenv("DATABASE_URL") or settings.storage.database_url
-    if not db_url:
-        database = settings.storage.postgres_db
-        user = settings.storage.postgres_user
-        password = settings.storage.postgres_password
-        host = settings.storage.postgres_host
-        port = settings.storage.postgres_port
-        if all([database, user, password, host, port]):
-            db_url = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{database}"
     if not db_url:
         raise RuntimeError(
             "PostgreSQL migrations require DATABASE_URL or storage.postgres_* "

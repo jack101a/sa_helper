@@ -7,8 +7,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path as _Path
 
 from fastapi import FastAPI
+from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import inspect, text
 
 from app.api.admin import router as admin_router
 from app.api.routes import router as v1_router
@@ -40,6 +42,7 @@ async def lifespan(application: FastAPI):
 
     # Wire user key service for auth middleware (from container)
     application.state.user_key_service = container.user_key_service
+    container.backup_service.start_scheduler()
 
     # Telegram polling must be a single process. Run it separately when using
     # multiple uvicorn workers, or opt in for single-worker development.
@@ -63,6 +66,7 @@ async def lifespan(application: FastAPI):
     # Close the exam service HTTP client via the public helper so we never
     # depend on private attribute names.
     await container.exam_service.close()
+    container.backup_service.stop_scheduler()
 
 
 app = FastAPI(
@@ -103,3 +107,29 @@ if _admin_assets.exists():
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "service": "unified-platform", "version": _API_VERSION}
+
+
+@app.get("/readyz")
+async def readyz() -> dict[str, str]:
+    from app.core.db import get_engine
+
+    try:
+        engine = get_engine()
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        if not inspect(engine).has_table("api_keys"):
+            raise RuntimeError("required table missing: api_keys")
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"database not ready: {exc}") from exc
+
+    if settings.redis.enabled:
+        try:
+            from redis import Redis
+
+            client = Redis.from_url(settings.redis.url)
+            if not client.ping():
+                raise RuntimeError("redis ping failed")
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"redis not ready: {exc}") from exc
+
+    return {"status": "ready"}

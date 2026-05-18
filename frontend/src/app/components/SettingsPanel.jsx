@@ -117,44 +117,64 @@ export function SettingsPanel({
   const [paymentSaving, setPaymentSaving] = useState(false);
 
   const [backupHealth, setBackupHealth] = useState(null);
+  const [backupHistory, setBackupHistory] = useState([]);
   const [backupSettings, setBackupSettings] = useState({
-    encryptionKey: "",
-    retentionCount: "7",
+    encryptionEnabled: true,
+    encryptionMethod: "age",
+    ageRecipient: "",
+    gpgRecipient: "",
+    telegramEnabled: true,
     telegramChannelId: "",
-    gdriveEnabled: false,
-    gdriveFolderId: "",
-    gdriveClientId: "",
-    gdriveClientSecret: "",
+    telegramSendFile: true,
+    telegramMaxFileMb: "45",
+    rcloneEnabled: true,
+    rcloneDestination: "",
+    autoEnabled: false,
+    scheduleType: "cron",
+    cron: "0 3 * * *",
+    intervalHours: "24",
+    timezone: "Asia/Kolkata",
+    retentionDays: "14",
+    localRetentionCount: "10",
+    runTelegram: true,
+    runRclone: true,
   });
   const [backupBusy, setBackupBusy] = useState("");
 
   useEffect(() => {
     refreshBackupHealth();
-    Promise.all([
-      apiGet("/admin/api/settings/backup.encryption_key").catch(() => ({ value: "" })),
-      apiGet("/admin/api/settings/backup.retention_count").catch(() => ({ value: "7" })),
-      apiGet("/admin/api/settings/backup.telegram_channel_id").catch(() => ({ value: "" })),
-      apiGet("/admin/api/settings/backup.gdrive.enabled").catch(() => ({ value: "false" })),
-      apiGet("/admin/api/settings/backup.gdrive.folder_id").catch(() => ({ value: "" })),
-      apiGet("/admin/api/settings/backup.gdrive.client_id").catch(() => ({ value: "" })),
-      apiGet("/admin/api/settings/backup.gdrive.client_secret").catch(() => ({ value: "" })),
-    ]).then(([encryption, retention, channel, enabled, folder, clientId, clientSecret]) => {
-      setBackupSettings({
-        encryptionKey: encryption.value || "",
-        retentionCount: retention.value || "7",
-        telegramChannelId: channel.value || "",
-        gdriveEnabled: String(enabled.value || "").toLowerCase() === "true",
-        gdriveFolderId: folder.value || "",
-        gdriveClientId: clientId.value || "",
-        gdriveClientSecret: clientSecret.value || "",
-      });
-    });
+    refreshBackupHistory();
   }, []);
 
   const refreshBackupHealth = async () => {
     try {
-      const data = await apiGet("/admin/api/system/backup-health");
+      const data = await apiGet("/admin/api/system/backup/config");
       setBackupHealth(data);
+      setBackupSettings(prev => ({
+        ...prev,
+        encryptionEnabled: Boolean(data.encryption_enabled),
+        encryptionMethod: data.encryption_method || "none",
+        telegramEnabled: Boolean(data.telegram_enabled),
+        telegramChannelId: data.telegram_chat_id || "",
+        telegramSendFile: Boolean(data.telegram_send_file),
+        telegramMaxFileMb: String(data.telegram_max_file_mb || 45),
+        rcloneEnabled: Boolean(data.rclone_enabled),
+        rcloneDestination: data.rclone_destination || "",
+        autoEnabled: Boolean(data.auto_enabled),
+        scheduleType: data.schedule_type || "cron",
+        cron: data.cron || "0 3 * * *",
+        intervalHours: String(data.interval_hours || 24),
+        timezone: data.timezone || "Asia/Kolkata",
+        retentionDays: String(data.retention_days || 14),
+        localRetentionCount: String(data.local_retention_count || 10),
+      }));
+    } catch (_) {}
+  };
+
+  const refreshBackupHistory = async () => {
+    try {
+      const data = await apiGet("/admin/api/system/backup/history");
+      setBackupHistory(Array.isArray(data.runs) ? data.runs : []);
     } catch (_) {}
   };
 
@@ -162,28 +182,37 @@ export function SettingsPanel({
     setBackupSettings(prev => ({ ...prev, [key]: value }));
   };
 
-  const latestBackup = backupHealth?.last_backup || null;
+  const latestBackup = backupHistory?.[0] || null;
   const backupSetupHint = (() => {
     if (!backupHealth) return "";
-    if (!backupHealth.telegram_token_set) return "Set Telegram bot token in Telegram Bot settings.";
-    if (!backupHealth.telegram_channel_set) return "Set Telegram backup channel ID.";
-    if (!backupHealth.telegram_local_api) return "Using hosted Bot API; large files will be sent in parts.";
-    if (!backupHealth.gdrive_client_configured) return "Set Google Drive OAuth client env to enable sign-in.";
-    if (!backupHealth.gdrive_connected) return "Sign in with Google to connect Drive uploads.";
+    if (!backupHealth.telegram_chat_id) return "Set Telegram backup chat/channel ID.";
+    if (!backupHealth.rclone_destination) return "Set rclone destination path.";
     return "";
   })();
 
   const saveBackupSettings = async () => {
     setBackupBusy("settings");
     try {
-      await apiPostJson("/admin/api/settings/bulk", {
+      await apiPostJson("/admin/api/system/backup/config", {
         settings: {
-          "backup.encryption_key": backupSettings.encryptionKey,
-          "backup.retention_count": backupSettings.retentionCount,
-          "backup.telegram_channel_id": backupSettings.telegramChannelId,
-          "backup.gdrive.enabled": backupSettings.gdriveEnabled ? "true" : "false",
-          "backup.gdrive.folder_id": backupSettings.gdriveFolderId,
-        }
+          "backup.encryption.enabled": backupSettings.encryptionEnabled ? "true" : "false",
+          "backup.encryption.method": backupSettings.encryptionMethod,
+          "backup.age.recipient": backupSettings.ageRecipient,
+          "backup.gpg.recipient": backupSettings.gpgRecipient,
+          "backup.telegram.enabled": backupSettings.telegramEnabled ? "true" : "false",
+          "backup.telegram.chat_id": backupSettings.telegramChannelId,
+          "backup.telegram.send_file": backupSettings.telegramSendFile ? "true" : "false",
+          "backup.telegram.max_file_mb": backupSettings.telegramMaxFileMb,
+          "backup.rclone.enabled": backupSettings.rcloneEnabled ? "true" : "false",
+          "backup.rclone.destination": backupSettings.rcloneDestination,
+          "backup.auto.enabled": backupSettings.autoEnabled ? "true" : "false",
+          "backup.auto.schedule_type": backupSettings.scheduleType,
+          "backup.auto.cron": backupSettings.cron,
+          "backup.auto.interval_hours": backupSettings.intervalHours,
+          "backup.auto.timezone": backupSettings.timezone,
+          "backup.retention_days": backupSettings.retentionDays,
+          "backup.local_retention_count": backupSettings.localRetentionCount,
+        },
       });
       await refreshBackupHealth();
       showToast("Backup settings saved");
@@ -197,8 +226,13 @@ export function SettingsPanel({
   const createPackageBackup = async () => {
     setBackupBusy("create");
     try {
-      const result = await apiPostJson("/admin/api/system/backup", {});
+      const result = await apiPostJson("/admin/api/system/backup/run", {
+        telegram: backupSettings.runTelegram,
+        rclone: backupSettings.runRclone,
+        trigger_type: "manual",
+      });
       await refreshBackupHealth();
+      await refreshBackupHistory();
       showToast(result.status === "completed" ? "Backup package created" : result.error || "Backup failed", result.status === "completed" ? "success" : "error");
     } catch (e) {
       showToast(e.message || "Backup failed", "error");
@@ -207,70 +241,31 @@ export function SettingsPanel({
     }
   };
 
-  const validateBackupPackage = async (e) => {
+  const uploadRcloneConfig = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setBackupBusy("validate");
+    setBackupBusy("rclone-conf");
     try {
       const fd = new FormData();
-      fd.append("backup_file", file);
-      const result = await apiPostForm("/admin/api/system/backups/validate", fd);
-      showToast(result.ok ? "Backup package validated" : result.error || "Validation failed", result.ok ? "success" : "error");
-    } catch (err) {
-      showToast(err.message || "Validation failed", "error");
-    } finally {
-      e.target.value = "";
-      setBackupBusy("");
-    }
-  };
-
-  const importSystemBundle = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setBackupBusy("import-bundle");
-    try {
-      const fd = new FormData();
-      fd.append("bundle_file", file);
-      const result = await apiPostForm("/admin/api/system/import-bundle", fd);
-      showToast(result.status === "completed" ? `Bundle imported (${result.file_count || 0} files)` : result.error || "Bundle import failed", result.status === "completed" ? "success" : "error");
-    } catch (err) {
-      showToast(err.message || "Bundle import failed", "error");
-    } finally {
-      e.target.value = "";
-      setBackupBusy("");
-    }
-  };
-
-  const restoreBackupPackage = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!confirm("Restore this backup package now? This overwrites server data and files.")) {
-      e.target.value = "";
-      return;
-    }
-    setBackupBusy("restore");
-    try {
-      const fd = new FormData();
-      fd.append("backup_file", file);
-      const result = await apiPostForm("/admin/api/system/backups/restore-package", fd);
+      fd.append("rclone_file", file);
+      const result = await apiPostForm("/admin/api/system/backup/rclone-config", fd);
+      showToast(result.ok ? "rclone.conf uploaded" : result.error || "rclone.conf upload failed", result.ok ? "success" : "error");
       await refreshBackupHealth();
-      showToast(result.status === "completed" ? "Backup package restored" : result.error || "Restore failed", result.status === "completed" ? "success" : "error");
     } catch (err) {
-      showToast(err.message || "Restore failed", "error");
+      showToast(err.message || "rclone.conf upload failed", "error");
     } finally {
       e.target.value = "";
       setBackupBusy("");
     }
   };
 
-  const uploadLatestToTelegram = async () => {
-    if (!latestBackup) return showToast("Create a backup first", "error");
-    setBackupBusy("telegram");
+  const testRcloneMode = async (mode) => {
+    setBackupBusy(`rclone-${mode}`);
     try {
-      const result = await apiPostJson(`/admin/api/system/backups/${latestBackup.id}/telegram`, {});
-      showToast(result.ok ? "Latest backup sent to Telegram" : (result.error || "Telegram upload failed"), result.ok ? "success" : "error");
-    } catch (e) {
-      showToast(e.message || "Telegram upload failed", "error");
+      const result = await apiPostJson("/admin/api/system/backup/rclone/test", { mode, destination: backupSettings.rcloneDestination });
+      showToast(result.ok ? "rclone test passed" : result.error || "rclone test failed", result.ok ? "success" : "error");
+    } catch (err) {
+      showToast(err.message || "rclone test failed", "error");
     } finally {
       setBackupBusy("");
     }
@@ -279,13 +274,7 @@ export function SettingsPanel({
   const testTelegramBackupDestination = async () => {
     setBackupBusy("telegram-test");
     try {
-      const payload = {
-        save: true,
-      };
-      if (backupSettings.telegramChannelId.trim()) {
-        payload.chat_id = backupSettings.telegramChannelId.trim();
-      }
-      const result = await apiPostJson("/admin/api/system/backups/telegram/test", payload);
+      const result = await apiPostJson("/admin/api/system/backup/telegram/test", { chat_id: backupSettings.telegramChannelId.trim() });
       showToast(result.ok ? "Telegram destination test sent" : (result.error || "Telegram destination test failed"), result.ok ? "success" : "error");
       await refreshBackupHealth();
     } catch (e) {
@@ -295,31 +284,14 @@ export function SettingsPanel({
     }
   };
 
-  const uploadLatestToDrive = async () => {
-    if (!latestBackup) return showToast("Create a backup first", "error");
-    setBackupBusy("drive");
+  const testTelegramBackupFile = async () => {
+    setBackupBusy("telegram-file");
     try {
-      const result = await apiPostJson(`/admin/api/system/backups/${latestBackup.id}/gdrive`, {});
-      showToast(result.ok ? "Latest backup uploaded to Drive" : result.error || "Drive upload failed", result.ok ? "success" : "error");
-      await refreshBackupHealth();
+      const result = await apiPostJson("/admin/api/system/backup/telegram/test-file", { chat_id: backupSettings.telegramChannelId.trim() });
+      showToast(result.ok ? "Telegram test file sent" : (result.error || "Telegram test file failed"), result.ok ? "success" : "error");
     } catch (e) {
-      showToast(e.message || "Drive upload failed", "error");
+      showToast(e.message || "Telegram test file failed", "error");
     } finally {
-      setBackupBusy("");
-    }
-  };
-
-  const openDriveAuth = async () => {
-    setBackupBusy("drive-auth");
-    try {
-      const redirectUri = `${window.location.origin}/admin/api/system/backups/gdrive/callback`;
-      const result = await apiGet(`/admin/api/system/backups/gdrive/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}`);
-      if (!result.ok || !result.url) {
-        throw new Error(result.error || "Google Drive OAuth is not configured");
-      }
-      window.location.href = result.url;
-    } catch (e) {
-      showToast(e.message || "Google Drive sign-in failed", "error");
       setBackupBusy("");
     }
   };
@@ -657,29 +629,22 @@ export function SettingsPanel({
           </div>
           <div>
             <p className={`text-[10px] uppercase font-bold ${t_textMuted}`}>Latest</p>
-            <p className={`text-sm font-medium truncate ${t_textHeading}`}>{latestBackup?.name || "None"}</p>
+            <p className={`text-sm font-medium truncate ${t_textHeading}`}>{latestBackup?.filename || "None"}</p>
           </div>
           <div>
             <p className={`text-[10px] uppercase font-bold ${t_textMuted}`}>Telegram</p>
-            <p className={`text-sm ${backupHealth?.telegram_token_set && backupHealth?.telegram_channel_set ? "text-emerald-400" : t_textMuted}`}>
-              {backupHealth?.telegram_token_set && backupHealth?.telegram_channel_set ? "Ready" : backupHealth?.telegram_channel_set ? "Token missing" : "Not set"}
+            <p className={`text-sm ${backupHealth?.telegram_enabled && backupHealth?.telegram_chat_id ? "text-emerald-400" : t_textMuted}`}>
+              {backupHealth?.telegram_enabled && backupHealth?.telegram_chat_id ? "Ready" : "Not configured"}
             </p>
-            <p className={`text-[10px] truncate ${t_textMuted}`}>{backupHealth?.telegram_local_api ? "Local Bot API" : "Hosted Bot API"}</p>
+            <p className={`text-[10px] truncate ${t_textMuted}`}>Hosted Bot API</p>
           </div>
           <div>
-            <p className={`text-[10px] uppercase font-bold ${t_textMuted}`}>Google Drive</p>
-            <p className={`text-sm ${backupHealth?.gdrive_connected ? "text-emerald-400" : t_textMuted}`}>
-              {backupHealth?.gdrive_connected ? "Connected" : backupHealth?.gdrive_client_configured ? "Sign in needed" : "Client missing"}
+            <p className={`text-[10px] uppercase font-bold ${t_textMuted}`}>Rclone</p>
+            <p className={`text-sm ${backupHealth?.rclone_enabled && backupHealth?.rclone_config_present ? "text-emerald-400" : t_textMuted}`}>
+              {backupHealth?.rclone_enabled && backupHealth?.rclone_config_present ? "Ready" : "Not configured"}
             </p>
           </div>
         </div>
-
-        {(backupHealth?.telegram_last_error || backupHealth?.gdrive_last_error) && (
-          <div className={`rounded-xl border p-3 mb-5 text-xs space-y-1 ${t_borderLight} ${t_textMuted}`}>
-            {backupHealth?.telegram_last_error && <p>Telegram: {backupHealth.telegram_last_error}</p>}
-            {backupHealth?.gdrive_last_error && <p>Google Drive: {backupHealth.gdrive_last_error}</p>}
-          </div>
-        )}
 
         {backupSetupHint && (
           <div className={`rounded-xl border p-3 mb-5 text-xs ${t_borderLight} ${t_textMuted}`}>
@@ -690,27 +655,25 @@ export function SettingsPanel({
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
           <div className="space-y-4">
             <h4 className={`text-xs font-bold uppercase tracking-widest flex items-center gap-2 ${t_textMuted}`}>
-              <KeyRound size={14} /> Package Settings
+              <KeyRound size={14} /> Backup Settings
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className={`text-xs block mb-1 ${t_textMuted}`}>Encryption Key</label>
-                <input
-                  type="password"
-                  className={glassInput}
-                  value={backupSettings.encryptionKey}
-                  onChange={(e) => updateBackupSetting("encryptionKey", e.target.value)}
-                  placeholder="Required for encrypted .upbak"
-                />
+                <label className={`text-xs block mb-1 ${t_textMuted}`}>Encryption Method</label>
+                <select className={glassInput} value={backupSettings.encryptionMethod} onChange={(e) => updateBackupSetting("encryptionMethod", e.target.value)}>
+                  <option value="age">age</option>
+                  <option value="gpg">gpg</option>
+                  <option value="none">none</option>
+                </select>
               </div>
               <div>
-                <label className={`text-xs block mb-1 ${t_textMuted}`}>Retention Count</label>
+                <label className={`text-xs block mb-1 ${t_textMuted}`}>Telegram Max File MB</label>
                 <input
                   type="number"
                   min="1"
                   className={glassInput}
-                  value={backupSettings.retentionCount}
-                  onChange={(e) => updateBackupSetting("retentionCount", e.target.value)}
+                  value={backupSettings.telegramMaxFileMb}
+                  onChange={(e) => updateBackupSetting("telegramMaxFileMb", e.target.value)}
                 />
               </div>
               <div className="sm:col-span-2">
@@ -722,6 +685,26 @@ export function SettingsPanel({
                   placeholder="-1001234567890"
                 />
               </div>
+              <div className="sm:col-span-2">
+                <label className={`text-xs block mb-1 ${t_textMuted}`}>Rclone Destination</label>
+                <input className={glassInput} value={backupSettings.rcloneDestination} onChange={(e) => updateBackupSetting("rcloneDestination", e.target.value)} placeholder="remote:sa-helper-backups/" />
+              </div>
+              <div>
+                <label className={`text-xs block mb-1 ${t_textMuted}`}>Cron</label>
+                <input className={glassInput} value={backupSettings.cron} onChange={(e) => updateBackupSetting("cron", e.target.value)} />
+              </div>
+              <div>
+                <label className={`text-xs block mb-1 ${t_textMuted}`}>Interval Hours</label>
+                <input type="number" min="1" className={glassInput} value={backupSettings.intervalHours} onChange={(e) => updateBackupSetting("intervalHours", e.target.value)} />
+              </div>
+              <div>
+                <label className={`text-xs block mb-1 ${t_textMuted}`}>Timezone</label>
+                <input className={glassInput} value={backupSettings.timezone} onChange={(e) => updateBackupSetting("timezone", e.target.value)} />
+              </div>
+              <div>
+                <label className={`text-xs block mb-1 ${t_textMuted}`}>Retention Days</label>
+                <input type="number" min="1" className={glassInput} value={backupSettings.retentionDays} onChange={(e) => updateBackupSetting("retentionDays", e.target.value)} />
+              </div>
             </div>
             <button type="button" onClick={saveBackupSettings} disabled={backupBusy === "settings"} className={solidButton}>
               {backupBusy === "settings" ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
@@ -731,65 +714,58 @@ export function SettingsPanel({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
               <button type="button" onClick={createPackageBackup} disabled={backupBusy === "create"} className={glassButton}>
                 {backupBusy === "create" ? <Loader2 size={14} className="animate-spin" /> : <DatabaseBackup size={14} />}
-                Create Package
-              </button>
-              <button type="button" onClick={uploadLatestToTelegram} disabled={!latestBackup || backupBusy === "telegram"} className={`${glassButton} ${!latestBackup ? "opacity-40" : ""}`}>
-                {backupBusy === "telegram" ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                Send Latest
+                Run Backup Now
               </button>
               <button type="button" onClick={testTelegramBackupDestination} disabled={backupBusy === "telegram-test"} className={glassButton}>
                 {backupBusy === "telegram-test" ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                Test Destination
+                Telegram Test Message
+              </button>
+              <button type="button" onClick={testTelegramBackupFile} disabled={backupBusy === "telegram-file"} className={glassButton}>
+                {backupBusy === "telegram-file" ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                Telegram Test File
               </button>
               <label className={`cursor-pointer ${glassButton}`}>
-                {backupBusy === "validate" ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-                Validate Package
-                <input type="file" accept=".upbak,.zip" className="hidden" onChange={validateBackupPackage} />
+                {backupBusy === "rclone-conf" ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                Upload rclone.conf
+                <input type="file" accept=".conf,text/plain" className="hidden" onChange={uploadRcloneConfig} />
               </label>
-              <label className={`cursor-pointer ${glassButton}`}>
-                {backupBusy === "import-bundle" ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                Import Bundle
-                <input type="file" accept=".zip,.upbak" className="hidden" onChange={importSystemBundle} />
-              </label>
-              <label className={`cursor-pointer ${glassButton}`}>
-                {backupBusy === "restore" ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                Full Restore
-                <input type="file" accept=".upbak,.zip" className="hidden" onChange={restoreBackupPackage} />
-              </label>
+              <button type="button" onClick={() => testRcloneMode("version")} disabled={backupBusy === "rclone-version"} className={glassButton}>{backupBusy === "rclone-version" ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}Rclone Version</button>
+              <button type="button" onClick={() => testRcloneMode("remotes")} disabled={backupBusy === "rclone-remotes"} className={glassButton}>{backupBusy === "rclone-remotes" ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}List Remotes</button>
+              <button type="button" onClick={() => testRcloneMode("destination")} disabled={backupBusy === "rclone-destination"} className={glassButton}>{backupBusy === "rclone-destination" ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}Test Destination</button>
+              <button type="button" onClick={() => testRcloneMode("upload")} disabled={backupBusy === "rclone-upload"} className={glassButton}>{backupBusy === "rclone-upload" ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}Test Upload</button>
             </div>
           </div>
 
           <div className="space-y-4">
             <h4 className={`text-xs font-bold uppercase tracking-widest flex items-center gap-2 ${t_textMuted}`}>
-              <Cloud size={14} /> Google Drive
+              <Cloud size={14} /> Schedule & History
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className={`flex items-center gap-2 text-xs ${t_textMuted}`}>
                 <input
                   type="checkbox"
-                  checked={backupSettings.gdriveEnabled}
-                  onChange={(e) => updateBackupSetting("gdriveEnabled", e.target.checked)}
+                  checked={backupSettings.autoEnabled}
+                  onChange={(e) => updateBackupSetting("autoEnabled", e.target.checked)}
                 />
-                Enable Drive uploads
+                Enable auto backup
               </label>
-              <div>
-                <label className={`text-xs block mb-1 ${t_textMuted}`}>Drive Folder ID</label>
-                <input
-                  className={glassInput}
-                  value={backupSettings.gdriveFolderId}
-                  onChange={(e) => updateBackupSetting("gdriveFolderId", e.target.value)}
-                />
-              </div>
+              <label className={`flex items-center gap-2 text-xs ${t_textMuted}`}><input type="checkbox" checked={backupSettings.runTelegram} onChange={(e) => updateBackupSetting("runTelegram", e.target.checked)} />Run to Telegram</label>
+              <label className={`flex items-center gap-2 text-xs ${t_textMuted}`}><input type="checkbox" checked={backupSettings.runRclone} onChange={(e) => updateBackupSetting("runRclone", e.target.checked)} />Run to rclone</label>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <button type="button" onClick={openDriveAuth} disabled={backupBusy === "drive-auth"} className={glassButton}>
-                {backupBusy === "drive-auth" ? <Loader2 size={14} className="animate-spin" /> : <Cloud size={14} />}
-                Sign in with Google
-              </button>
-              <button type="button" onClick={uploadLatestToDrive} disabled={!latestBackup || backupBusy === "drive"} className={`${glassButton} ${!latestBackup ? "opacity-40" : ""}`}>
-                {backupBusy === "drive" ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                Upload Latest
-              </button>
+            <div className={`rounded-xl border p-3 text-xs ${t_borderLight} ${t_textMuted}`}>
+              <p>Next run: {backupHealth?.next_run_at || "n/a"}</p>
+              <p>Running: {backupHealth?.running ? "yes" : "no"}</p>
+              <p>{backupHealth?.telegram_note}</p>
+            </div>
+            <div className="overflow-auto max-h-64 border rounded-xl p-2">
+              <table className="w-full text-xs">
+                <thead><tr><th className="text-left">Time</th><th className="text-left">Status</th><th className="text-left">Telegram</th><th className="text-left">Rclone</th><th className="text-left">Error</th></tr></thead>
+                <tbody>
+                  {backupHistory.map((r) => (
+                    <tr key={`run-${r.id}`}><td>{r.created || "-"}</td><td>{r.status}</td><td>{r.telegram_status || "-"}</td><td>{r.rclone_status || "-"}</td><td>{r.error_summary || "-"}</td></tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

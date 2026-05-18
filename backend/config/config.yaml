@@ -49,14 +49,17 @@ storage:
   import_path: import
   postgres_db: sa_helper
   postgres_user: sa_helper
-  postgres_password: sa_helper_dev_password
+  postgres_password: ""
   postgres_host: postgres
   postgres_port: "5432"
 
 redis:
-  enabled: true
+  enabled: false
   url: "redis://redis:6379/0"
   prefix: "up:"
+
+solve:
+  backend: inprocess
 
 retrain:
   worker_enabled: false
@@ -80,7 +83,7 @@ alerts:
 telegram:
   bot_token: ""
   bot_enabled: false
-  api_base_url: "http://telegram-bot-api:8081"
+  api_base_url: "https://api.telegram.org"
 
 payment:
   upi_id: ""

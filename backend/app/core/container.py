@@ -67,7 +67,7 @@ def build_container(settings: Settings) -> Container:
     # Import models to register them with Base.metadata before creating tables
     import app.core.models  # noqa: F401
     # Local/dev convenience. Production containers run Alembic in the entrypoint.
-    create_tables = os.getenv("CREATE_ALL_TABLES", "true").strip().lower() in {"1", "true", "yes", "on"}
+    create_tables = os.getenv("CREATE_ALL_TABLES", "false").strip().lower() in {"1", "true", "yes", "on"}
     if create_tables:
         from app.core.db import create_all_tables
         create_all_tables()

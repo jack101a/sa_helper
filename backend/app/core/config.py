@@ -48,15 +48,16 @@ _DEFAULT_CONFIG: dict[str, Any] = {
     "storage": {
         "sqlite_path": "backend/logs/app.db",
         "database_url": "",
-        "db_type": "sqlite",
+        "db_type": "postgresql",
         "import_path": "import",
         "postgres_db": "sa_helper",
         "postgres_user": "sa_helper",
-        "postgres_password": "sa_helper_dev_password",
+        "postgres_password": "",
         "postgres_host": "postgres",
         "postgres_port": "5432",
     },
     "redis": {"enabled": False, "url": "redis://localhost:6379/0", "prefix": "up:"},
+    "solve": {"backend": "inprocess"},
     "retrain": {"worker_enabled": False},
     # ── Exam service config ────────────────────────────────────────────────────
     "exam": {
@@ -110,21 +111,35 @@ class AuthConfig(BaseModel):
     @field_validator("hash_salt")
     @classmethod
     def hash_salt_must_not_be_empty(cls, v: str) -> str:
-        if not v.strip():
+        token = v.strip()
+        if not token:
             raise ValueError(
                 "AUTH_HASH_SALT must not be empty — set it in your .env file. "
                 "An empty salt makes all API keys trivially equivalent."
             )
+        if token.lower() in {"change-me", "changeme", "replace-me", "replace_with_strong_random_value"}:
+            raise ValueError("AUTH_HASH_SALT uses an insecure placeholder; set a strong random value.")
         return v
 
     @field_validator("admin_token")
     @classmethod
     def admin_token_must_not_be_empty(cls, v: str) -> str:
-        if not v.strip():
+        token = v.strip()
+        if not token:
             raise ValueError(
                 "ADMIN_TOKEN must not be empty — set it in your .env file. "
                 "An empty token allows unauthenticated admin access."
             )
+        if token.lower() in {"change-me", "changeme", "replace-me", "replace_with_strong_random_value"}:
+            raise ValueError("ADMIN_TOKEN uses an insecure placeholder; set a strong random value.")
+        return v
+
+    @field_validator("admin_password")
+    @classmethod
+    def admin_password_must_not_be_placeholder(cls, v: str) -> str:
+        token = str(v or "").strip()
+        if token.lower() in {"change-me", "changeme", "replace-me", "replace_with_strong_random_value"}:
+            raise ValueError("ADMIN_PASSWORD uses an insecure placeholder; set a strong password.")
         return v
 
 
@@ -166,7 +181,7 @@ class StorageConfig(BaseModel):
     import_path: str = "import"
     postgres_db: str = "sa_helper"
     postgres_user: str = "sa_helper"
-    postgres_password: str = "sa_helper_dev_password"
+    postgres_password: str = ""
     postgres_host: str = "postgres"
     postgres_port: str = "5432"
 
@@ -175,6 +190,14 @@ class StorageConfig(BaseModel):
     def validate_db_type(cls, v: str) -> str:
         if v not in ("sqlite", "postgresql"):
             raise ValueError(f"db_type must be 'sqlite' or 'postgresql', got '{v}'")
+        return v
+
+    @field_validator("postgres_password")
+    @classmethod
+    def validate_postgres_password(cls, v: str) -> str:
+        token = str(v or "").strip()
+        if token.lower() in {"change-me", "changeme", "replace-me", "replace_with_strong_random_value"}:
+            raise ValueError("POSTGRES_PASSWORD uses an insecure placeholder; set a real password.")
         return v
 
 
@@ -227,6 +250,7 @@ class Settings(BaseModel):
     model: ModelConfig
     storage: StorageConfig
     redis: RedisConfig = Field(default_factory=RedisConfig)
+    solve: dict[str, str] = Field(default_factory=lambda: {"backend": "inprocess"})
     retrain: RetrainConfig = Field(default_factory=RetrainConfig)
     exam: ExamConfig = Field(default_factory=ExamConfig)
     alerts: AlertsConfig = Field(default_factory=AlertsConfig)
@@ -320,7 +344,7 @@ def get_settings() -> Settings:
     )
     config_dict["storage"]["postgres_password"] = _env_or_default(
         "POSTGRES_PASSWORD",
-        str(config_dict["storage"].get("postgres_password", "sa_helper_dev_password")),
+        str(config_dict["storage"].get("postgres_password", "")),
     )
     config_dict["storage"]["postgres_host"] = _env_or_default(
         "POSTGRES_HOST",
@@ -330,7 +354,7 @@ def get_settings() -> Settings:
         "POSTGRES_PORT",
         str(config_dict["storage"].get("postgres_port", "5432")),
     )
-    config_dict["storage"]["db_type"] = os.getenv("DB_TYPE", config_dict["storage"].get("db_type", "sqlite")).lower()
+    config_dict["storage"]["db_type"] = os.getenv("DB_TYPE", config_dict["storage"].get("db_type", "postgresql")).lower()
     database_url = os.getenv("DATABASE_URL", config_dict["storage"].get("database_url", ""))
     if config_dict["storage"]["db_type"] == "postgresql" and not database_url:
         database_url = _postgres_url_from_values(
@@ -345,6 +369,11 @@ def get_settings() -> Settings:
     config_dict.setdefault("redis", {})
     config_dict["redis"]["enabled"] = os.getenv("REDIS_ENABLED", str(config_dict["redis"].get("enabled", False))).lower() in ("1", "true", "yes")
     config_dict["redis"]["url"] = os.getenv("REDIS_URL", config_dict["redis"].get("url", "redis://localhost:6379/0"))
+    config_dict.setdefault("solve", {})
+    solve_backend = os.getenv("SOLVE_BACKEND", str(config_dict["solve"].get("backend", "inprocess"))).strip().lower()
+    if solve_backend not in {"inprocess", "celery_sync", "celery_async"}:
+        solve_backend = "inprocess"
+    config_dict["solve"]["backend"] = solve_backend
 
     config_dict.setdefault("model", {})
     onnx_raw = os.getenv("ONNX_PATH", config_dict["model"].get("onnx_path", ""))

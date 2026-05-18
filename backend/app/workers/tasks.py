@@ -42,10 +42,22 @@ def package_extension_task() -> dict[str, Any]:
 
 
 @celery_app.task(name="maintenance.full_backup")
-def full_backup_task() -> dict[str, Any]:
+def full_backup_task(
+    telegram: bool | None = None,
+    rclone: bool | None = None,
+    trigger_type: str = "manual",
+    triggered_by: str = "worker",
+    schedule_name: str | None = None,
+) -> dict[str, Any]:
     """Run full backup in worker context."""
     container = _get_container()
-    return container.backup_service.full_backup()
+    return container.backup_service.run_backup_now(
+        telegram=telegram,
+        rclone=rclone,
+        trigger_type=trigger_type,
+        triggered_by=triggered_by,
+        schedule_name=schedule_name,
+    )
 
 
 @celery_app.task(name="feedback.exam")
@@ -63,15 +75,10 @@ def solve_captcha_task(
     field_name: str | None = None,
     task_type: str = "image",
 ) -> dict[str, Any]:
-    """
-    Solve captcha in worker context using the existing model router.
-
-    This keeps API/solver compatibility while moving heavy inference work
-    out of request-process CPU paths.
-    """
+    """Solve captcha in worker context using shared solver service logic."""
     container = _get_container()
-    routing_result = asyncio.run(
-        container.solver_service._model_router.solve(  # pylint: disable=protected-access
+    return asyncio.run(
+        container.solver_service.solve_direct(
             task_type=task_type,
             payload_base64=payload_base64,
             mode=mode,
@@ -79,11 +86,6 @@ def solve_captcha_task(
             field_name=field_name,
         )
     )
-    return {
-        "result": routing_result["result"],
-        "model_used": routing_result["model_used"],
-        "cached": False,
-    }
 
 
 @celery_app.task(name="solve.exam")

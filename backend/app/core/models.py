@@ -694,11 +694,26 @@ class BackupRun(Base):
     __tablename__ = "backup_runs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    backup_type = Column(String(32), nullable=False)  # full, logical, snapshot
+    backup_type = Column(String(32), nullable=False)  # postgres_dump
     status = Column(String(32), nullable=False, default="running")
     storage_target = Column(String(512), nullable=True)
     started_at = Column(DateTime, nullable=False, default=_utcnow)
     finished_at = Column(DateTime, nullable=True)
     file_path_or_uri = Column(String(1024), nullable=True)
+    filename = Column(String(512), nullable=True)
+    file_size_bytes = Column(Integer, nullable=True)
+    encrypted = Column(Boolean, nullable=False, default=False)
+    telegram_enabled = Column(Boolean, nullable=False, default=False)
+    telegram_status = Column(String(64), nullable=True)
+    telegram_chat_id = Column(String(128), nullable=True)
+    telegram_message_id = Column(String(128), nullable=True)
+    rclone_enabled = Column(Boolean, nullable=False, default=False)
+    rclone_status = Column(String(64), nullable=True)
+    rclone_destination = Column(String(512), nullable=True)
+    trigger_type = Column(String(32), nullable=False, default="manual")
+    schedule_name = Column(String(128), nullable=True)
+    next_run_at = Column(DateTime, nullable=True)
+    triggered_by = Column(String(128), nullable=True)
     checksum = Column(String(128), nullable=True)
+    error_summary = Column(Text, nullable=True)
     error_message = Column(Text, default="")

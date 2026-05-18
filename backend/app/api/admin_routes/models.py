@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import base64
-import sqlite3
 from pathlib import Path
 from urllib.parse import quote_plus
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse
+from sqlalchemy.exc import IntegrityError
 
 from app.core.database import Database
 from app.core.paths import get_project_root
@@ -114,7 +114,7 @@ async def upload_model(
             status="active",
             lifecycle_state="candidate",
         )
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         target.unlink(missing_ok=True)
         return _model_upload_error(request, "Model filename already exists")
     except Exception as exc:

@@ -17,6 +17,12 @@ RUN apt-get update || (sleep 5 && apt-get update) && apt-get install -y --no-ins
     tesseract-ocr-hin \
     libgl1-mesa-glx \
     libglib2.0-0 \
+    postgresql-client \
+    rclone \
+    age \
+    gnupg \
+    tar \
+    gzip \
     zip \
     curl \
     netcat-openbsd \
@@ -60,8 +66,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 EXPOSE 8080
 
 # Healthcheck
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:8080/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=5 \
+  CMD curl -f http://localhost:8080/readyz || exit 1
 
 # Start command
 USER 1001:1001

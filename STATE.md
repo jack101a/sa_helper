@@ -1,31 +1,26 @@
-# STATE.md - Admin Dashboard Runtime Import Recovery
+﻿# STATE.md - Postgres Backup Delivery
 
 ## Status
-COMPLETED
+IN PROGRESS (final release verification pass completed; Docker runtime checks pending)
 
 ## Active Task
-Fix production admin dashboard runtime failures reported after deploying image docker-42.
+Compose/env production alignment pass: default services api+postgres+telegram-bot, scale profile redis+worker, and canonical Docker env template creation.
 
 ## Last Files Modified
-- `frontend/src/app/App.jsx`
-- `frontend/src/main.jsx`
-- `frontend/src/app/components/*`
-- `frontend/src/app/layout/DashboardLayout.jsx`
-- `frontend/eslint.config.js`
-- `frontend/package.json`
-- `frontend/package-lock.json`
-- `TASK.md`
+- `docker-compose.yml`
+- `.env.docker.example`
+- `.env.example`
+- `TESTING.md`
 - `STATE.md`
 
 ## Last Command Run
-`python -m pytest backend/tests -q`
+`python -m compileall backend/app backend/migrations; python -m pytest backend/tests -q; npm --prefix frontend run build`
 
 ## Last Output/Error
-- Frontend build passed.
-- Frontend lint passed with `--max-warnings=0` and `react/jsx-no-undef`.
-- Ruff passed: `All checks passed!`.
+- Compile checks passed.
 - Pytest passed: `10 passed`.
-- Compose config rendered successfully.
+- Frontend build passed (`vite build`).
+- `docker` command is not available on this host, so compose config/services checks are pending.
 
 ## Immediate Next Step
-Push hotfix, wait for the production Docker image to build, redeploy with the new image tag/latest, and hard-refresh `/admin/`.
+Run Docker-level smoke from `TESTING.md` on a Docker-enabled host: validate default/scale service lists, bring up stack, run `/readyz`, and test backup Telegram/rclone paths.
