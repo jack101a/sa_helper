@@ -8,7 +8,7 @@ services:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
-      - ${SA_RUNTIME_ROOT}/postgres:/var/lib/postgresql/data
+      - ${CONFIG_PATH}/sa_helper1/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "PGPASSWORD=$${POSTGRES_PASSWORD} psql -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB} -tAc 'SELECT 1' >/dev/null 2>&1"]
       interval: 10s
@@ -30,7 +30,7 @@ services:
       - --maxmemory-policy
       - allkeys-lru
     volumes:
-      - ${SA_RUNTIME_ROOT}/redis:/data
+      - ${CONFIG_PATH}/sa_helper1/redis:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -44,7 +44,6 @@ services:
     container_name: sa-helper-api
     restart: unless-stopped
     init: true
-    user: "${PUID}:${PGID}"
     stop_grace_period: 60s
     depends_on:
       postgres:
@@ -76,8 +75,8 @@ services:
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
 
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - TELEGRAM_BOT_ENABLED=false
-      - START_TELEGRAM_BOT_IN_API=false
+      - TELEGRAM_BOT_ENABLED=true
+      - START_TELEGRAM_BOT_IN_API=true
       - TELEGRAM_API_BASE_URL=${TELEGRAM_API_BASE_URL:-https://api.telegram.org}
 
       - LITELLM_ENDPOINT=${LITELLM_ENDPOINT}
@@ -86,9 +85,9 @@ services:
       - BACKUP_RUNTIME_ROOT=/app/data/runtime/sa_helper
 
     volumes:
-      - ${SA_RUNTIME_ROOT}/logs:/app/backend/logs
-      - ${SA_RUNTIME_ROOT}/data:/app/data
-      - ${SA_RUNTIME_ROOT}/config:/app/backend/config
+      - ${CONFIG_PATH}/sa_helper1/logs:/app/backend/logs
+      - ${CONFIG_PATH}/sa_helper1/data:/app/data
+      - ${CONFIG_PATH}/sa_helper1/config:/app/backend/config
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/readyz"]
       interval: 30s
@@ -103,7 +102,6 @@ services:
     container_name: sa-helper-worker
     restart: unless-stopped
     init: true
-    user: "${PUID}:${PGID}"
     stop_grace_period: 120s
     depends_on:
       redis:
@@ -144,9 +142,9 @@ services:
       - BACKUP_RUNTIME_ROOT=/app/data/runtime/sa_helper
 
     volumes:
-      - ${SA_RUNTIME_ROOT}/logs:/app/backend/logs
-      - ${SA_RUNTIME_ROOT}/data:/app/data
-      - ${SA_RUNTIME_ROOT}/config:/app/backend/config
+      - ${CONFIG_PATH}/sa_helper1/logs:/app/backend/logs
+      - ${CONFIG_PATH}/sa_helper1/data:/app/data
+      - ${CONFIG_PATH}/sa_helper1/config:/app/backend/config
     networks:
       - ajax_network
     healthcheck:
@@ -161,7 +159,6 @@ services:
     container_name: sa-helper-telegram-bot
     restart: unless-stopped
     init: true
-    user: "${PUID}:${PGID}"
     stop_grace_period: 60s
     depends_on:
       api:
@@ -187,7 +184,7 @@ services:
 
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_BOT_ENABLED=true
-      - START_TELEGRAM_BOT_IN_API=false
+      - START_TELEGRAM_BOT_IN_API=true
       - TELEGRAM_API_BASE_URL=${TELEGRAM_API_BASE_URL:-https://api.telegram.org}
 
       - RUN_ALEMBIC_MIGRATIONS=false
@@ -196,9 +193,9 @@ services:
       - BACKUP_RUNTIME_ROOT=/app/data/runtime/sa_helper
 
     volumes:
-      - ${SA_RUNTIME_ROOT}/logs:/app/backend/logs
-      - ${SA_RUNTIME_ROOT}/data:/app/data
-      - ${SA_RUNTIME_ROOT}/config:/app/backend/config
+      - ${CONFIG_PATH}/sa_helper1/logs:/app/backend/logs
+      - ${CONFIG_PATH}/sa_helper1/data:/app/data
+      - ${CONFIG_PATH}/sa_helper1/config:/app/backend/config
     networks:
       - ajax_network
 

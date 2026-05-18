@@ -690,7 +690,11 @@ class APIKeyRepository(BaseRepository):
             try:
                 session = get_session()
             except RuntimeError:
-                session = None
+                # In PostgreSQL mode we must not fall back to sqlite.
+                raise RuntimeError(
+                    "SQLAlchemy session is not initialized for PostgreSQL mode. "
+                    "Initialize SQLAlchemy before calling ensure_master_key()."
+                )
             if session is not None:
                 try:
                     row_plain = session.get(PlatformSettingRecord, "master_api_key_plain")
@@ -785,7 +789,10 @@ class APIKeyRepository(BaseRepository):
             try:
                 session = get_session()
             except RuntimeError:
-                session = None
+                raise RuntimeError(
+                    "SQLAlchemy session is not initialized for PostgreSQL mode. "
+                    "Initialize SQLAlchemy before calling get_master_key_info()."
+                )
             if session is not None:
                 try:
                     row_plain = session.get(PlatformSettingRecord, "master_api_key_plain")

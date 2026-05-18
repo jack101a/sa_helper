@@ -58,14 +58,17 @@ class Container:
 def build_container(settings: Settings) -> Container:
     """Initialize and wire all services."""
 
+    # Initialize SQLAlchemy first so PostgreSQL-mode repositories that depend
+    # on get_session() during legacy facade bootstrap can work safely.
+    init_sqlalchemy_db(settings)
+    # Import models to register them with Base.metadata before create_all/dev use.
+    import app.core.models  # noqa: F401
+
     # Legacy raw-SQL database (existing api_keys, usage_events, etc.)
     db = Database(settings=settings)
     db.init()
 
     # New SQLAlchemy-based database (users, subscriptions, payments, etc.)
-    init_sqlalchemy_db(settings)
-    # Import models to register them with Base.metadata before creating tables
-    import app.core.models  # noqa: F401
     # Local/dev convenience. Production containers run Alembic in the entrypoint.
     create_tables = os.getenv("CREATE_ALL_TABLES", "false").strip().lower() in {"1", "true", "yes", "on"}
     if create_tables:
