@@ -242,3 +242,57 @@ async def import_master_backup_zip(
         return JSONResponse({"ok": True, "message": "Full master backup imported (including models)"})
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Failed to import ZIP backup: {exc}")
+
+
+@router.post("/import/startup-bundle.zip")
+async def import_startup_bundle_zip(
+    request: Request,
+    bundle_file: UploadFile = File(...),
+):
+    """Import startup bundle ZIP (system-data + files payload)."""
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    container = request.app.state.container
+
+    try:
+        raw = await bundle_file.read()
+        with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+            names = set(zf.namelist())
+            if "system-data.json" not in names:
+                raise ValueError("system-data.json not found in ZIP")
+
+            system_raw = zf.read("system-data.json")
+            payload = json.loads(system_raw.decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("system-data.json must be a JSON object")
+
+            # Import DB-backed system setup using existing canonical import path.
+            container.db.import_master_setup(payload)
+
+            # Extract file payloads under files/ into project root safely.
+            extracted = 0
+            for name in zf.namelist():
+                if not name.startswith("files/") or name.endswith("/"):
+                    continue
+                rel = Path(name).as_posix()[len("files/") :]
+                if not rel:
+                    continue
+                target = (_PROJECT_ROOT / rel).resolve()
+                if _PROJECT_ROOT not in target.parents:
+                    raise ValueError(f"Unsafe bundle path: {name}")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(name) as src, target.open("wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                extracted += 1
+
+        _write_auto_backup(container, "import_startup_bundle_zip")
+        return JSONResponse(
+            {
+                "ok": True,
+                "message": "Startup bundle imported",
+                "files_extracted": extracted,
+            }
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to import startup bundle: {exc}") from exc

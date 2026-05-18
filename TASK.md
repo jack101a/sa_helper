@@ -46,3 +46,8 @@ IN PROGRESS (runtime Docker verification pending)
 - `python -m pytest backend/tests -q` succeeded (`10 passed`).
 - `npm --prefix frontend run build` succeeded.
 - Docker CLI is not installed in this environment, so `docker compose ...` and `docker build .` runtime checks are pending.
+
+## Follow-up Task (Startup Bundle Import)
+- [x] Add backend admin endpoint to import startup bundle ZIP (`system-data.json` + `files/` extraction).
+- [x] Wire admin dashboard UI action to upload and trigger startup bundle import.
+- [x] Re-run compile/build checks after wiring.

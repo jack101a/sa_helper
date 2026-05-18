@@ -1,6 +1,6 @@
 """Domain models — users, subscriptions, payments, usage cycles, audit logs.
 
-These models use SQLAlchemy ORM and work with both SQLite and PostgreSQL.
+These models use SQLAlchemy ORM and run on PostgreSQL.
 They coexist with the existing raw-SQL tables (api_keys, usage_events, etc.).
 """
 

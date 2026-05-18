@@ -1,18 +1,9 @@
-"""Database facade over repository layer.
-
-In `sqlite` mode, repositories use the local sqlite file.
-In `postgresql` mode, repositories must use SQLAlchemy-backed paths and this
-facade no longer silently falls back to sqlite.
-"""
+"""Database facade over repository layer (PostgreSQL-only runtime)."""
 
 from __future__ import annotations
 
 import logging
-import sqlite3
 import threading
-from collections.abc import Iterator
-from contextlib import contextmanager
-from pathlib import Path
 from urllib.parse import urlsplit
 
 from app.core.config import Settings
@@ -35,10 +26,6 @@ class Database:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._lock = threading.Lock()
-        self._path: Path | None = None
-        if settings.storage.db_type == "sqlite":
-            self._path = Path(settings.storage.sqlite_path)
-            self._path.parent.mkdir(parents=True, exist_ok=True)
 
         # Initialize repositories
         self.api_keys = APIKeyRepository(self)
@@ -53,7 +40,7 @@ class Database:
 
     @property
     def legacy_sqlalchemy_enabled(self) -> bool:
-        return self._settings.storage.db_type == "postgresql"
+        return True
 
     @staticmethod
     def _normalize_domain(domain: str | None) -> str:
@@ -92,37 +79,16 @@ class Database:
             _add(f"www.{suffix}")
         return out
 
-    @contextmanager
-    def connect(self) -> Iterator[sqlite3.Connection]:
-        """
-        Yield a sqlite3 connection with row_factory set.
-
-        WAL mode is enabled on each connection so concurrent readers never
-        block a writer. Repositories are responsible for calling
-        ``conn.commit()`` after writes; reads need no commit.
-        """
-        if self._path is None:
-            raise RuntimeError(
-                "SQLite connection requested while DB_TYPE is not sqlite. "
-                "Set DB_TYPE=sqlite or update this repository path to use SQLAlchemy/PostgreSQL."
-            )
-        connection = sqlite3.connect(self._path, check_same_thread=False)
-        connection.row_factory = sqlite3.Row
-        # Enable WAL journal mode for better concurrency
-        connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute("PRAGMA synchronous=NORMAL")
-        try:
-            yield connection
-        finally:
-            connection.close()
+    def connect(self):
+        raise RuntimeError(
+            "SQLite is no longer supported. This runtime is PostgreSQL-only. "
+            "Update repository usage to SQLAlchemy/PostgreSQL paths."
+        )
 
     def init(self) -> None:
-        """Create tables when missing."""
-        # In PostgreSQL mode, table lifecycle is handled by Alembic/SQLAlchemy.
-        # Do not create or mutate sqlite files as a silent fallback.
-        if self.legacy_sqlalchemy_enabled:
-            self.api_keys.ensure_master_key()
-            return
+        """Initialize Postgres-backed repository state."""
+        self.api_keys.ensure_master_key()
+        return
 
         with self._lock:
             with self.connect() as conn:

@@ -1,33 +1,17 @@
-"""Database engine and session factory — supports SQLite and PostgreSQL.
-
-This module provides the SQLAlchemy engine and session management for
-the new domain models (users, subscriptions, payments, etc.).
-It coexists with the existing raw-SQL Database facade for legacy tables.
-"""
+"""Database engine and session factory (PostgreSQL-only runtime)."""
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 from app.core.config import Settings
 
-# Declarative base for all new domain models
 Base = declarative_base()
 
-# Module-level singletons
 _engine: Engine | None = None
 _SessionLocal: sessionmaker | None = None
-
-
-def _build_sqlite_url(db_path: str) -> str:
-    """Build SQLite URL with WAL mode for better concurrency."""
-    path = Path(db_path).resolve()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    return f"sqlite:///{path}"
 
 
 def _build_postgresql_url(database_url: str) -> str:
@@ -40,44 +24,22 @@ def _build_postgresql_url(database_url: str) -> str:
 
 
 def init_db(settings: Settings) -> Engine:
-    """Initialize the database engine and session factory.
-
-    Called once at application startup. Returns the engine.
-    """
+    """Initialize PostgreSQL engine and session factory."""
     global _engine, _SessionLocal
 
-    db_type = settings.storage.db_type
-    if db_type == "postgresql":
-        database_url = settings.storage.database_url
-        if not database_url:
-            raise RuntimeError(
-                "DB_TYPE=postgresql requires DATABASE_URL or POSTGRES_* "
-                "environment variables (including POSTGRES_PASSWORD)."
-            )
-        url = _build_postgresql_url(database_url)
-    else:
-        url = _build_sqlite_url(settings.storage.sqlite_path)
-
-    connect_args = {}
-    if db_type == "sqlite":
-        connect_args["check_same_thread"] = False
+    database_url = settings.storage.database_url
+    if not database_url:
+        raise RuntimeError(
+            "PostgreSQL runtime requires DATABASE_URL or POSTGRES_* "
+            "environment variables (including POSTGRES_PASSWORD)."
+        )
+    url = _build_postgresql_url(database_url)
 
     _engine = create_engine(
         url,
         echo=settings.server.debug,
-        connect_args=connect_args,
         pool_pre_ping=True,
     )
-
-    # Enable WAL mode and foreign keys for SQLite
-    if db_type == "sqlite":
-
-        @event.listens_for(_engine, "connect")
-        def _set_sqlite_pragma(dbapi_connection, connection_record):
-            cursor = dbapi_connection.cursor()
-            cursor.execute("PRAGMA journal_mode=WAL")
-            cursor.execute("PRAGMA foreign_keys=ON")
-            cursor.close()
 
     _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
 
@@ -87,14 +49,14 @@ def init_db(settings: Settings) -> Engine:
 def get_session() -> Session:
     """Get a new database session. Must be closed by caller."""
     if _SessionLocal is None:
-        raise RuntimeError("Database not initialized — call init_db() first")
+        raise RuntimeError("Database not initialized - call init_db() first")
     return _SessionLocal()
 
 
 def get_engine() -> Engine:
     """Get the current database engine."""
     if _engine is None:
-        raise RuntimeError("Database not initialized — call init_db() first")
+        raise RuntimeError("Database not initialized - call init_db() first")
     return _engine
 
 
@@ -106,7 +68,7 @@ def create_all_tables() -> None:
 
 
 def drop_all_tables() -> None:
-    """Drop all tables (DANGER — dev only)."""
+    """Drop all tables (DANGER - dev only)."""
     if _engine is None:
         raise RuntimeError("Database not initialized")
     Base.metadata.drop_all(bind=_engine)

@@ -140,6 +140,7 @@ export function SettingsPanel({
     runRclone: true,
   });
   const [backupBusy, setBackupBusy] = useState("");
+  const [bundleImporting, setBundleImporting] = useState(false);
 
   useEffect(() => {
     refreshBackupHealth();
@@ -357,6 +358,30 @@ export function SettingsPanel({
     }
     setPaymentSaving(false);
   };
+
+  const handleImportStartupBundle = async (e) => {
+    e.preventDefault();
+    const fileInput = e.currentTarget?.elements?.bundle_file;
+    const file = fileInput?.files?.[0];
+    if (!file) {
+      showToast("Choose a startup bundle zip file first.", "error");
+      return;
+    }
+
+    setBundleImporting(true);
+    try {
+      const fd = new FormData();
+      fd.append("bundle_file", file);
+      const result = await apiPostForm("/admin/import/startup-bundle.zip", fd);
+      const count = Number(result?.files_extracted || 0);
+      showToast(`Startup bundle imported (${count} files extracted).`, "success");
+      e.currentTarget.reset();
+    } catch (err) {
+      showToast(err?.message || "Startup bundle import failed.", "error");
+    } finally {
+      setBundleImporting(false);
+    }
+  };
   const [globalSettings, setGlobalSettings] = useState({});
   const [loadingGlobal, setLoadingGlobal] = useState(true);
   const [savingGlobal, setSavingGlobal] = useState(false);
@@ -504,6 +529,13 @@ export function SettingsPanel({
             <button type="submit" className={`w-full sm:w-auto ${glassButton}`}>
               <Upload size={16} className={isDark ? "text-cyan-400" : "text-cyan-600"}/>
               Import
+            </button>
+          </form>
+          <form onSubmit={handleImportStartupBundle} className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto items-stretch sm:items-center">
+            <input type="file" name="bundle_file" accept=".zip,application/zip" required className={`min-w-0 flex-1 sm:w-52 text-xs file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-emerald-500/10 file:text-emerald-500 hover:file:bg-emerald-500/20 file:transition-colors ${t_textMuted}`} />
+            <button type="submit" disabled={bundleImporting} className={`w-full sm:w-auto ${glassButton}`}>
+              {bundleImporting ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} className={isDark ? "text-emerald-400" : "text-emerald-600"} />}
+              {bundleImporting ? "Importing..." : "Import Startup Bundle"}
             </button>
           </form>
         </div>

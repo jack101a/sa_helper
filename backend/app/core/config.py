@@ -177,7 +177,7 @@ class StorageConfig(BaseModel):
     sqlite_path: str
     # PostgreSQL support (used when DB_TYPE=postgresql)
     database_url: str = ""
-    db_type: str = "sqlite"  # "sqlite" | "postgresql"
+    db_type: str = "postgresql"
     import_path: str = "import"
     postgres_db: str = "sa_helper"
     postgres_user: str = "sa_helper"
@@ -188,9 +188,10 @@ class StorageConfig(BaseModel):
     @field_validator("db_type")
     @classmethod
     def validate_db_type(cls, v: str) -> str:
-        if v not in ("sqlite", "postgresql"):
-            raise ValueError(f"db_type must be 'sqlite' or 'postgresql', got '{v}'")
-        return v
+        token = str(v or "").strip().lower()
+        if token != "postgresql":
+            raise ValueError(f"db_type must be 'postgresql', got '{v}'")
+        return token
 
     @field_validator("postgres_password")
     @classmethod
@@ -330,7 +331,7 @@ def get_settings() -> Settings:
     config_dict["auth"]["admin_password"]  = os.getenv("ADMIN_PASSWORD",   config_dict["auth"].get("admin_password", ""))
 
     config_dict.setdefault("storage", {})
-    sqlite_raw = os.getenv("SQLITE_PATH", config_dict["storage"].get("sqlite_path", ""))
+    sqlite_raw = str(config_dict["storage"].get("sqlite_path", "backend/logs/app.db"))
     config_dict["storage"]["sqlite_path"] = str(_resolve_path(sqlite_raw))
     import_raw = config_dict["storage"].get("import_path", "import")
     config_dict["storage"]["import_path"] = str(_resolve_path(import_raw))
@@ -354,7 +355,7 @@ def get_settings() -> Settings:
         "POSTGRES_PORT",
         str(config_dict["storage"].get("postgres_port", "5432")),
     )
-    config_dict["storage"]["db_type"] = os.getenv("DB_TYPE", config_dict["storage"].get("db_type", "postgresql")).lower()
+    config_dict["storage"]["db_type"] = "postgresql"
     database_url = os.getenv("DATABASE_URL", config_dict["storage"].get("database_url", ""))
     if config_dict["storage"]["db_type"] == "postgresql" and not database_url:
         database_url = _postgres_url_from_values(

@@ -231,7 +231,7 @@ class ExamService:
         await self._http.aclose()
 
     def export_learned_to_json(self) -> int:
-        """Export exam_learned SQLite table to questions_learned.json. Returns count."""
+        """Export exam_learned records to questions_learned.json. Returns count."""
         try:
             entries = self._db.export_exam_learned_json()
             learned_path = self._data_dir / "questions" / "questions_learned.json"
