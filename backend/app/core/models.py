@@ -557,6 +557,20 @@ class LocatorRecord(Base):
     created_at = Column(String(64), nullable=False)
 
 
+class AutomationMethodRecord(Base):
+    __tablename__ = "automation_methods"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=False, default="")
+    method_type = Column(String(64), nullable=False, default="stall-flow")
+    enabled = Column(Integer, nullable=False, default=1)
+    active = Column(Integer, nullable=False, default=0)
+    payload_json = Column(Text, nullable=False)
+    created_at = Column(String(64), nullable=False)
+    updated_at = Column(String(64), nullable=False)
+
+
 # =============================================================================
 # LEGACY TRAINING TABLES
 # =============================================================================

@@ -51,3 +51,9 @@ IN PROGRESS (runtime Docker verification pending)
 - [x] Add backend admin endpoint to import startup bundle ZIP (`system-data.json` + `files/` extraction).
 - [x] Wire admin dashboard UI action to upload and trigger startup bundle import.
 - [x] Re-run compile/build checks after wiring.
+
+## Hotfix Task (Automation Methods in Postgres Mode)
+- [x] Reproduce admin crash on `/admin/api/automation-methods` caused by SQLite-only repository path.
+- [x] Port `AutomationMethodRepository` to SQLAlchemy/Postgres path.
+- [x] Add missing ORM model for `automation_methods` table.
+- [x] Re-run compile/tests.
