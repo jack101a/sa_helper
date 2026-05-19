@@ -68,6 +68,62 @@ async def _exam_merge_loop(container) -> None:
             await asyncio.sleep(3600)  # retry in 1 hour on failure
 
 
+async def _backup_scheduler(container) -> None:
+    """Run automated system + user backups on schedule."""
+    # Wait 60 seconds after startup before first check
+    await asyncio.sleep(60)
+    while True:
+        try:
+            enabled = container.db.get_setting(
+                "backup.enabled", "true"
+            ).lower() in ("true", "1", "yes", "on")
+
+            if not enabled:
+                await asyncio.sleep(3600)
+                continue
+
+            interval_hours = 6
+            try:
+                interval_hours = max(1, int(container.db.get_setting("backup.interval_hours", "6")))
+            except (ValueError, TypeError):
+                pass
+
+            await asyncio.sleep(interval_hours * 3600)
+
+            # Create backups
+            sys_result = container.backup_service.create_system_backup()
+            user_result = container.backup_service.create_user_backup()
+
+            # rclone sync (non-critical)
+            for path in [sys_result["path"], user_result["path"]]:
+                try:
+                    container.backup_service.rclone_sync(path)
+                except Exception as e:
+                    logger.warning(f"backup_rclone_skip: {e}")
+
+            # Telegram backup (non-critical)
+            for path in [sys_result["path"], user_result["path"]]:
+                try:
+                    await container.backup_service.telegram_backup(path)
+                except Exception as e:
+                    logger.warning(f"backup_telegram_skip: {e}")
+
+            # Alert admin
+            try:
+                container.alert_service.send(
+                    f"✅ Backup: system ({sys_result['size']//1024}KB), "
+                    f"users ({user_result['size']//1024}KB)"
+                )
+            except Exception:
+                pass
+
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error("backup_scheduler_failed", extra={"context": {"error": str(e)}})
+            await asyncio.sleep(3600)
+
+
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     """Manage startup and shutdown lifecycle."""
@@ -91,11 +147,13 @@ async def lifespan(application: FastAPI):
             application.state.telegram_bot = bot
 
     merge_task = asyncio.create_task(_exam_merge_loop(container))
+    backup_task = asyncio.create_task(_backup_scheduler(container))
 
     yield
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
     merge_task.cancel()
+    backup_task.cancel()
     await container.solver_service.stop()
 
     # Guard: retrain_service is optional — only wired when the feature is on

@@ -1,39 +1,34 @@
-# TASK.md - T1-T6 MCQ Solver Performance Improvements
+# TASK.md - T7-T10 Backup & Restore with rclone + Telegram
 
 ## Goal
-Implement tasks T1 through T6 for MCQ solver performance improvements: in-memory learned index, feedback hot-reload, auto-merge service, merge scheduler, and admin merge/stats endpoints.
+Implement tasks T7 through T10 for backup/restore: system-user split backups, rclone sync, Telegram backup upload, backup scheduler, and admin backup endpoints.
 
 ## Status
 COMPLETE
 
 ## Scope Included
-- Execute T1-T3 from `.ai-reports/06a-task-p0-inmemory-index.md`
-- Execute T4-T6 from `.ai-reports/06b-task-p1-auto-merge.md`
-- Run verification commands after each task group
-- Update `STATE.md` at completion
-- Commit with message: `[T1-T6] In-memory hash index + auto-merge service`
+- Execute T7-T10 from `.ai-reports/06c-task-p2-backup-system.md`
+- Read required files before editing
+- Run verification commands after task completion
+- Update `STATE.md`
+- Commit with message: `[T7-T10] Backup system with system/user split, rclone, Telegram`
 
 ## Scope Excluded
-- Any features beyond task specifications
+- Any features outside T7-T10 instructions
 - Destructive commands
-- Files outside current project root
+- Changes outside project root
 
 ## Plan
-- [x] Read AGENTS.md, STATE.md, TASK.md and task specifications
-- [x] Read all required source files for T1-T3
-- [x] Implement T1
-- [x] Implement T2
-- [x] Implement T3
-- [x] Run T1-T3 verification commands
-- [x] Read all required source files for T4-T6
-- [x] Implement T4
-- [x] Implement T5
-- [x] Implement T6
-- [x] Run T4-T6 verification commands
-- [x] Update STATE.md and TASK.md completion
-- [x] Commit changes with required message
+- [x] Read AGENTS.md, STATE.md, TASK.md, and task spec
+- [x] Read required source files before editing
+- [x] Implement T7 (system/user split backup methods + helpers)
+- [x] Implement T8 (rclone sync)
+- [x] Implement T9 (telegram backup)
+- [x] Implement T10 (scheduler + admin endpoints)
+- [x] Run verification commands
+- [x] Update TASK.md and STATE.md to COMPLETE
+- [x] Commit required changes
 
 ## Verification
-- `grep` check for legacy `exam_learned` SQL calls in `solve()` returned no matches
-- `python3 -m py_compile` passed for all edited files
-- Task-provided import checks requiring runtime deps could not run fully due missing local packages (`numpy`, `pydantic`, `fastapi`)
+- `python3 -m py_compile` passed for all changed files.
+- Task import/method checks were attempted but blocked by missing dependency: `sqlalchemy`.

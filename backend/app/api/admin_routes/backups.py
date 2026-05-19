@@ -8,6 +8,7 @@ import urllib.request
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
@@ -242,3 +243,59 @@ async def import_master_backup_zip(
         return JSONResponse({"ok": True, "message": "Full master backup imported (including models)"})
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Failed to import ZIP backup: {exc}")
+
+
+@router.post("/api/backups/system")
+async def create_system_backup(request: Request) -> Any:
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    container = request.app.state.container
+    try:
+        result = container.backup_service.create_system_backup()
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.post("/api/backups/users")
+async def create_user_backup(request: Request) -> Any:
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    container = request.app.state.container
+    try:
+        result = container.backup_service.create_user_backup()
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.get("/api/backups/list")
+async def list_backups_all(request: Request) -> Any:
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    container = request.app.state.container
+    try:
+        result = container.backup_service.list_all_backups()
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.post("/api/backups/rclone-sync")
+async def rclone_sync_latest(request: Request) -> Any:
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    container = request.app.state.container
+    results = []
+    for category in ["system", "users"]:
+        latest = container.backup_service._backup_dir / category / f"latest_{category}.tar.gz"
+        if not latest.exists():
+            latest = container.backup_service._backup_dir / category / f"latest_{category}.json.gz"
+        if latest.exists():
+            r = container.backup_service.rclone_sync(latest)
+            results.append({**r, "category": category})
+    return JSONResponse({"results": results})
