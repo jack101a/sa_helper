@@ -36,23 +36,40 @@ class Container:
 
     settings: Settings
     db: Database
+
+    # ── Platform Module ────────────────────────────────────────────────
     key_service: KeyService
     usage_service: UsageService
+
+    # ── Captcha Module ─────────────────────────────────────────────────
     solver_service: SolverService     # text captcha ONNX
+
+    # ── Exam Module ────────────────────────────────────────────────────
     exam_service: ExamService          # MCQ solver (config from DB)
     exam_merge_service: ExamMergeService
+
+    # ── Autofill Module ────────────────────────────────────────────────
     autofill_service: AutofillService  # form autofill
+
+    # ── Platform Module ────────────────────────────────────────────────
     alert_service: AlertService        # WhatsApp admin alerts (config from DB)
+
+    # ── Extension Module ───────────────────────────────────────────────
     extension_service: ExtensionService # Browser extension packaging
 
     # New scalable services (SQLAlchemy-based)
+    # ── User Module ────────────────────────────────────────────────────
     user_service: UserService = field(default=None)
     subscription_service: SubscriptionService = field(default=None)
     payment_service: PaymentService = field(default=None)
+
+    # ── Platform Module ────────────────────────────────────────────────
     audit_service: AuditService = field(default=None)
     usage_cycle_service: UsageCycleService = field(default=None)
     rate_limiter: RateLimiter = field(default=None)
     backup_service: BackupService = field(default=None)
+
+    # ── User Module ────────────────────────────────────────────────────
     user_key_service: UserKeyService = field(default=None)
 
 
