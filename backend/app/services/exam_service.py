@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import concurrent.futures
+import hashlib
 import json
 import logging
 import os
@@ -17,7 +18,7 @@ import threading
 import time
 from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any, TYPE_CHECKING
 
 import httpx
 import numpy as np
@@ -101,7 +102,7 @@ def _hamming(a: str, b: str) -> int:
     return bin(diff).count("1")
 
 
-def _dct_2d(block: np.ndarray) -> np.ndarray:
+def _dct_2d(block: "np.ndarray") -> "np.ndarray":
     """2D Discrete Cosine Transform (Type-II) using numpy."""
     N = block.shape[0]
     n = np.arange(N)
@@ -168,7 +169,7 @@ class ExamService:
 
     HASH_THRESHOLD = 15  # bits — below this is a confident sign match
 
-    def __init__(self, db: Database, data_dir: Path) -> None:
+    def __init__(self, db: "Database", data_dir: Path) -> None:
         self._db       = db
         self._data_dir = data_dir
         self._http     = httpx.AsyncClient(timeout=30.0)
@@ -182,17 +183,6 @@ class ExamService:
             with q_path.open(encoding="utf-8") as f:
                 self._questions = json.load(f)
             logger.info("exam_db_loaded", extra={"context": {"count": len(self._questions)}})
-
-        # Load learned questions JSON (auto-generated from exam feedback)
-        learned_path = data_dir / "questions" / "questions_learned.json"
-        self._learned_json: list[dict] = []
-        if learned_path.exists():
-            try:
-                with learned_path.open(encoding="utf-8") as f:
-                    self._learned_json = json.load(f)
-                logger.info("exam_learned_json_loaded", extra={"context": {"count": len(self._learned_json)}})
-            except Exception as e:
-                logger.warning("exam_learned_json_load_failed", extra={"context": {"error": str(e)}})
 
         sh_path = data_dir / "hashes" / "sign_hashes.json"
         self._sign_hashes: dict[str, str] = {}  # hash_hex → label
@@ -225,10 +215,119 @@ class ExamService:
 
         # Reusable thread pool for OCR (created once, not per request)
         self._ocr_pool = concurrent.futures.ThreadPoolExecutor(max_workers=5)
+        # In-memory learned question index (replaces SQL queries in solve)
+        # Keyed by question_hash and question_phash for O(1) and O(n) lookup
+        self._learned_by_hash: dict[str, dict] = {}
+        self._learned_by_phash: dict[str, dict] = {}
+        self._reload_learned_index()
 
     async def close(self) -> None:
         self._ocr_pool.shutdown(wait=False)
         await self._http.aclose()
+
+    def _reload_learned_index(self) -> None:
+        """Load all non-rejected learned questions into memory for fast solve lookup."""
+        try:
+            rows = self._db.exam_learned.get_all_learned(min_confidence=0.0)
+            by_hash: dict[str, dict] = {}
+            by_phash: dict[str, dict] = {}
+            for row in rows:
+                if row.get("status") == "rejected":
+                    continue
+                h = row.get("question_hash", "")
+                p = row.get("question_phash", "")
+                if h:
+                    by_hash[h] = row
+                if p:
+                    by_phash[p] = row
+            self._learned_by_hash = by_hash
+            self._learned_by_phash = by_phash
+            logger.info("learned_index_loaded", extra={"context": {
+                "hash_count": len(by_hash),
+                "phash_count": len(by_phash),
+            }})
+        except Exception as e:
+            logger.error("learned_index_load_failed", extra={"context": {"error": str(e)}})
+
+    def _inmemory_get_by_hash(
+        self,
+        question_hash: str,
+        min_confidence: float,
+        min_verified: int,
+    ) -> dict | None:
+        """In-memory equivalent of exam_learned.get_by_hash()."""
+        item = self._learned_by_hash.get(question_hash)
+        if not item:
+            return None
+        if (
+            item.get("status") == "verified"
+            and float(item.get("confidence") or 0) >= min_confidence
+            and int(item.get("verified_count") or 0) >= min_verified
+            and int(item.get("wrong_count") or 0) == 0
+        ):
+            return item
+        return None
+
+    def _inmemory_get_candidate_by_hash(self, question_hash: str) -> dict | None:
+        """In-memory equivalent of exam_learned.get_candidate_by_hash()."""
+        item = self._learned_by_hash.get(question_hash)
+        if item and item.get("status") != "rejected":
+            return item
+        return None
+
+    def _inmemory_get_by_phash(
+        self,
+        question_phash: str,
+        max_distance: int,
+        min_confidence: float,
+        min_verified: int,
+    ) -> dict | None:
+        """In-memory pHash fuzzy match — replaces full table scan."""
+        if not question_phash:
+            return None
+        best: dict | None = None
+        best_distance = max_distance + 1
+        for phash, item in self._learned_by_phash.items():
+            if item.get("status") != "verified":
+                continue
+            if float(item.get("confidence") or 0) < min_confidence:
+                continue
+            if int(item.get("verified_count") or 0) < min_verified:
+                continue
+            if int(item.get("wrong_count") or 0) != 0:
+                continue
+            dist = _hamming(question_phash, phash)
+            if dist < best_distance:
+                best = item
+                best_distance = dist
+        if best and best_distance <= max_distance:
+            best = dict(best)  # copy to avoid mutating index
+            best["_phash_distance"] = best_distance
+            return best
+        return None
+
+    def _inmemory_get_candidate_by_phash(
+        self,
+        question_phash: str,
+        max_distance: int,
+    ) -> dict | None:
+        """In-memory pHash candidate lookup — replaces full table scan."""
+        if not question_phash:
+            return None
+        best: dict | None = None
+        best_distance = max_distance + 1
+        for phash, item in self._learned_by_phash.items():
+            if item.get("status") == "rejected":
+                continue
+            dist = _hamming(question_phash, phash)
+            if dist < best_distance:
+                best = item
+                best_distance = dist
+        if best and best_distance <= max_distance:
+            best = dict(best)
+            best["_phash_distance"] = best_distance
+            return best
+        return None
 
     def export_learned_to_json(self) -> int:
         """Export exam_learned SQLite table to questions_learned.json. Returns count."""
@@ -289,8 +388,8 @@ class ExamService:
             return 3
 
     def _learning_mode(self) -> str:
-        mode = str(self._db.get_setting("exam.learning_mode", "auto_click") or "auto_click").strip().lower()
-        return mode if mode in {"train_only", "auto_click"} else "auto_click"
+        mode = str(self._db.get_setting("exam.learning_mode", "train_only") or "train_only").strip().lower()
+        return mode if mode in {"train_only", "auto_click"} else "train_only"
 
     def _tessdata_dir(self) -> str | None:
         """Return absolute path to tessdata dir if it exists, else None."""
@@ -686,7 +785,7 @@ class ExamService:
                 response["option_phash_distance"] = row.get("_option_phash_distance")
             return response
 
-        learned = self._db.exam_learned.get_by_hash(
+        learned = self._inmemory_get_by_hash(
             question_hash,
             min_confidence=learn_min_confidence,
             min_verified=learn_min_confirmations,
@@ -713,11 +812,11 @@ class ExamService:
         if learned and learned.get("correct_option"):
             train_candidate = train_candidate or _train_response(learned, "learned_db_train")
 
-        candidate = self._db.exam_learned.get_candidate_by_hash(question_hash)
+        candidate = self._inmemory_get_candidate_by_hash(question_hash)
         if not train_candidate and candidate and candidate.get("correct_option"):
             train_candidate = _train_response(candidate, "learned_candidate")
 
-        learned = self._db.exam_learned.get_by_phash(
+        learned = self._inmemory_get_by_phash(
             question_phash,
             max_distance=learn_phash_max_distance,
             min_confidence=learn_min_confidence,
@@ -752,7 +851,7 @@ class ExamService:
         if learned and learned.get("correct_option"):
             train_candidate = train_candidate or _train_response(learned, "learned_phash_train")
 
-        candidate = self._db.exam_learned.get_candidate_by_phash(question_phash, max_distance=learn_phash_max_distance)
+        candidate = self._inmemory_get_candidate_by_phash(question_phash, max_distance=learn_phash_max_distance)
         if not train_candidate and candidate and candidate.get("correct_option"):
             train_candidate = _train_response(candidate, "learned_phash_candidate")
 

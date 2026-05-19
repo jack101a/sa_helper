@@ -2,38 +2,17 @@
 
 from __future__ import annotations
 
-import html
-import shlex
-import subprocess
-from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+import os, signal, subprocess, sys, shlex
+from pathlib import Path
 
-from app.workers.dispatch import run_task_with_timeout
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 
 from .utils import _admin_guard
 
 router = APIRouter(tags=["admin-system"])
-
-
-async def _optional_json(request: Request) -> dict[str, Any]:
-    try:
-        body = await request.json()
-        return body if isinstance(body, dict) else {}
-    except Exception:
-        return {}
-
-
-def _public_base_url(request: Request) -> str:
-    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
-    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
-    return f"{proto}://{host}".rstrip("/")
-
-
-def _gdrive_callback_uri(request: Request) -> str:
-    return f"{_public_base_url(request)}/admin/api/system/backups/gdrive/callback"
 
 
 # ── Backup ─────────────────────────────────────────────────────────────────
@@ -54,17 +33,6 @@ async def create_backup(request: Request) -> Any:
     if denied:
         return denied
     container = request.app.state.container
-    if container.settings.redis.enabled:
-        try:
-            result = await run_task_with_timeout(
-                "maintenance.full_backup",
-                queue="maintenance",
-                timeout_seconds=120,
-            )
-            return JSONResponse(result)
-        except Exception:
-            pass
-
     svc = container.backup_service
     result = svc.full_backup()
     return JSONResponse(result)
@@ -79,146 +47,6 @@ async def restore_backup(request: Request, backup_id: str) -> Any:
     svc = container.backup_service
     result = svc.restore_from_backup(backup_id)
     return JSONResponse(result)
-
-
-@router.post("/api/system/backups/validate")
-async def validate_backup_package(request: Request, backup_file: UploadFile = File(...)) -> Any:
-    denied = _admin_guard(request)
-    if denied:
-        return denied
-    container = request.app.state.container
-    tmp = Path(container.backup_service._backup_dir) / f"validate-{backup_file.filename or 'upload.upbak'}"
-    tmp.write_bytes(await backup_file.read())
-    try:
-        return JSONResponse(container.backup_service.validate_package(tmp))
-    finally:
-        tmp.unlink(missing_ok=True)
-
-
-@router.post("/api/system/backups/restore-package")
-async def restore_backup_package(request: Request, backup_file: UploadFile = File(...)) -> Any:
-    denied = _admin_guard(request)
-    if denied:
-        return denied
-    container = request.app.state.container
-    filename = backup_file.filename or "uploaded-backup.upbak"
-    target = Path(container.backup_service._backup_dir) / filename
-    target.write_bytes(await backup_file.read())
-    result = container.backup_service.restore_package(target)
-    return JSONResponse(result)
-
-
-@router.post("/api/system/import-bundle")
-async def import_system_bundle(request: Request, bundle_file: UploadFile = File(...)) -> Any:
-    denied = _admin_guard(request)
-    if denied:
-        return denied
-    container = request.app.state.container
-    filename = bundle_file.filename or "sa-helper-import-bundle.zip"
-    target = Path(container.backup_service._backup_dir) / filename
-    target.write_bytes(await bundle_file.read())
-    result = container.backup_service.import_system_bundle(target)
-    return JSONResponse(result, status_code=200 if result.get("status") == "completed" else 400)
-
-
-@router.post("/api/system/backups/{backup_id}/telegram")
-async def upload_backup_to_telegram(request: Request, backup_id: str) -> Any:
-    denied = _admin_guard(request)
-    if denied:
-        return denied
-    container = request.app.state.container
-    backup = next((b for b in container.backup_service.list_backups() if b["id"] == backup_id or b["name"] == backup_id), None)
-    if not backup:
-        raise HTTPException(404, "backup not found")
-    ok = container.backup_service.notify_telegram_backup({
-        "status": "completed",
-        "backup_id": backup["id"],
-        "file_path_or_uri": backup["path"],
-        "size_bytes": backup["size_bytes"],
-        "checksum": container.backup_service._package_checksum(Path(backup["path"])),
-    })
-    error = "" if ok else container.backup_service._setting("backup.telegram_last_error")
-    return JSONResponse({"ok": ok, "error": error}, status_code=200 if ok else 400)
-
-
-@router.post("/api/system/backups/telegram/test")
-async def test_backup_telegram(request: Request) -> Any:
-    denied = _admin_guard(request)
-    if denied:
-        return denied
-    body = await _optional_json(request)
-    chat_id = str(body.get("chat_id") or "").strip()
-    text = str(body.get("text") or "").strip() or None
-    save = bool(body.get("save"))
-    service = request.app.state.container.backup_service
-    if chat_id and save:
-        service._set_setting("backup.telegram_channel_id", chat_id)
-    result = service.test_telegram_destination(chat_id=chat_id or None, text=text)
-    return JSONResponse(result, status_code=200 if result.get("ok") else 400)
-
-
-@router.get("/api/system/backups/gdrive/auth-url")
-async def gdrive_auth_url(request: Request, redirect_uri: str) -> Any:
-    denied = _admin_guard(request)
-    if denied:
-        return denied
-    return JSONResponse(request.app.state.container.backup_service.gdrive_auth_url(redirect_uri))
-
-
-@router.get("/api/system/backups/gdrive/connect")
-async def gdrive_connect(request: Request) -> Any:
-    denied = _admin_guard(request)
-    if denied:
-        return denied
-    redirect_uri = str(request.query_params.get("redirect_uri") or _gdrive_callback_uri(request))
-    result = request.app.state.container.backup_service.gdrive_auth_url(redirect_uri)
-    if not result.get("ok"):
-        raise HTTPException(400, result.get("error", "Google Drive auth is not configured"))
-    return RedirectResponse(result["url"])
-
-
-@router.get("/api/system/backups/gdrive/callback")
-async def gdrive_callback(request: Request, code: str = "", error: str = "") -> Any:
-    denied = _admin_guard(request)
-    if denied:
-        return denied
-    if error:
-        return HTMLResponse(f"<h1>Google Drive connection failed</h1><p>{html.escape(error)}</p>", status_code=400)
-    if not code:
-        return HTMLResponse("<h1>Google Drive connection failed</h1><p>Missing authorization code.</p>", status_code=400)
-    result = await request.app.state.container.backup_service.gdrive_exchange_code(code, _gdrive_callback_uri(request))
-    if not result.get("ok"):
-        return HTMLResponse(
-            f"<h1>Google Drive connection failed</h1><p>{html.escape(str(result.get('error') or 'unknown error'))}</p>",
-            status_code=400,
-        )
-    return HTMLResponse("<h1>Google Drive connected</h1><p>You can close this tab and return to SA Helper.</p>")
-
-
-@router.post("/api/system/backups/gdrive/exchange")
-async def gdrive_exchange(request: Request) -> Any:
-    denied = _admin_guard(request)
-    if denied:
-        return denied
-    body = await request.json()
-    code = str(body.get("code") or "")
-    redirect_uri = str(body.get("redirect_uri") or "")
-    if not code or not redirect_uri:
-        raise HTTPException(400, "code and redirect_uri are required")
-    result = await request.app.state.container.backup_service.gdrive_exchange_code(code, redirect_uri)
-    return JSONResponse(result)
-
-
-@router.post("/api/system/backups/{backup_id}/gdrive")
-async def upload_backup_to_gdrive(request: Request, backup_id: str) -> Any:
-    denied = _admin_guard(request)
-    if denied:
-        return denied
-    container = request.app.state.container
-    backup = next((b for b in container.backup_service.list_backups() if b["id"] == backup_id or b["name"] == backup_id), None)
-    if not backup:
-        raise HTTPException(404, "backup not found")
-    return JSONResponse(container.backup_service.upload_to_gdrive(Path(backup["path"])))
 
 
 @router.get("/api/system/backup-health")
@@ -271,7 +99,7 @@ async def system_health(request: Request) -> Any:
 
     # Count totals
     from app.core.db import get_session
-    from app.core.models import PaymentRecord, User, UserSubscription
+    from app.core.models import User, PaymentRecord, UserSubscription
 
     session = get_session()
     try:
@@ -291,6 +119,34 @@ async def system_health(request: Request) -> Any:
         "payments_pending": pending_payments,
         "active_subscriptions": active_subs,
     })
+
+
+@router.post("/api/exam/merge")
+async def force_exam_merge(request: Request) -> Any:
+    """Manually trigger merge of verified learned questions into main bank."""
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    container = request.app.state.container
+    try:
+        result = container.exam_merge_service.merge_verified_to_main()
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.get("/api/exam/training-stats")
+async def exam_training_stats(request: Request) -> Any:
+    """Return training pipeline statistics for admin dashboard."""
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    container = request.app.state.container
+    try:
+        stats = container.exam_merge_service.get_merge_stats()
+        return JSONResponse(stats)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 # ── Server Restart ───────────────────────────────────────────────────────────

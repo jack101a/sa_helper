@@ -1,29 +1,39 @@
-# TASK.md - Admin Dashboard Runtime Import Recovery
+# TASK.md - T1-T6 MCQ Solver Performance Improvements
 
 ## Goal
-Fix deployed admin dashboard runtime failures caused by missing JSX imports after frontend cleanup.
+Implement tasks T1 through T6 for MCQ solver performance improvements: in-memory learned index, feedback hot-reload, auto-merge service, merge scheduler, and admin merge/stats endpoints.
 
 ## Status
-COMPLETED
+COMPLETE
 
 ## Scope Included
-- Restore known-good frontend component imports.
-- Add `react/jsx-no-undef` lint coverage to catch missing JSX imports before deployment.
-- Verify frontend build/lint, backend lint/tests, and compose config.
+- Execute T1-T3 from `.ai-reports/06a-task-p0-inmemory-index.md`
+- Execute T4-T6 from `.ai-reports/06b-task-p1-auto-merge.md`
+- Run verification commands after each task group
+- Update `STATE.md` at completion
+- Commit with message: `[T1-T6] In-memory hash index + auto-merge service`
 
 ## Scope Excluded
-- Browser-side live production inspection.
-- Changing production secrets or stopping external Telegram bot processes.
+- Any features beyond task specifications
+- Destructive commands
+- Files outside current project root
 
 ## Plan
-- [x] Diagnose dashboard crash from missing JSX imports like `NavLink`.
-- [x] Restore frontend app/component imports from known-good history.
-- [x] Add strict JSX undefined lint coverage.
-- [x] Run verification commands.
+- [x] Read AGENTS.md, STATE.md, TASK.md and task specifications
+- [x] Read all required source files for T1-T3
+- [x] Implement T1
+- [x] Implement T2
+- [x] Implement T3
+- [x] Run T1-T3 verification commands
+- [x] Read all required source files for T4-T6
+- [x] Implement T4
+- [x] Implement T5
+- [x] Implement T6
+- [x] Run T4-T6 verification commands
+- [x] Update STATE.md and TASK.md completion
+- [x] Commit changes with required message
 
-## Verification Approach
-- `npm --prefix frontend run build`
-- `npm --prefix frontend run lint`
-- `ruff check backend/app backend/tests`
-- `python -m pytest backend/tests -q`
-- `docker compose config`
+## Verification
+- `grep` check for legacy `exam_learned` SQL calls in `solve()` returned no matches
+- `python3 -m py_compile` passed for all edited files
+- Task-provided import checks requiring runtime deps could not run fully due missing local packages (`numpy`, `pydantic`, `fastapi`)

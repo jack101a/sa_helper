@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path as _Path
@@ -23,8 +25,47 @@ from app.middleware.rate_limit_middleware import RateLimitMiddleware
 settings = get_settings()
 configure_logging(settings=settings)
 container = build_container(settings=settings)
+logger = logging.getLogger(__name__)
 
 _API_VERSION = "2.0.0"
+
+
+async def _exam_merge_loop(container) -> None:
+    """Auto-merge verified learned questions into main bank on schedule."""
+    while True:
+        try:
+            interval_hours = 6
+            try:
+                interval_hours = max(1, int(container.db.get_setting("exam.merge_interval_hours", "6")))
+            except (ValueError, TypeError):
+                pass
+
+            merge_enabled = container.db.get_setting(
+                "exam.auto_merge_enabled", "true"
+            ).lower() in ("true", "1", "yes", "on")
+
+            if not merge_enabled:
+                await asyncio.sleep(3600)  # check again in 1 hour
+                continue
+
+            await asyncio.sleep(interval_hours * 3600)
+
+            result = container.exam_merge_service.merge_verified_to_main()
+            if result["merged"] > 0:
+                logger.info("exam_auto_merge", extra={"context": result})
+                # Send alert if alert_service exists
+                try:
+                    container.alert_service.send(
+                        f"📚 MCQ Bank Merge: {result['merged']} new questions merged "
+                        f"(total: {result['total_bank']})"
+                    )
+                except Exception:
+                    pass
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error("exam_auto_merge_failed", extra={"context": {"error": str(e)}})
+            await asyncio.sleep(3600)  # retry in 1 hour on failure
 
 
 @asynccontextmanager
@@ -49,10 +90,12 @@ async def lifespan(application: FastAPI):
         if bot:
             application.state.telegram_bot = bot
 
+    merge_task = asyncio.create_task(_exam_merge_loop(container))
 
     yield
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
+    merge_task.cancel()
     await container.solver_service.stop()
 
     # Guard: retrain_service is optional — only wired when the feature is on

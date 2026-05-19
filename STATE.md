@@ -1,31 +1,31 @@
-# STATE.md - Admin Dashboard Runtime Import Recovery
+# STATE.md - T1-T6 Completed
 
 ## Status
-COMPLETED
+COMPLETE
 
 ## Active Task
-Fix production admin dashboard runtime failures reported after deploying image docker-42.
+Implement T1-T6 MCQ performance improvements: in-memory learned index + auto-merge service pipeline.
 
 ## Last Files Modified
-- `frontend/src/app/App.jsx`
-- `frontend/src/main.jsx`
-- `frontend/src/app/components/*`
-- `frontend/src/app/layout/DashboardLayout.jsx`
-- `frontend/eslint.config.js`
-- `frontend/package.json`
-- `frontend/package-lock.json`
+- `backend/app/services/exam_service.py`
+- `backend/app/api/routes.py`
+- `backend/app/services/exam_merge_service.py` (new)
+- `backend/app/core/container.py`
+- `backend/app/main.py`
+- `backend/app/api/admin_routes/system.py`
 - `TASK.md`
 - `STATE.md`
 
 ## Last Command Run
-`python -m pytest backend/tests -q`
+`python3 -m py_compile backend/app/services/exam_service.py backend/app/api/routes.py backend/app/services/exam_merge_service.py backend/app/core/container.py backend/app/main.py backend/app/api/admin_routes/system.py`
 
 ## Last Output/Error
-- Frontend build passed.
-- Frontend lint passed with `--max-warnings=0` and `react/jsx-no-undef`.
-- Ruff passed: `All checks passed!`.
-- Pytest passed: `10 passed`.
-- Compose config rendered successfully.
+- `py_compile OK`
+- Task verifications that import full app modules were blocked by missing local dependencies:
+  - `ModuleNotFoundError: No module named 'numpy'`
+  - `ModuleNotFoundError: No module named 'pydantic'`
+  - `ModuleNotFoundError: No module named 'fastapi'`
+- `grep` verification confirmed old `self._db.exam_learned.get_*` lookups were removed from `ExamService.solve()`.
 
 ## Immediate Next Step
-Push hotfix, wait for the production Docker image to build, redeploy with the new image tag/latest, and hard-refresh `/admin/`.
+Install backend runtime dependencies and rerun task-level import checks/end-to-end smoke tests.

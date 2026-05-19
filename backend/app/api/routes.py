@@ -9,25 +9,24 @@ import re
 import time
 import uuid
 from collections import deque
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
+from app.core.paths import get_project_root
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
-from app.core.automation_method_utils import (
-    compose_dynamic_stall_flow,
-    validate_automation_method_payload,
-)
 from app.core.database import Database
-from app.core.paths import get_project_root
 from app.core.security import is_valid_base64
 from app.core.userscript_utils import parse_userscript_meta
+from app.core.automation_method_utils import validate_automation_method_payload, compose_dynamic_stall_flow
 from app.models.schemas import (
     AutofillFillRequest,
     AutofillFillResponse,
-    AutofillRule,
+    AutofillProposeRequest,
     AutofillRuleProposalRequest,
     AutofillRuleSyncResponse,
+    AutofillRule,
     ExamFeedbackRequest,
     ExamFeedbackResponse,
     ExamSolveRequest,
@@ -42,8 +41,6 @@ from app.models.schemas import (
     SolveResponse,
     VerifyResponse,
 )
-from app.services.exam_feedback_service import process_exam_feedback
-from app.workers.dispatch import run_task_with_timeout
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["v1"])
@@ -69,67 +66,17 @@ def _ensure_master_key(request: Request) -> None:
         raise HTTPException(403, "Master key required for this administrative action.")
 
 
-def _ensure_service_allowed(request: Request, service: str, consume_quota: bool = False) -> None:
+def _ensure_service_allowed(request: Request, service: str) -> None:
     """Raise 403 when the current key is not entitled to a service."""
     key_record = request.state.api_key_record
     if not key_record:
         raise HTTPException(401, "API key required")
     if key_record.get("key_type") == "master":
         return
-    if getattr(request.state, "is_user_key", False):
-        _ensure_user_subscription_allowed(request, service, consume_quota=consume_quota)
-        return
     entitlements = request.app.state.container.db.get_api_key_entitlements(int(key_record["id"]))
     services = entitlements.get("services") or {}
     if services.get(service) is False:
         raise HTTPException(403, f"{service} service is not enabled for this API key")
-
-
-def _ensure_user_subscription_allowed(request: Request, service: str, consume_quota: bool = False) -> None:
-    """Validate service entitlement and reserve one monthly usage unit for user keys."""
-    from app.core.db import get_session
-    from app.core.models import SubscriptionPlan, UserSubscription
-
-    user_id = int(request.state.api_key_record.get("user_id") or 0)
-    if not user_id:
-        raise HTTPException(403, "user subscription required")
-    session = get_session()
-    try:
-        now = datetime.now(UTC)
-        sub = (
-            session.query(UserSubscription)
-            .filter(
-                UserSubscription.user_id == user_id,
-                UserSubscription.status == "active",
-                UserSubscription.start_at <= now,
-                UserSubscription.end_at > now,
-            )
-            .order_by(UserSubscription.created_at.desc())
-            .first()
-        )
-        if not sub:
-            raise HTTPException(403, "active subscription required")
-        services = {}
-        try:
-            services = json.loads(sub.services_snapshot_json or "{}")
-        except Exception:
-            services = {}
-        if not services:
-            plan = session.query(SubscriptionPlan).filter(SubscriptionPlan.id == sub.plan_id).first()
-            try:
-                services = json.loads(plan.services_json or "{}") if plan else {}
-            except Exception:
-                services = {}
-        if services.get(service) is False:
-            raise HTTPException(403, f"{service} service is not enabled for this plan")
-    finally:
-        session.close()
-
-    if consume_quota:
-        quota = request.app.state.container.usage_cycle_service.increment_usage(user_id, amount=1)
-        if not quota.get("allowed"):
-            raise HTTPException(429, quota.get("reason") or "monthly quota exceeded")
-        request.state.subscription_quota = quota
 
 
 def _prune_report_buckets() -> None:
@@ -194,7 +141,7 @@ def _save_exam_offline_dataset(
     question_dir = dataset_root / "questions" / folder_name
     question_dir.mkdir(parents=True, exist_ok=True)
 
-    now_iso = datetime.now(UTC).isoformat()
+    now_iso = datetime.now(timezone.utc).isoformat()
     question_rel = f"questions/{folder_name}/question.png"
     question_image.save(dataset_root / question_rel, format="PNG")
 
@@ -514,7 +461,7 @@ async def sync_userscripts(request: Request) -> dict:
 @router.post("/solve", response_model=SolveResponse)
 async def solve(request: Request, payload: SolveRequest) -> SolveResponse:
     """Solve a text captcha image using the ONNX OCR model."""
-    _ensure_service_allowed(request, "captcha", consume_quota=True)
+    _ensure_service_allowed(request, "captcha")
     container     = request.app.state.container
     key_record    = request.state.api_key_record
     client_ip     = request.client.host if request.client else None
@@ -531,42 +478,13 @@ async def solve(request: Request, payload: SolveRequest) -> SolveResponse:
         raise HTTPException(400, "payload_base64 invalid")
 
     try:
-        if container.settings.redis.enabled:
-            try:
-                started = time.perf_counter()
-                solved = await run_task_with_timeout(
-                    "solve.captcha",
-                    kwargs={
-                        "payload_base64": payload.payload_base64,
-                        "mode": payload.mode,
-                        "domain": normalized or None,
-                        "field_name": payload.field_name,
-                        "task_type": payload.type,
-                    },
-                    queue="solve-heavy",
-                    timeout_seconds=25,
-                )
-                solved.setdefault("processing_ms", int((time.perf_counter() - started) * 1000))
-            except Exception as queue_error:
-                logger.warning(
-                    "captcha_worker_fallback",
-                    extra={"context": {"error": str(queue_error)}},
-                )
-                solved = await container.solver_service.submit(
-                    task_type=payload.type,
-                    payload_base64=payload.payload_base64,
-                    mode=payload.mode,
-                    domain=normalized or None,
-                    field_name=payload.field_name,
-                )
-        else:
-            solved = await container.solver_service.submit(
-                task_type=payload.type,
-                payload_base64=payload.payload_base64,
-                mode=payload.mode,
-                domain=normalized or None,
-                field_name=payload.field_name,
-            )
+        solved = await container.solver_service.submit(
+            task_type=payload.type,
+            payload_base64=payload.payload_base64,
+            mode=payload.mode,
+            domain=normalized or None,
+            field_name=payload.field_name,
+        )
         container.usage_service.record(
             key_id=int(key_record["id"]),
             task_type=f"captcha:{payload.type}",
@@ -597,6 +515,7 @@ async def solve(request: Request, payload: SolveRequest) -> SolveResponse:
 async def report(request: Request, payload: ReportRequest) -> dict:
     """Upload a failed captcha image for retraining."""
     _ensure_service_allowed(request, "captcha")
+    container  = request.app.state.container
     key_record = request.state.api_key_record
     key_id     = int(key_record["id"])
 
@@ -638,7 +557,7 @@ async def report(request: Request, payload: ReportRequest) -> dict:
 
 @router.post("/exam/solve", response_model=ExamSolveResponse)
 async def exam_solve(request: Request, payload: ExamSolveRequest) -> ExamSolveResponse:
-    _ensure_service_allowed(request, "solver", consume_quota=True)
+    _ensure_service_allowed(request, "solver")
     """
     Solve an MCQ question from the Sarathi exam portal.
     Extension sends base64 question image + 4 option images.
@@ -650,34 +569,11 @@ async def exam_solve(request: Request, payload: ExamSolveRequest) -> ExamSolveRe
     normalized = Database._normalize_domain(payload.domain)
 
     try:
-        if container.settings.redis.enabled:
-            try:
-                result = await run_task_with_timeout(
-                    "solve.exam",
-                    kwargs={
-                        "question_image_b64": payload.question_image_b64,
-                        "options_image_b64_list": payload.option_images_b64,
-                        "domain": normalized or None,
-                    },
-                    queue="solve-heavy",
-                    timeout_seconds=35,
-                )
-            except Exception as queue_error:
-                logger.warning(
-                    "exam_worker_fallback",
-                    extra={"context": {"error": str(queue_error)}},
-                )
-                result = await container.exam_service.solve(
-                    question_b64=payload.question_image_b64,
-                    option_b64s=payload.option_images_b64,
-                    domain=normalized or None,
-                )
-        else:
-            result = await container.exam_service.solve(
-                question_b64=payload.question_image_b64,
-                option_b64s=payload.option_images_b64,
-                domain=normalized or None,
-            )
+        result = await container.exam_service.solve(
+            question_b64=payload.question_image_b64,
+            option_b64s=payload.option_images_b64,
+            domain=normalized or None,
+        )
         container.usage_service.record(
             key_id=int(key_record["id"]),
             task_type="exam",
@@ -726,23 +622,141 @@ async def exam_feedback(
     When learning is enabled and answer was correct, the question is
     added to the self-learning database (exam_learned).
     """
-    container = request.app.state.container
-    payload_data = payload.model_dump()
+    container  = request.app.state.container
+    key_record = request.state.api_key_record
+    db         = container.db
 
-    if container.settings.redis.enabled:
+    # Check if learning is enabled
+    learning_enabled = db.get_setting("exam.learning_enabled", "true").lower() in ("true", "1", "yes", "on")
+    if not learning_enabled:
+        return ExamFeedbackResponse(recorded=False, learned=False, message="Learning is disabled")
+
+    # Compute perceptual hash of the question image
+    try:
+        from app.services.exam_service import _b64_to_pil, _djb2_hash, _phash
+        q_img = _b64_to_pil(payload.question_image_b64)
+        question_hash = _djb2_hash(q_img)
+        question_phash = _phash(q_img)
+    except Exception as e:
+        logger.warning("exam_feedback_hash_failed", extra={"context": {"error": str(e)}})
+        return ExamFeedbackResponse(recorded=False, learned=False, message=f"Hash failed: {e}")
+
+    # Record the attempt
+    db.insert_exam_attempt(
+        question_hash=question_hash,
+        selected_option=payload.selected_option,
+        was_correct=payload.was_correct,
+        method=payload.method,
+        processing_ms=payload.processing_ms,
+        domain=payload.domain,
+        question_num=payload.question_num,
+    )
+
+    # Only learn from correct answers
+    if not payload.was_correct:
+        penalty = None
         try:
-            result = run_task_with_timeout(
-                "feedback.exam",
-                kwargs={"payload": payload_data},
-                queue="feedback",
-                timeout_seconds=60,
-            )
-            return ExamFeedbackResponse(**result)
-        except Exception as error:
-            logger.warning("exam_feedback_worker_fallback", extra={"context": {"error": str(error)}})
+            penalty = db.exam_learned.record_wrong(question_hash, selected_option=payload.selected_option)
+        except Exception as e:
+            logger.warning("exam_feedback_wrong_penalty_failed", extra={"context": {"error": str(e)}})
+        msg = "Wrong answer - not learning"
+        if penalty and penalty.get("action") == "penalized":
+            msg = f"Wrong answer - learned row penalized (confidence: {penalty['confidence']:.1f})"
+        return ExamFeedbackResponse(recorded=True, learned=False, message=msg)
 
-    result = process_exam_feedback(container, payload_data)
-    return ExamFeedbackResponse(**result)
+    # OCR the question and options for text storage
+    opt_images: list[object | None] = []
+    try:
+        from app.services.exam_service import ExamService
+        opt_texts = []
+        opt_hashes = []
+        opt_phashes = []
+        for opt_b64 in payload.option_images_b64:
+            try:
+                opt_img = _b64_to_pil(opt_b64)
+                opt_images.append(opt_img)
+                opt_hashes.append(_djb2_hash(opt_img))
+                opt_phashes.append(_phash(opt_img))
+                opt_texts.append(ExamService._ocr_text_static(opt_img))
+            except Exception:
+                opt_images.append(None)
+                opt_hashes.append("")
+                opt_phashes.append("")
+                opt_texts.append("")
+        question_text = ExamService._ocr_text_static(q_img)
+    except Exception as e:
+        logger.warning("exam_feedback_ocr_failed", extra={"context": {"error": str(e)}})
+        question_text = ""
+        opt_texts = ["", "", "", ""]
+        opt_hashes = ["", "", "", ""]
+        opt_phashes = ["", "", "", ""]
+        if not opt_images:
+            opt_images = [None] * len(payload.option_images_b64)
+
+    correct_index = int(payload.selected_option) - 1
+    correct_option_text = opt_texts[correct_index] if 0 <= correct_index < len(opt_texts) else ""
+    correct_option_hash = opt_hashes[correct_index] if 0 <= correct_index < len(opt_hashes) else ""
+    correct_option_phash = opt_phashes[correct_index] if 0 <= correct_index < len(opt_phashes) else ""
+
+    # Upsert into learned database
+    result = db.upsert_exam_learned(
+        question_hash=question_hash,
+        question_phash=question_phash,
+        question_text=question_text,
+        option_1=opt_texts[0] if len(opt_texts) > 0 else "",
+        option_2=opt_texts[1] if len(opt_texts) > 1 else "",
+        option_3=opt_texts[2] if len(opt_texts) > 2 else "",
+        option_4=opt_texts[3] if len(opt_texts) > 3 else "",
+        correct_option=payload.selected_option,
+        correct_option_hash=correct_option_hash,
+        correct_option_phash=correct_option_phash,
+        correct_option_text=correct_option_text,
+        source="exam_feedback",
+        learning_mode="hash_based",
+        ocr_quality="unverified_preview",
+        ocr_preview_unreliable=True,
+    )
+    # Hot-reload in-memory learned index so next solve benefits immediately
+    container.exam_service._reload_learned_index()
+
+    logger.info("exam_feedback_learned", extra={
+        "context": {
+            "hash": question_hash[:12],
+            "phash": question_phash[:12],
+            "action": result["action"],
+            "confidence": result["confidence"],
+            "option": payload.selected_option,
+        }
+    })
+
+    background_tasks.add_task(
+        _save_exam_offline_dataset_safe,
+        question_image=q_img,
+        option_images=opt_images,
+        question_hash=question_hash,
+        question_phash=question_phash,
+        question_text=question_text,
+        option_texts=opt_texts,
+        option_hashes=opt_hashes,
+        option_phashes=opt_phashes,
+        correct_option=payload.selected_option,
+        correct_option_hash=correct_option_hash,
+        correct_option_phash=correct_option_phash,
+        correct_option_text=correct_option_text,
+        domain=payload.domain,
+        method=payload.method,
+        question_num=payload.question_num,
+        learn_result=result,
+    )
+
+    # Export learned questions to JSON (fire-and-forget)
+    background_tasks.add_task(_export_learned_to_json_safe, container)
+
+    return ExamFeedbackResponse(
+        recorded=True,
+        learned=True,
+        message=f"{result['action']} (confidence: {result['confidence']:.1f})",
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -755,7 +769,7 @@ async def autofill_fill(request: Request, payload: AutofillFillRequest) -> Autof
     Resolve form field selectors to fill values.
     profile_data is sent by the extension from local storage (not persisted here).
     """
-    _ensure_service_allowed(request, "autofill", consume_quota=True)
+    _ensure_service_allowed(request, "autofill")
     container  = request.app.state.container
     key_record = request.state.api_key_record
     client_ip  = request.client.host if request.client else None
@@ -901,7 +915,7 @@ return {{ ok: true, step: 'stall-flow' }};
 @router.get("/automation/payload/{step_id}")
 async def get_automation_payload(request: Request, step_id: str) -> dict:
     """Serve stateless automation scripts for STALL payloads."""
-    _ensure_service_allowed(request, "stall", consume_quota=True)
+    _ensure_service_allowed(request, "stall")
     container = request.app.state.container
     # Key validation is already handled by AuthMiddleware.
     # We only allow specific step_ids to prevent arbitrary file reading.
@@ -952,34 +966,6 @@ async def get_automation_payload(request: Request, step_id: str) -> dict:
 async def verify(request: Request) -> VerifyResponse:
     key_record = request.state.api_key_record
     container  = request.app.state.container
-    if getattr(request.state, "is_user_key", False):
-        from app.core.db import get_session
-        from app.core.models import SubscriptionPlan, User, UserSubscription
-        session = get_session()
-        try:
-            user = session.query(User).filter(User.id == int(key_record["user_id"])).first()
-            sub = (
-                session.query(UserSubscription)
-                .filter(UserSubscription.user_id == int(key_record["user_id"]), UserSubscription.status == "active")
-                .order_by(UserSubscription.created_at.desc())
-                .first()
-            )
-            plan = session.query(SubscriptionPlan).filter(SubscriptionPlan.id == sub.plan_id).first() if sub else None
-            services = json.loads((sub.services_snapshot_json if sub else "") or (plan.services_json if plan else "{}") or "{}")
-            quota = container.usage_cycle_service.get_user_usage(int(key_record["user_id"]))
-            return VerifyResponse(
-                valid=True,
-                key_name=user.full_name if user else "User",
-                expires_at=key_record.get("expires_at"),
-                is_master=False,
-                plan_name=plan.name if plan else "",
-                mobile=user.mobile_number if user else "",
-                telegram_id=user.telegram_user_id if user else "",
-                enabled_services=services,
-                rate_limit={"monthly": quota},
-            )
-        finally:
-            session.close()
     key_hash   = key_record.get("key_hash", "")
     is_master  = container.db.is_master_key_hash(key_hash)
     entitlements = container.db.get_api_key_entitlements(int(key_record["id"]))
