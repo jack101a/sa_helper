@@ -68,9 +68,10 @@ def build_container(settings: Settings) -> Container:
     init_sqlalchemy_db(settings)
     # Import models to register them with Base.metadata before creating tables
     import app.core.models  # noqa: F401
-    # Create tables if they don't exist (dev convenience; production uses migrations)
-    from app.core.db import create_all_tables
-    create_all_tables()
+    # Create ORM tables (dev only — production uses Alembic migrations)
+    if settings.server.debug:
+        from app.core.db import create_all_tables
+        create_all_tables()
 
     # Captcha solver (existing ONNX pipeline)
     model_router = ModelRouter(settings=settings, db=db)

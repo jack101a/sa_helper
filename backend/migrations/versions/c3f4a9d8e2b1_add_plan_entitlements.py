@@ -19,9 +19,16 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('subscription_plans', sa.Column('max_devices', sa.Integer(), server_default='1', nullable=False))
-    op.add_column('subscription_plans', sa.Column('allowed_services', sa.JSON(), nullable=True))
-    op.add_column('subscription_plans', sa.Column('rate_limit_rpm', sa.Integer(), server_default='60', nullable=False))
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if inspector.has_table("subscription_plans"):
+        columns = {c["name"] for c in inspector.get_columns("subscription_plans")}
+        if "max_devices" not in columns:
+            op.add_column('subscription_plans', sa.Column('max_devices', sa.Integer(), server_default='1', nullable=False))
+        if "allowed_services" not in columns:
+            op.add_column('subscription_plans', sa.Column('allowed_services', sa.JSON(), nullable=True))
+        if "rate_limit_rpm" not in columns:
+            op.add_column('subscription_plans', sa.Column('rate_limit_rpm', sa.Integer(), server_default='60', nullable=False))
 
 
 def downgrade() -> None:

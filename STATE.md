@@ -1,26 +1,27 @@
-# STATE.md - T20-T22 Docker Production Hardening
+# STATE.md - T23-T25 Database Unification
 
 ## Status
 COMPLETE
 
 ## Active Task
-Execute and verify T20-T22 implementation (entrypoint hardening, production compose overrides, Dockerfile health/rclone updates).
+Execute and verify T23-T25 implementation (create_all_tables debug guard, Alembic legacy baseline, migration-first Database.init fallback).
 
 ## Last Files Modified
-- `docker-entrypoint.sh`
-- `docker-compose.prod.yml`
-- `Dockerfile`
+- `backend/app/core/container.py`
+- `backend/app/core/database.py`
+- `backend/migrations/versions/b2c3d4e5f678_add_payment_and_key_tracking_fields.py`
+- `backend/migrations/versions/c3f4a9d8e2b1_add_plan_entitlements.py`
+- `backend/migrations/versions/e6a1c9b2d101_full_schema_baseline.py`
 - `TASK.md`
 - `STATE.md`
 
 ## Last Command Run
-`sh -n docker-entrypoint.sh && echo OK`
+`cd backend && . ../.venv/bin/activate && AUTH_HASH_SALT=test-salt ADMIN_TOKEN=test-token python -m pytest tests/ -v`
 
 ## Last Output/Error
-- Entrypoint shell syntax check passed: `OK`
-- Added Alembic migration step + backup/log/static directory creation in entrypoint
-- Added production compose override file with resources, health checks, logging
-- Added architecture-aware rclone installation and updated HEALTHCHECK in Dockerfile
+- Alembic fresh DB migration succeeds to `head` (new baseline revision included)
+- Fresh Alembic schema table list matches fresh `Database.init()` fallback table list (excluding Alembic metadata table `alembic_version`)
+- Backend tests: `24 passed, 1 warning`
 
 ## Immediate Next Step
-Create a scoped commit on branch `scaling-check` with message `[T20-T22] Docker production hardening`.
+Create scoped commit on `scaling-check` with message `[T23-T25] Database unification — Alembic baseline + init() guard`.

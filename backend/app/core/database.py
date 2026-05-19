@@ -2,24 +2,25 @@
 
 from __future__ import annotations
 
-import logging
 import sqlite3
 import threading
-from collections.abc import Iterator
+import logging
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Iterator
 from urllib.parse import urlsplit
 
 from app.core.config import Settings
 from app.core.repositories.api_keys import APIKeyRepository
+from app.core.repositories.models import ModelRepository
 from app.core.repositories.autofill import AutofillRepository
-from app.core.repositories.automation_methods import AutomationMethodRepository
 from app.core.repositories.exam import ExamRepository
 from app.core.repositories.exam_attempts import ExamAttemptsRepository
 from app.core.repositories.exam_learned import ExamLearnedRepository
-from app.core.repositories.models import ModelRepository
-from app.core.repositories.settings import SettingsRepository
 from app.core.repositories.training import TrainingRepository
+from app.core.repositories.settings import SettingsRepository
+from app.core.repositories.automation_methods import AutomationMethodRepository
 
 logger = logging.getLogger(__name__)
 
@@ -28,17 +29,6 @@ class Database:
     """Thread-safe SQLite wrapper acting as a Facade for domain repositories."""
 
     def __init__(self, settings: Settings) -> None:
-        self._settings = settings
-        if settings.storage.db_type != "sqlite":
-            logger.warning(
-                "legacy_database_forced_to_sqlite",
-                extra={
-                    "context": {
-                        "requested_db_type": settings.storage.db_type,
-                        "sqlite_path": settings.storage.sqlite_path,
-                    }
-                },
-            )
         self._path = Path(settings.storage.sqlite_path)
         self._lock = threading.Lock()
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -53,10 +43,6 @@ class Database:
         self.training = TrainingRepository(self)
         self.settings = SettingsRepository(self)
         self.automation_methods = AutomationMethodRepository(self)
-
-    @property
-    def legacy_sqlalchemy_enabled(self) -> bool:
-        return self._settings.storage.db_type == "postgresql"
 
     @staticmethod
     def _normalize_domain(domain: str | None) -> str:
@@ -115,11 +101,32 @@ class Database:
             connection.close()
 
     def init(self) -> None:
-        """Create tables when missing."""
+        """Initialize database connection. Schema is managed by Alembic migrations."""
         with self._lock:
             with self.connect() as conn:
-                conn.executescript(
-                    """
+                tables = {
+                    row[0]
+                    for row in conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'"
+                    ).fetchall()
+                }
+
+                required = {"api_keys", "exam_learned", "platform_settings", "model_routes"}
+                missing = required - tables
+                if missing:
+                    logger.warning(
+                        "missing_tables_fallback",
+                        extra={"context": {"missing": sorted(missing)}},
+                    )
+                    self._create_tables_fallback(conn)
+
+        # Ensure the master key is created on first start
+        self.api_keys.ensure_master_key()
+
+    def _create_tables_fallback(self, conn: sqlite3.Connection) -> None:
+        """Fallback table creation for dev environments without Alembic."""
+        conn.executescript(
+            """
                     CREATE TABLE IF NOT EXISTS api_keys (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         name TEXT NOT NULL,
@@ -364,97 +371,94 @@ class Database:
                         created_at TEXT NOT NULL,
                         updated_at TEXT NOT NULL
                     );
-                    """
-                )
-                # ── Column migrations (idempotent) ─────────────────────────
-                usage_columns = {row["name"] for row in conn.execute("PRAGMA table_info(usage_events)")}
-                if "model_used" not in usage_columns:
-                    conn.execute("ALTER TABLE usage_events ADD COLUMN model_used TEXT")
-                if "domain" not in usage_columns:
-                    conn.execute("ALTER TABLE usage_events ADD COLUMN domain TEXT")
-                if "ip" not in usage_columns:
-                    conn.execute("ALTER TABLE usage_events ADD COLUMN ip TEXT")
+                """
+        )
+        # ── Column migrations (idempotent) ─────────────────────────
+        usage_columns = {row["name"] for row in conn.execute("PRAGMA table_info(usage_events)")}
+        if "model_used" not in usage_columns:
+            conn.execute("ALTER TABLE usage_events ADD COLUMN model_used TEXT")
+        if "domain" not in usage_columns:
+            conn.execute("ALTER TABLE usage_events ADD COLUMN domain TEXT")
+        if "ip" not in usage_columns:
+            conn.execute("ALTER TABLE usage_events ADD COLUMN ip TEXT")
 
-                key_columns = {row["name"] for row in conn.execute("PRAGMA table_info(api_keys)")}
-                if "all_domains" not in key_columns:
-                    conn.execute("ALTER TABLE api_keys ADD COLUMN all_domains INTEGER NOT NULL DEFAULT 1")
-                if "key_type" not in key_columns:
-                    conn.execute("ALTER TABLE api_keys ADD COLUMN key_type TEXT NOT NULL DEFAULT 'user'")
-                if "plan_name" not in key_columns:
-                    conn.execute("ALTER TABLE api_keys ADD COLUMN plan_name TEXT NOT NULL DEFAULT 'Standard'")
-                if "mobile" not in key_columns:
-                    conn.execute("ALTER TABLE api_keys ADD COLUMN mobile TEXT NOT NULL DEFAULT ''")
-                if "telegram_id" not in key_columns:
-                    conn.execute("ALTER TABLE api_keys ADD COLUMN telegram_id TEXT NOT NULL DEFAULT ''")
-                if "services_json" not in key_columns:
-                    conn.execute("ALTER TABLE api_keys ADD COLUMN services_json TEXT NOT NULL DEFAULT '{\"autofill\":true,\"captcha\":true,\"stall\":true,\"solver\":true,\"custom\":false}'")
+        key_columns = {row["name"] for row in conn.execute("PRAGMA table_info(api_keys)")}
+        if "all_domains" not in key_columns:
+            conn.execute("ALTER TABLE api_keys ADD COLUMN all_domains INTEGER NOT NULL DEFAULT 1")
+        if "key_type" not in key_columns:
+            conn.execute("ALTER TABLE api_keys ADD COLUMN key_type TEXT NOT NULL DEFAULT 'user'")
+        if "plan_name" not in key_columns:
+            conn.execute("ALTER TABLE api_keys ADD COLUMN plan_name TEXT NOT NULL DEFAULT 'Standard'")
+        if "mobile" not in key_columns:
+            conn.execute("ALTER TABLE api_keys ADD COLUMN mobile TEXT NOT NULL DEFAULT ''")
+        if "telegram_id" not in key_columns:
+            conn.execute("ALTER TABLE api_keys ADD COLUMN telegram_id TEXT NOT NULL DEFAULT ''")
+        if "services_json" not in key_columns:
+            conn.execute("ALTER TABLE api_keys ADD COLUMN services_json TEXT NOT NULL DEFAULT '{\"autofill\":true,\"captcha\":true,\"stall\":true,\"solver\":true,\"custom\":false}'")
 
-                route_columns = {row["name"] for row in conn.execute("PRAGMA table_info(model_routes)")}
-                if "model_filename" in route_columns and "ai_model_filename" not in route_columns:
-                    conn.execute("ALTER TABLE model_routes RENAME COLUMN model_filename TO ai_model_filename")
+        route_columns = {row["name"] for row in conn.execute("PRAGMA table_info(model_routes)")}
+        if "model_filename" in route_columns and "ai_model_filename" not in route_columns:
+            conn.execute("ALTER TABLE model_routes RENAME COLUMN model_filename TO ai_model_filename")
 
-                registry_columns = {row["name"] for row in conn.execute("PRAGMA table_info(model_registry)")}
-                if "model_name" in registry_columns and "ai_model_name" not in registry_columns:
-                    conn.execute("ALTER TABLE model_registry RENAME COLUMN model_name TO ai_model_name")
-                if "runtime" in registry_columns and "ai_runtime" not in registry_columns:
-                    conn.execute("ALTER TABLE model_registry RENAME COLUMN runtime TO ai_runtime")
-                if "filename" in registry_columns and "ai_model_filename" not in registry_columns:
-                    conn.execute("ALTER TABLE model_registry RENAME COLUMN filename TO ai_model_filename")
-                # Re-read after possible renames
-                registry_columns = {row["name"] for row in conn.execute("PRAGMA table_info(model_registry)")}
-                if "lifecycle_state" not in registry_columns:
-                    conn.execute("ALTER TABLE model_registry ADD COLUMN lifecycle_state TEXT NOT NULL DEFAULT 'production'")
+        registry_columns = {row["name"] for row in conn.execute("PRAGMA table_info(model_registry)")}
+        if "model_name" in registry_columns and "ai_model_name" not in registry_columns:
+            conn.execute("ALTER TABLE model_registry RENAME COLUMN model_name TO ai_model_name")
+        if "runtime" in registry_columns and "ai_runtime" not in registry_columns:
+            conn.execute("ALTER TABLE model_registry RENAME COLUMN runtime TO ai_runtime")
+        if "filename" in registry_columns and "ai_model_filename" not in registry_columns:
+            conn.execute("ALTER TABLE model_registry RENAME COLUMN filename TO ai_model_filename")
+        # Re-read after possible renames
+        registry_columns = {row["name"] for row in conn.execute("PRAGMA table_info(model_registry)")}
+        if "lifecycle_state" not in registry_columns:
+            conn.execute("ALTER TABLE model_registry ADD COLUMN lifecycle_state TEXT NOT NULL DEFAULT 'production'")
 
-                mapping_columns = {row["name"] for row in conn.execute("PRAGMA table_info(field_mappings)")}
-                if "model_id" in mapping_columns and "ai_model_id" not in mapping_columns:
-                    conn.execute("ALTER TABLE field_mappings RENAME COLUMN model_id TO ai_model_id")
-                # Re-read after possible rename
-                mapping_columns = {row["name"] for row in conn.execute("PRAGMA table_info(field_mappings)")}
-                if "source_data_type" not in mapping_columns:
-                    conn.execute("ALTER TABLE field_mappings ADD COLUMN source_data_type TEXT NOT NULL DEFAULT 'image'")
-                if "source_selector" not in mapping_columns:
-                    conn.execute("ALTER TABLE field_mappings ADD COLUMN source_selector TEXT NOT NULL DEFAULT ''")
-                if "target_data_type" not in mapping_columns:
-                    conn.execute("ALTER TABLE field_mappings ADD COLUMN target_data_type TEXT NOT NULL DEFAULT 'text'")
-                if "target_selector" not in mapping_columns:
-                    conn.execute("ALTER TABLE field_mappings ADD COLUMN target_selector TEXT NOT NULL DEFAULT ''")
+        mapping_columns = {row["name"] for row in conn.execute("PRAGMA table_info(field_mappings)")}
+        if "model_id" in mapping_columns and "ai_model_id" not in mapping_columns:
+            conn.execute("ALTER TABLE field_mappings RENAME COLUMN model_id TO ai_model_id")
+        # Re-read after possible rename
+        mapping_columns = {row["name"] for row in conn.execute("PRAGMA table_info(field_mappings)")}
+        if "source_data_type" not in mapping_columns:
+            conn.execute("ALTER TABLE field_mappings ADD COLUMN source_data_type TEXT NOT NULL DEFAULT 'image'")
+        if "source_selector" not in mapping_columns:
+            conn.execute("ALTER TABLE field_mappings ADD COLUMN source_selector TEXT NOT NULL DEFAULT ''")
+        if "target_data_type" not in mapping_columns:
+            conn.execute("ALTER TABLE field_mappings ADD COLUMN target_data_type TEXT NOT NULL DEFAULT 'text'")
+        if "target_selector" not in mapping_columns:
+            conn.execute("ALTER TABLE field_mappings ADD COLUMN target_selector TEXT NOT NULL DEFAULT ''")
 
-                learned_columns = {row["name"] for row in conn.execute("PRAGMA table_info(exam_learned)")}
-                if "question_phash" not in learned_columns:
-                    conn.execute("ALTER TABLE exam_learned ADD COLUMN question_phash TEXT NOT NULL DEFAULT ''")
-                if "learning_mode" not in learned_columns:
-                    conn.execute("ALTER TABLE exam_learned ADD COLUMN learning_mode TEXT NOT NULL DEFAULT 'hash_based'")
-                if "ocr_quality" not in learned_columns:
-                    conn.execute("ALTER TABLE exam_learned ADD COLUMN ocr_quality TEXT NOT NULL DEFAULT 'unverified'")
-                if "ocr_preview_unreliable" not in learned_columns:
-                    conn.execute("ALTER TABLE exam_learned ADD COLUMN ocr_preview_unreliable INTEGER NOT NULL DEFAULT 1")
-                if "verified_count" not in learned_columns:
-                    conn.execute("ALTER TABLE exam_learned ADD COLUMN verified_count INTEGER NOT NULL DEFAULT 0")
-                if "wrong_count" not in learned_columns:
-                    conn.execute("ALTER TABLE exam_learned ADD COLUMN wrong_count INTEGER NOT NULL DEFAULT 0")
-                if "last_verified_at" not in learned_columns:
-                    conn.execute("ALTER TABLE exam_learned ADD COLUMN last_verified_at TEXT")
-                if "status" not in learned_columns:
-                    conn.execute("ALTER TABLE exam_learned ADD COLUMN status TEXT NOT NULL DEFAULT 'training'")
-                if "correct_option_hash" not in learned_columns:
-                    conn.execute("ALTER TABLE exam_learned ADD COLUMN correct_option_hash TEXT NOT NULL DEFAULT ''")
-                if "correct_option_phash" not in learned_columns:
-                    conn.execute("ALTER TABLE exam_learned ADD COLUMN correct_option_phash TEXT NOT NULL DEFAULT ''")
-                if "correct_option_text" not in learned_columns:
-                    conn.execute("ALTER TABLE exam_learned ADD COLUMN correct_option_text TEXT NOT NULL DEFAULT ''")
+        learned_columns = {row["name"] for row in conn.execute("PRAGMA table_info(exam_learned)")}
+        if "question_phash" not in learned_columns:
+            conn.execute("ALTER TABLE exam_learned ADD COLUMN question_phash TEXT NOT NULL DEFAULT ''")
+        if "learning_mode" not in learned_columns:
+            conn.execute("ALTER TABLE exam_learned ADD COLUMN learning_mode TEXT NOT NULL DEFAULT 'hash_based'")
+        if "ocr_quality" not in learned_columns:
+            conn.execute("ALTER TABLE exam_learned ADD COLUMN ocr_quality TEXT NOT NULL DEFAULT 'unverified'")
+        if "ocr_preview_unreliable" not in learned_columns:
+            conn.execute("ALTER TABLE exam_learned ADD COLUMN ocr_preview_unreliable INTEGER NOT NULL DEFAULT 1")
+        if "verified_count" not in learned_columns:
+            conn.execute("ALTER TABLE exam_learned ADD COLUMN verified_count INTEGER NOT NULL DEFAULT 0")
+        if "wrong_count" not in learned_columns:
+            conn.execute("ALTER TABLE exam_learned ADD COLUMN wrong_count INTEGER NOT NULL DEFAULT 0")
+        if "last_verified_at" not in learned_columns:
+            conn.execute("ALTER TABLE exam_learned ADD COLUMN last_verified_at TEXT")
+        if "status" not in learned_columns:
+            conn.execute("ALTER TABLE exam_learned ADD COLUMN status TEXT NOT NULL DEFAULT 'training'")
+        if "correct_option_hash" not in learned_columns:
+            conn.execute("ALTER TABLE exam_learned ADD COLUMN correct_option_hash TEXT NOT NULL DEFAULT ''")
+        if "correct_option_phash" not in learned_columns:
+            conn.execute("ALTER TABLE exam_learned ADD COLUMN correct_option_phash TEXT NOT NULL DEFAULT ''")
+        if "correct_option_text" not in learned_columns:
+            conn.execute("ALTER TABLE exam_learned ADD COLUMN correct_option_text TEXT NOT NULL DEFAULT ''")
 
-                # ── Performance indexes ──────────────────────────────
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_task_status ON usage_events(task_type, status)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_key_id ON usage_events(key_id)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_field_proposals_status ON field_mapping_proposals(status)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_autofill_proposals_status ON autofill_rule_proposals(status, created_at)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_exam_learned_phash ON exam_learned(question_phash)")
+        # ── Performance indexes ──────────────────────────────
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_task_status ON usage_events(task_type, status)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_key_id ON usage_events(key_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_field_proposals_status ON field_mapping_proposals(status)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_autofill_proposals_status ON autofill_rule_proposals(status, created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_exam_learned_phash ON exam_learned(question_phash)")
 
-                conn.execute("INSERT OR IGNORE INTO access_control (key, value) VALUES ('global_access', 'true')")
-                conn.commit()
-
-        # Ensure the master key is created on first start
-        self.api_keys.ensure_master_key()
+        conn.execute("INSERT OR IGNORE INTO access_control (key, value) VALUES ('global_access', 'true')")
+        conn.commit()
 
     # --- Proxy Methods for Backward Compatibility ---
 
@@ -512,8 +516,6 @@ class Database:
     def get_all_domain_field_mappings(self, *args, **kwargs): return self.models.get_all_domain_field_mappings(*args, **kwargs)
     def propose_field_mapping(self, *args, **kwargs): return self.models.propose_field_mapping(*args, **kwargs)
     def get_pending_field_mapping_proposals(self, *args, **kwargs): return self.models.get_pending_field_mapping_proposals(*args, **kwargs)
-    def get_field_mapping_proposals(self, *args, **kwargs): return self.models.get_field_mapping_proposals(*args, **kwargs)
-    def get_field_mapping_proposal(self, *args, **kwargs): return self.models.get_field_mapping_proposal(*args, **kwargs)
     def mark_field_mapping_proposal_status(self, *args, **kwargs): return self.models.mark_field_mapping_proposal_status(*args, **kwargs)
     def delete_field_mapping_proposal(self, *args, **kwargs): return self.models.delete_field_mapping_proposal(*args, **kwargs)
     def update_field_mapping_proposal(self, *args, **kwargs): return self.models.update_field_mapping_proposal(*args, **kwargs)
@@ -529,8 +531,6 @@ class Database:
     def delete_autofill_proposal(self, *args, **kwargs): return self.autofill.delete_autofill_proposal(*args, **kwargs)
     def update_autofill_proposal(self, *args, **kwargs): return self.autofill.update_autofill_proposal(*args, **kwargs)
     def get_approved_autofill_rules(self, *args, **kwargs): return self.autofill.get_approved_autofill_rules(*args, **kwargs)
-    def bulk_import_approved_rules(self, *args, **kwargs): return self.autofill.bulk_import_approved_rules(*args, **kwargs)
-    def bulk_replace_approved_locators(self, *args, **kwargs): return self.autofill.bulk_replace_approved_locators(*args, **kwargs)
     def propose_locator(self, *args, **kwargs): return self.autofill.propose_locator(*args, **kwargs)
     def get_pending_locators(self, *args, **kwargs): return self.autofill.get_pending_locators(*args, **kwargs)
     def get_approved_locators(self, *args, **kwargs): return self.autofill.get_approved_locators(*args, **kwargs)
