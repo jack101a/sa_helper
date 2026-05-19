@@ -5,6 +5,7 @@ export const queryKeys = {
   autofillProposals: ['autofillProposals'],
   captchaProposals: ['captchaProposals'],
   examStats: ['examStats'],
+  trainingStats: ['trainingStats'],
   userscripts: ['userscripts'],
 };
 
@@ -22,6 +23,10 @@ export async function fetchCaptchaProposals() {
 
 export async function fetchExamStats() {
   return apiGet('/admin/api/exam/stats');
+}
+
+export async function fetchTrainingStats() {
+  return apiGet('/admin/api/exam/training-stats');
 }
 
 export async function fetchUserscripts() {

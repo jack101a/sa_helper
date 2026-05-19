@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import PropTypes from "prop-types";
+import { useQuery } from "@tanstack/react-query";
 import { BrainCircuit, Loader2, Save, GraduationCap, ToggleLeft, ToggleRight } from "lucide-react";
 import { useThemeContext } from "../context/ThemeContext";
 import { apiGet, apiPostJson } from "../../api/client";
+import { fetchTrainingStats, queryKeys } from "../../api/queries";
 import { AutomationMethodsPanel } from "./AutomationMethodsPanel";
 
 export function ExamStatsPanel({
@@ -16,38 +18,11 @@ export function ExamStatsPanel({
   const [learningStats, setLearningStats] = useState(null);
   const [togglingLearning, setTogglingLearning] = useState(false);
   const initialSettings = useRef(null);
-
-  const confidenceToPercent = (rawValue) => {
-    const parsed = Number.parseFloat(String(rawValue ?? "").trim());
-    if (!Number.isFinite(parsed)) return "";
-    return (parsed * 100).toString();
-  };
-
-  const percentToConfidence = (rawPercent) => {
-    const parsed = Number.parseFloat(String(rawPercent ?? "").trim());
-    if (!Number.isFinite(parsed)) return "";
-    const clamped = Math.max(0, Math.min(100, parsed));
-    return (clamped / 100).toFixed(4).replace(/\.?0+$/, "");
-  };
-
-  const sanitizeExamSettings = (current) => {
-    const next = { ...current };
-    const confidenceRaw = Number.parseFloat(String(next["exam.learn_min_confidence"] ?? "").trim());
-    if (Number.isFinite(confidenceRaw)) {
-      const bounded = Math.max(0, Math.min(1, confidenceRaw));
-      next["exam.learn_min_confidence"] = bounded.toFixed(4).replace(/\.?0+$/, "");
-    } else if (!next["exam.learn_min_confidence"]) {
-      next["exam.learn_min_confidence"] = "0.95";
-    }
-
-    const confirmationsRaw = Number.parseInt(String(next["exam.learn_min_confirmations"] ?? "").trim(), 10);
-    if (Number.isFinite(confirmationsRaw)) {
-      next["exam.learn_min_confirmations"] = String(Math.max(1, confirmationsRaw));
-    } else if (!next["exam.learn_min_confirmations"]) {
-      next["exam.learn_min_confirmations"] = "10";
-    }
-    return next;
-  };
+  const training = useQuery({
+    queryKey: queryKeys.trainingStats,
+    queryFn: fetchTrainingStats,
+    staleTime: 60_000,
+  });
 
   useEffect(() => {
     const isDirty = initialSettings.current !== null && JSON.stringify(settings) !== JSON.stringify(initialSettings.current);
@@ -69,9 +44,8 @@ export function ExamStatsPanel({
       data.settings.forEach(s => {
         settingsMap[s.key] = s.value;
       });
-      const normalized = sanitizeExamSettings(settingsMap);
-      setSettings(normalized);
-      initialSettings.current = JSON.parse(JSON.stringify(normalized));
+      setSettings(settingsMap);
+      initialSettings.current = JSON.parse(JSON.stringify(settingsMap));
     } catch (e) {
       console.error("Failed to fetch settings", e);
     } finally {
@@ -83,10 +57,7 @@ export function ExamStatsPanel({
     e.preventDefault();
     setSaving(true);
     try {
-      const normalized = sanitizeExamSettings(settings);
-      setSettings(normalized);
-      await apiPostJson("/admin/api/settings/bulk", { settings: normalized });
-      initialSettings.current = JSON.parse(JSON.stringify(normalized));
+      await apiPostJson("/admin/api/settings/bulk", { settings });
       showToast("Exam settings saved successfully");
     } catch (e) {
       showToast("Error saving settings", "error");
@@ -247,7 +218,50 @@ export function ExamStatsPanel({
           </div>
         </div>
 
+      </div>
+
+      {training.data && (
+        <div className={`rounded-2xl p-5 ${glassPanel}`}>
+          <h3 className={`text-lg font-semibold mb-3 ${t_textHeading}`}>Training Pipeline</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div>
+              <p className={`text-sm ${t_textMuted}`}>Main Bank</p>
+              <p className={`text-xl font-bold ${t_textHeading}`}>{training.data.main_bank_count}</p>
+            </div>
+            <div>
+              <p className={`text-sm ${t_textMuted}`}>Learned Total</p>
+              <p className={`text-xl font-bold ${t_textHeading}`}>{training.data.learned_total}</p>
+            </div>
+            <div>
+              <p className={`text-sm ${t_textMuted}`}>Verified</p>
+              <p className="text-xl font-bold text-emerald-500">{training.data.learned_verified}</p>
+            </div>
+            <div>
+              <p className={`text-sm ${t_textMuted}`}>In-Memory Index</p>
+              <p className={`text-xl font-bold ${t_textHeading}`}>{training.data.inmemory_hash_count}</p>
+            </div>
+          </div>
+          <button
+            onClick={async () => {
+              try {
+                const data = await apiPostJson("/admin/api/exam/merge", {});
+                showToast(
+                  data.merged > 0
+                    ? `Merged ${data.merged} questions (total: ${data.total_bank})`
+                    : "No new questions to merge"
+                );
+                training.refetch();
+              } catch (e) {
+                showToast(`Merge failed: ${e.message}`, "error");
+              }
+            }}
+            className="mt-3 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700 transition-colors"
+            id="force-merge-btn"
+          >
+            Force Merge Now
+          </button>
         </div>
+      )}
 
       {/* Self-Learning Section */}
       <div className={`rounded-2xl p-6 ${glassPanel}`}>
@@ -311,36 +325,6 @@ export function ExamStatsPanel({
             </div>
           </div>
         )}
-
-        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className={`rounded-xl p-4 border ${t_borderLight}`}>
-            <label className={`text-xs block mb-1 ${t_textMuted}`}>Minimum Confidence (%) for Learned Answer Use</label>
-            <input
-              type="number"
-              min="0"
-              max="100"
-              step="0.1"
-              className={glassInput}
-              value={confidenceToPercent(settings["exam.learn_min_confidence"])}
-              onChange={(e) => updateSetting("exam.learn_min_confidence", percentToConfidence(e.target.value))}
-              placeholder="95"
-            />
-            <p className={`text-xs mt-2 ${t_textMuted}`}>Higher value is safer. Example: `95` means confidence must be at least `0.95`.</p>
-          </div>
-          <div className={`rounded-xl p-4 border ${t_borderLight}`}>
-            <label className={`text-xs block mb-1 ${t_textMuted}`}>Minimum Verified Count for Learned Answer Use</label>
-            <input
-              type="number"
-              min="1"
-              step="1"
-              className={glassInput}
-              value={settings["exam.learn_min_confirmations"] || "10"}
-              onChange={(e) => updateSetting("exam.learn_min_confirmations", e.target.value)}
-              placeholder="10"
-            />
-            <p className={`text-xs mt-2 ${t_textMuted}`}>This many correct confirmations are required before learned answers are used.</p>
-          </div>
-        </div>
 
         <div className={`mt-4 p-4 rounded-xl border ${t_borderLight} text-xs ${t_textMuted}`}>
           <p className="font-medium mb-1">How it works:</p>

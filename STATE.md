@@ -1,34 +1,30 @@
-# STATE.md - T29-T31 Modular Monolith Route Decomposition
+# STATE.md - T32-T34 Frontend Context + Entitlements + Training Stats
 
 ## Status
 COMPLETE
 
 ## Active Task
-Execute and verify T29-T31 implementation (v1 route split, service boundary docs, container grouping comments).
+Execute and verify T32-T34 implementation in frontend (`AdminDataContext`, plans entitlement fields, exam training stats/merge UI).
 
 ## Last Files Modified
-- `backend/app/api/routes.py`
-- `backend/app/api/v1_routes/__init__.py`
-- `backend/app/api/v1_routes/utils.py`
-- `backend/app/api/v1_routes/captcha.py`
-- `backend/app/api/v1_routes/exam.py`
-- `backend/app/api/v1_routes/autofill.py`
-- `backend/app/api/v1_routes/extension.py`
-- `backend/app/api/v1_routes/keys.py`
-- `backend/app/services/__init__.py`
-- `backend/app/core/container.py`
+- `frontend/src/app/context/AdminDataContext.jsx`
+- `frontend/src/app/App.jsx`
+- `frontend/src/app/components/PlansPanel.jsx`
+- `frontend/src/app/components/ExamStatsPanel.jsx`
+- `frontend/src/api/queries.js`
 - `TASK.md`
 - `STATE.md`
 
 ## Last Command Run
-`cd backend && . ../.venv/bin/activate && AUTH_HASH_SALT=test-salt ADMIN_TOKEN=test-token python -m pytest tests/ -v`
+`cd frontend && npm run build`
 
 ## Last Output/Error
-- Import checks passed for composed router and split modules (`routes OK`, `captcha OK`, `exam OK`)
-- Route inventory before split: `20`
-- Route inventory after split: `20`
-- Method/path set remained identical before/after split
-- Backend tests passed: `24 passed, 1 warning`
+- Initial run failed: `sh: 1: vite: not found`
+- Installed dependencies: `cd frontend && npm install`
+- Build passed:
+  - `vite v5.4.21 building for production...`
+  - `✓ 1744 modules transformed.`
+  - `✓ built in 2.71s`
 
 ## Immediate Next Step
-Create scoped commit on `scaling-check` with message `[T29-T31] Modular monolith — route decomposition + service boundaries`.
+Stage only T32-T34 frontend files and commit on `scaling-check` with message `[T32-T34] Frontend — AdminDataContext + plan entitlements UI + training stats`.

@@ -1,38 +1,36 @@
-# TASK.md - T29-T31 Modular Monolith Route Decomposition
+# TASK.md - T32-T34 Frontend Context + Plan Entitlements + Training Stats
 
 ## Goal
-Execute tasks T29 through T31: split `routes.py` into focused v1 route modules, add service boundary docs, and add module-grouping comments in container.
+Execute tasks T32 through T34: extract App state into `AdminDataContext`, extend plan form with entitlement fields, and add training stats + force merge action in exam panel.
 
 ## Status
 COMPLETE
 
 ## Scope Included
-- Read mandatory docs and required source files before editing
-- Implement T29, T30, T31 in order
-- Run backend tests
+- Read mandatory plan/spec files and required frontend source files
+- Implement T32 context extraction and thin `App.jsx` routing shell
+- Implement T33 plan entitlement inputs (`max_devices`, `rate_limit_rpm`, `allowed_services`)
+- Implement T34 training stats query and exam panel section with merge action
+- Run required verification build
 - Update `STATE.md`
-- Commit with message: `[T29-T31] Modular monolith — route decomposition + service boundaries`
+- Commit with message: `[T32-T34] Frontend — AdminDataContext + plan entitlements UI + training stats`
 
 ## Scope Excluded
-- Unrelated refactors/features
+- Backend/API code changes
+- Unrelated frontend refactors
 - Destructive commands
-- Files outside project root
 
 ## Plan
-- [x] Read AGENTS.md, implementation plan, and T29-T31 task spec
-- [x] Read required source files before editing
-- [x] Read `backend/app/api/routes.py` completely before edits
-- [x] Capture route inventory before split (count + method/path list)
-- [x] Implement T29 (`v1_routes/` module extraction + `routes.py` composition)
-- [x] Implement T30 (`backend/app/services/__init__.py` boundary docs)
-- [x] Implement T31 (`container.py` grouping comments only)
-- [x] Verify route inventory after split matches before
-- [x] Run `cd backend && python -m pytest tests/ -v`
-- [x] Update TASK.md/STATE.md
-- [ ] Commit required changes
+- [x] Read AGENTS.md, implementation plan, and T32-T34 task file
+- [x] Read required frontend files before editing
+- [x] Create `frontend/src/app/context/AdminDataContext.jsx`
+- [x] Rewrite `frontend/src/app/App.jsx` as thin context-based routing shell
+- [x] Add entitlement fields to `frontend/src/app/components/PlansPanel.jsx`
+- [x] Add training stats query in `frontend/src/api/queries.js`
+- [x] Add training stats UI + force merge button in `frontend/src/app/components/ExamStatsPanel.jsx`
+- [x] Run `cd frontend && npm run build`
+- [x] Update `STATE.md`
+- [ ] Commit required frontend changes
 
 ## Verification
-- Route count before split: `20`
-- Route count after split: `20`
-- Method/path inventory unchanged across split
-- `cd backend && python -m pytest tests/ -v` -> `24 passed, 1 warning`
+- `cd frontend && npm run build` -> PASS (Vite production build successful)

@@ -6,11 +6,23 @@ import { apiGet, apiPostJson, apiPutJson } from "../../api/client";
 
 export function PlansPanel({ showToast }) {
   const { t_textHeading, t_textMuted, t_borderLight, glassPanel, glassInput, solidButton, iconBtn, isDark } = useThemeContext();
+  const defaultAllowedServices = { captcha: true, solver: true, autofill: true, exam: true };
+  const defaultForm = {
+    code: "",
+    name: "",
+    description: "",
+    monthly_limit: 1000,
+    duration_days: 30,
+    price_amount: 0,
+    max_devices: 1,
+    rate_limit_rpm: 60,
+    allowed_services: defaultAllowedServices,
+  };
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState({ code: "", name: "", description: "", monthly_limit: 1000, duration_days: 30, price_amount: 0 });
+  const [form, setForm] = useState(defaultForm);
   const [saving, setSaving] = useState(false);
 
   const fetchPlans = useCallback(async () => {
@@ -34,7 +46,7 @@ export function PlansPanel({ showToast }) {
       await apiPostJson("/admin/api/plans", form);
       showToast("Plan created");
       setShowCreate(false);
-      setForm({ code: "", name: "", description: "", monthly_limit: 1000, duration_days: 30, price_amount: 0 });
+      setForm(defaultForm);
       fetchPlans();
     } catch (e) {
       showToast(e.message || "Failed to create plan", "error");
@@ -62,6 +74,9 @@ export function PlansPanel({ showToast }) {
     setForm({
       code: plan.code, name: plan.name, description: plan.description || "",
       monthly_limit: plan.monthly_limit, duration_days: plan.duration_days, price_amount: plan.price_amount,
+      max_devices: Number(plan.max_devices || 1),
+      rate_limit_rpm: Number(plan.rate_limit_rpm || 60),
+      allowed_services: { ...defaultAllowedServices, ...(plan.allowed_services || {}) },
     });
   };
 
@@ -78,7 +93,7 @@ export function PlansPanel({ showToast }) {
             <p className={`text-xs ${t_textMuted}`}>{plans.length} plans</p>
           </div>
         </div>
-        <button onClick={() => { setShowCreate(true); setForm({ code: "", name: "", description: "", monthly_limit: 1000, duration_days: 30, price_amount: 0 }); }} className={solidButton}>
+        <button onClick={() => { setShowCreate(true); setForm(defaultForm); }} className={solidButton}>
           <Plus size={16} /> Add Plan
         </button>
       </div>
@@ -99,6 +114,9 @@ export function PlansPanel({ showToast }) {
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Price</th>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Limit/mo</th>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Duration</th>
+                  <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Max Devices</th>
+                  <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>RPM</th>
+                  <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Services</th>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Active</th>
                   <th className={`text-right p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Actions</th>
                 </tr>
@@ -113,6 +131,26 @@ export function PlansPanel({ showToast }) {
                         <td className="p-2"><input className={glassInput} type="number" value={form.price_amount} onChange={(e) => setForm({ ...form, price_amount: parseInt(e.target.value) || 0 })} /></td>
                         <td className="p-2"><input className={glassInput} type="number" value={form.monthly_limit} onChange={(e) => setForm({ ...form, monthly_limit: parseInt(e.target.value) || 0 })} /></td>
                         <td className="p-2"><input className={glassInput} type="number" value={form.duration_days} onChange={(e) => setForm({ ...form, duration_days: parseInt(e.target.value) || 0 })} /></td>
+                        <td className="p-2"><input className={glassInput} type="number" min="1" max="10" value={form.max_devices || 1} onChange={(e) => setForm({ ...form, max_devices: parseInt(e.target.value) || 1 })} /></td>
+                        <td className="p-2"><input className={glassInput} type="number" min="1" max="1000" value={form.rate_limit_rpm || 60} onChange={(e) => setForm({ ...form, rate_limit_rpm: parseInt(e.target.value) || 60 })} /></td>
+                        <td className="p-2">
+                          <div className="flex flex-wrap gap-2 min-w-[220px]">
+                            {["captcha", "solver", "autofill", "exam"].map((svc) => (
+                              <label key={svc} className={`flex items-center gap-1 text-xs ${t_textMuted}`}>
+                                <input
+                                  type="checkbox"
+                                  checked={!!(form.allowed_services || {})[svc]}
+                                  onChange={(e) => setForm({
+                                    ...form,
+                                    allowed_services: { ...(form.allowed_services || {}), [svc]: e.target.checked },
+                                  })}
+                                  id={`plan-service-edit-${p.id}-${svc}`}
+                                />
+                                <span className="capitalize">{svc}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </td>
                         <td className="p-2">—</td>
                         <td className="p-2">
                           <div className="flex items-center justify-end gap-1">
@@ -128,6 +166,14 @@ export function PlansPanel({ showToast }) {
                         <td className={`p-3 font-medium text-emerald-400`}>₹{(p.price_amount / 100).toFixed(2)}</td>
                         <td className={`p-3 ${t_textHeading}`}>{p.monthly_limit?.toLocaleString()}</td>
                         <td className={`p-3 ${t_textMuted}`}>{p.duration_days} days</td>
+                        <td className={`p-3 ${t_textHeading}`}>{Number(p.max_devices || 1)}</td>
+                        <td className={`p-3 ${t_textHeading}`}>{Number(p.rate_limit_rpm || 60)}</td>
+                        <td className={`p-3 ${t_textMuted}`}>
+                          {Object.entries(p.allowed_services || {})
+                            .filter(([, enabled]) => !!enabled)
+                            .map(([name]) => name)
+                            .join(", ") || "none"}
+                        </td>
                         <td className="p-3">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${p.is_active ? "bg-emerald-500/20 text-emerald-400" : "bg-slate-500/20 text-slate-400"}`}>
                             {p.is_active ? "Active" : "Inactive"}
@@ -174,6 +220,35 @@ export function PlansPanel({ showToast }) {
                 <div>
                   <label className={`text-xs block mb-1 ${t_textMuted}`}>Days</label>
                   <input className={glassInput} type="number" value={form.duration_days} onChange={(e) => setForm({ ...form, duration_days: parseInt(e.target.value) || 0 })} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={`text-xs block mb-1 ${t_textMuted}`}>Max Devices</label>
+                  <input className={glassInput} type="number" min="1" max="10" value={form.max_devices || 1} onChange={(e) => setForm({ ...form, max_devices: parseInt(e.target.value) || 1 })} id="plan-max-devices" />
+                </div>
+                <div>
+                  <label className={`text-xs block mb-1 ${t_textMuted}`}>Rate Limit (req/min)</label>
+                  <input className={glassInput} type="number" min="1" max="1000" value={form.rate_limit_rpm || 60} onChange={(e) => setForm({ ...form, rate_limit_rpm: parseInt(e.target.value) || 60 })} id="plan-rate-limit" />
+                </div>
+              </div>
+              <div>
+                <label className={`text-xs block mb-2 ${t_textMuted}`}>Allowed Services</label>
+                <div className="flex flex-wrap gap-3">
+                  {["captcha", "solver", "autofill", "exam"].map((svc) => (
+                    <label key={svc} className="flex items-center gap-1.5 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={!!(form.allowed_services || {})[svc]}
+                        onChange={(e) => setForm({
+                          ...form,
+                          allowed_services: { ...(form.allowed_services || {}), [svc]: e.target.checked },
+                        })}
+                        id={`plan-service-${svc}`}
+                      />
+                      <span className="capitalize">{svc}</span>
+                    </label>
+                  ))}
                 </div>
               </div>
               <div>
