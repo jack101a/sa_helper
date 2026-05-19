@@ -2,63 +2,12 @@
 
 from __future__ import annotations
 
-import json
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timezone, timedelta
+from typing import Optional
 
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.models import SubscriptionPlan, User, UserSubscription
-
-PLAN_DEFAULTS = [
-    {
-        "code": "basic",
-        "name": "Basic",
-        "description": "Autofill and captcha.",
-        "monthly_limit": 1000,
-        "duration_days": 30,
-        "price_amount": 10000,
-        "services": {"autofill": True, "captcha": True, "stall": False, "solver": False, "custom": False},
-    },
-    {
-        "code": "standard",
-        "name": "Standard",
-        "description": "Autofill, captcha, stall scripts, and userscripts.",
-        "monthly_limit": 5000,
-        "duration_days": 30,
-        "price_amount": 35000,
-        "services": {"autofill": True, "captcha": True, "stall": True, "solver": False, "custom": True},
-    },
-    {
-        "code": "premium",
-        "name": "Premium",
-        "description": "All services including MCQ solvers.",
-        "monthly_limit": 15000,
-        "duration_days": 30,
-        "price_amount": 50000,
-        "services": {"autofill": True, "captcha": True, "stall": True, "solver": True, "custom": True},
-    },
-]
-
-
-def _json(data: dict) -> str:
-    return json.dumps(data, separators=(",", ":"), sort_keys=True)
-
-
-def _services_from_plan(plan: SubscriptionPlan) -> dict[str, bool]:
-    try:
-        raw = json.loads(plan.services_json or "{}")
-        if not isinstance(raw, dict):
-            raw = {}
-    except Exception:
-        raw = {}
-    return {
-        "autofill": bool(raw.get("autofill", True)),
-        "captcha": bool(raw.get("captcha", True)),
-        "stall": bool(raw.get("stall", False)),
-        "solver": bool(raw.get("solver", False)),
-        "custom": bool(raw.get("custom", False)),
-    }
+from app.core.models import SubscriptionPlan, UserSubscription, User
 
 
 class SubscriptionService:
@@ -69,68 +18,6 @@ class SubscriptionService:
 
     def _session(self) -> Session:
         return self._session_factory()
-
-    def ensure_schema(self) -> None:
-        """Idempotently add plan entitlement columns for existing deployments."""
-        session = self._session()
-        try:
-            dialect = session.bind.dialect.name if session.bind is not None else "sqlite"
-            plan_columns = {row[1] for row in session.execute(text("PRAGMA table_info(subscription_plans)"))} if dialect == "sqlite" else {
-                row[0] for row in session.execute(text(
-                    "SELECT column_name FROM information_schema.columns WHERE table_name='subscription_plans'"
-                ))
-            }
-            sub_columns = {row[1] for row in session.execute(text("PRAGMA table_info(user_subscriptions)"))} if dialect == "sqlite" else {
-                row[0] for row in session.execute(text(
-                    "SELECT column_name FROM information_schema.columns WHERE table_name='user_subscriptions'"
-                ))
-            }
-            text_type = "TEXT"
-            if "services_json" not in plan_columns:
-                session.execute(text(f"ALTER TABLE subscription_plans ADD COLUMN services_json {text_type} NOT NULL DEFAULT '{{}}'"))
-            if "service_limits_json" not in plan_columns:
-                session.execute(text(f"ALTER TABLE subscription_plans ADD COLUMN service_limits_json {text_type} NOT NULL DEFAULT '{{}}'"))
-            if "services_snapshot_json" not in sub_columns:
-                session.execute(text(f"ALTER TABLE user_subscriptions ADD COLUMN services_snapshot_json {text_type} NOT NULL DEFAULT '{{}}'"))
-            if "service_limits_snapshot_json" not in sub_columns:
-                session.execute(text(f"ALTER TABLE user_subscriptions ADD COLUMN service_limits_snapshot_json {text_type} NOT NULL DEFAULT '{{}}'"))
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
-
-    def seed_default_plans(self) -> None:
-        self.ensure_schema()
-        session = self._session()
-        try:
-            for item in PLAN_DEFAULTS:
-                plan = session.query(SubscriptionPlan).filter(SubscriptionPlan.code == item["code"]).first()
-                limits = {svc: item["monthly_limit"] for svc, enabled in item["services"].items() if enabled}
-                values = {
-                    "name": item["name"],
-                    "description": item["description"],
-                    "monthly_limit": item["monthly_limit"],
-                    "duration_days": item["duration_days"],
-                    "price_amount": item["price_amount"],
-                    "currency": "INR",
-                    "services_json": _json(item["services"]),
-                    "service_limits_json": _json(limits),
-                    "is_active": True,
-                    "updated_at": datetime.now(UTC),
-                }
-                if plan:
-                    for key, value in values.items():
-                        setattr(plan, key, value)
-                else:
-                    session.add(SubscriptionPlan(code=item["code"], **values))
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
 
     # ── Plans ──────────────────────────────────────────────────────────────
 
@@ -143,8 +30,9 @@ class SubscriptionService:
         price_amount: int = 0,
         currency: str = "INR",
         description: str = "",
-        services: dict[str, bool] | None = None,
-        service_limits: dict[str, int] | None = None,
+        max_devices: int = 1,
+        allowed_services: dict | None = None,
+        rate_limit_rpm: int = 60,
     ) -> SubscriptionPlan:
         session = self._session()
         try:
@@ -156,8 +44,9 @@ class SubscriptionService:
                 duration_days=duration_days,
                 price_amount=price_amount,
                 currency=currency,
-                services_json=_json(services or {"autofill": True, "captcha": True}),
-                service_limits_json=_json(service_limits or {}),
+                max_devices=max_devices,
+                allowed_services=allowed_services or {},
+                rate_limit_rpm=rate_limit_rpm,
             )
             session.add(plan)
             session.commit()
@@ -188,7 +77,7 @@ class SubscriptionService:
         try:
             q = session.query(SubscriptionPlan)
             if active_only:
-                q = q.filter(SubscriptionPlan.is_active)
+                q = q.filter(SubscriptionPlan.is_active == True)
             return q.order_by(SubscriptionPlan.price_amount).all()
         finally:
             session.close()
@@ -200,13 +89,9 @@ class SubscriptionService:
             if not plan:
                 return None
             for key, value in kwargs.items():
-                if key == "services" and isinstance(value, dict):
-                    key, value = "services_json", _json(value)
-                elif key == "service_limits" and isinstance(value, dict):
-                    key, value = "service_limits_json", _json(value)
                 if hasattr(plan, key):
                     setattr(plan, key, value)
-            plan.updated_at = datetime.now(UTC)
+            plan.updated_at = datetime.now(timezone.utc)
             session.commit()
             session.refresh(plan)
             return plan
@@ -230,14 +115,12 @@ class SubscriptionService:
             if not plan:
                 raise ValueError(f"Plan {plan_id} not found")
 
-            now = datetime.now(UTC)
+            now = datetime.now(timezone.utc)
             sub = UserSubscription(
                 user_id=user_id,
                 plan_id=plan_id,
                 status="active",
                 monthly_limit_snapshot=plan.monthly_limit,
-                services_snapshot_json=plan.services_json or "{}",
-                service_limits_snapshot_json=plan.service_limits_json or "{}",
                 start_at=now,
                 end_at=now + timedelta(days=plan.duration_days),
                 billing_anchor_day=now.day,
@@ -298,7 +181,7 @@ class SubscriptionService:
             if not sub:
                 return None
             sub.status = "cancelled"
-            sub.updated_at = datetime.now(UTC)
+            sub.updated_at = datetime.now(timezone.utc)
             session.commit()
             session.refresh(sub)
             return sub
@@ -315,17 +198,52 @@ class SubscriptionService:
             if not sub:
                 return None
             sub.status = "expired"
-            sub.updated_at = datetime.now(UTC)
+            sub.updated_at = datetime.now(timezone.utc)
 
             # Also expire the user
             user = session.query(User).filter(User.id == sub.user_id).first()
             if user:
                 user.status = "expired"
-                user.updated_at = datetime.now(UTC)
+                user.updated_at = datetime.now(timezone.utc)
 
             session.commit()
             session.refresh(sub)
             return sub
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def expire_overdue(self) -> list[dict]:
+        """Find and expire all active subscriptions past end_at. Returns list of expired user info."""
+        session = self._session()
+        try:
+            now = datetime.now(timezone.utc)
+            overdue = (
+                session.query(UserSubscription)
+                .filter(
+                    UserSubscription.status == "active",
+                    UserSubscription.end_at < now,
+                )
+                .all()
+            )
+            expired_users = []
+            for sub in overdue:
+                sub.status = "expired"
+                sub.updated_at = now
+                user = session.query(User).filter(User.id == sub.user_id).first()
+                if user:
+                    user.status = "expired"
+                    user.updated_at = now
+                    expired_users.append({
+                        "user_id": user.id,
+                        "name": user.full_name,
+                        "telegram_chat_id": user.telegram_chat_id,
+                        "telegram_user_id": user.telegram_user_id,
+                    })
+            session.commit()
+            return expired_users
         except Exception:
             session.rollback()
             raise

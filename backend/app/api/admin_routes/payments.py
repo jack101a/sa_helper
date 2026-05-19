@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC
-from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Query, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import APIRouter, Request, Query
+from fastapi.responses import JSONResponse, FileResponse
 
 from .utils import _admin_guard
 
@@ -59,10 +57,9 @@ async def approve_payment(request: Request, payment_id: int) -> Any:
     container = request.app.state.container
 
     # Use a single session for the entire approve+activate flow (atomic)
-    from datetime import datetime, timedelta
-
+    from app.core.models import User, UserSubscription, UserApiKey, SubscriptionPlan, PaymentRecord
     from app.core.db import get_session
-    from app.core.models import PaymentRecord, SubscriptionPlan, User, UserApiKey, UserSubscription
+    from datetime import datetime, timezone, timedelta
 
     session = get_session()
     try:
@@ -71,7 +68,7 @@ async def approve_payment(request: Request, payment_id: int) -> Any:
             return JSONResponse({"error": "Payment not found"}, status_code=404)
 
         # Mark payment approved
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
         payment.status = "approved"
         payment.verified_at = now
         payment.updated_at = now
@@ -87,7 +84,7 @@ async def approve_payment(request: Request, payment_id: int) -> Any:
             if not plan:
                 plan = session.query(SubscriptionPlan).filter(
                     SubscriptionPlan.price_amount == payment.amount,
-                    SubscriptionPlan.is_active,
+                    SubscriptionPlan.is_active == True,
                 ).first()
 
             if plan:
@@ -103,8 +100,6 @@ async def approve_payment(request: Request, payment_id: int) -> Any:
                     plan_id=plan.id,
                     status="active",
                     monthly_limit_snapshot=plan.monthly_limit,
-                    services_snapshot_json=plan.services_json or "{}",
-                    service_limits_snapshot_json=plan.service_limits_json or "{}",
                     start_at=now,
                     end_at=now + timedelta(days=plan.duration_days),
                     billing_anchor_day=now.day,
@@ -139,21 +134,28 @@ async def approve_payment(request: Request, payment_id: int) -> Any:
                 UserApiKey.status == "active",
             ).first()
             if not existing_key:
-                from app.core.security import (
-                    compute_expiry_datetime,
-                    generate_plain_api_key,
-                    hash_api_key,
+                from app.services.user_key_service import UserKeyService
+                from app.core.config import get_settings
+                svc = UserKeyService(
+                    session_factory=lambda: session,
+                    settings=get_settings(),
                 )
-                plain = generate_plain_api_key(container.settings)
-                session.add(UserApiKey(
-                    user_id=user.id,
-                    key_hash=hash_api_key(plain, container.settings.auth.hash_salt),
-                    key_prefix_display=plain[:10] + "...",
-                    status="active",
-                    key_version=1,
-                    issued_at=now,
-                    expires_at=compute_expiry_datetime(container.settings.auth.default_expiry_days),
-                ))
+                svc.create_key(user_id=user.id)
+
+            # Copy plan entitlements to API key
+            if plan and plan.allowed_services:
+                try:
+                    active_key = existing_key or session.query(UserApiKey).filter(
+                        UserApiKey.user_id == user.id,
+                        UserApiKey.status == "active",
+                    ).first()
+                    if active_key:
+                        container.db.set_api_key_entitlements(
+                            int(active_key.id),
+                            services=plan.allowed_services,
+                        )
+                except Exception as e:
+                    logger.warning(f"entitlement_copy_failed: {e}")
 
         # Commit everything atomically
         session.commit()
@@ -212,8 +214,8 @@ async def reject_payment(request: Request, payment_id: int) -> Any:
     )
 
     # Notify user
-    from app.core.db import get_session
     from app.core.models import User
+    from app.core.db import get_session
     session = get_session()
     try:
         user = session.query(User).filter(User.id == payment.user_id).first()
@@ -236,6 +238,8 @@ async def reject_payment(request: Request, payment_id: int) -> Any:
 
 # ── Screenshot Serving ─────────────────────────────────────────────────────
 
+from pathlib import Path
+
 # Configured base directory for payment screenshots
 _SCREENSHOTS_DIR = Path(__file__).resolve().parents[3] / "data" / "payment_screenshots"
 
@@ -248,9 +252,8 @@ async def _try_notify_user(telegram_user_id: str, message: str, container) -> bo
         if not token and container.settings:
             token = container.settings.telegram.bot_token
         if not token:
-            from sqlalchemy import text
-
             from app.core.db import get_session
+            from sqlalchemy import text
             session = get_session()
             row = session.execute(
                 text("SELECT value FROM platform_settings WHERE key = :key"),
@@ -262,8 +265,8 @@ async def _try_notify_user(telegram_user_id: str, message: str, container) -> bo
         if not token:
             return False
 
-        from app.core.db import get_session
         from app.core.models import User
+        from app.core.db import get_session
         session = get_session()
         user = session.query(User).filter(
             User.telegram_user_id == str(telegram_user_id)
@@ -290,8 +293,8 @@ async def get_payment_screenshot(request: Request, payment_id: int) -> Any:
     denied = _admin_guard(request)
     if denied:
         return denied
-    from app.core.db import get_session
     from app.core.models import PaymentRecord
+    from app.core.db import get_session
     session = get_session()
     try:
         payment = session.query(PaymentRecord).filter(PaymentRecord.id == payment_id).first()

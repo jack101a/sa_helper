@@ -11,13 +11,12 @@ import json
 import logging
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import qrcode
-
+from app.core.models import User, SubscriptionPlan, PaymentRecord, UserSubscription
 from app.core.db import get_session
-from app.core.models import PaymentRecord, SubscriptionPlan, User, UserSubscription
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +79,7 @@ class TelegramBotService:
         self._currency = "INR"
 
         # Persist user states to survive bot restarts
+        import os as _os
         _data_dir = Path(__file__).resolve().parents[3] / "data"
         _data_dir.mkdir(parents=True, exist_ok=True)
         self._state_file = _data_dir / "telegram_user_states.json"
@@ -168,7 +168,7 @@ class TelegramBotService:
         try:
             plans = (
                 session.query(SubscriptionPlan)
-                .filter(SubscriptionPlan.is_active)
+                .filter(SubscriptionPlan.is_active == True)
                 .order_by(SubscriptionPlan.price_amount)
                 .all()
             )
@@ -192,7 +192,7 @@ class TelegramBotService:
         try:
             plans = (
                 session.query(SubscriptionPlan)
-                .filter(SubscriptionPlan.is_active)
+                .filter(SubscriptionPlan.is_active == True)
                 .order_by(SubscriptionPlan.price_amount)
                 .all()
             )
@@ -226,7 +226,7 @@ class TelegramBotService:
         try:
             plans = (
                 session.query(SubscriptionPlan)
-                .filter(SubscriptionPlan.is_active)
+                .filter(SubscriptionPlan.is_active == True)
                 .order_by(SubscriptionPlan.price_amount)
                 .all()
             )
@@ -266,10 +266,10 @@ class TelegramBotService:
 
             # Read dynamic payment settings from DB
             note_prefix = self._read_db_setting("payment.note_prefix") or self._payment_note_prefix
-            self._read_db_setting("payment.currency") or self._currency
+            currency = self._read_db_setting("payment.currency") or self._currency
 
             # Generate unique payment reference
-            ref = f"{note_prefix}{datetime.now(UTC).strftime('%y%m%d')}{uuid.uuid4().hex[:6].upper()}"
+            ref = f"{note_prefix}{datetime.now(timezone.utc).strftime('%y%m%d')}{uuid.uuid4().hex[:6].upper()}"
 
             self.set_state(chat_id, STATE_PAYMENT_INSTRUCTIONS, {
                 "plan_id": plan_id,
@@ -358,7 +358,7 @@ class TelegramBotService:
 
             # Create payment record with all fields
             from datetime import timedelta
-            now = datetime.now(UTC)
+            now = datetime.now(timezone.utc)
             payment = PaymentRecord(
                 user_id=user.id,
                 plan_id=data.get("plan_id"),
@@ -446,12 +446,6 @@ class TelegramBotService:
             )
             if sub:
                 plan = session.query(SubscriptionPlan).filter(SubscriptionPlan.id == sub.plan_id).first()
-                try:
-                    services_raw = json.loads(sub.services_snapshot_json or (plan.services_json if plan else "{}") or "{}")
-                except Exception:
-                    services_raw = {}
-                service_names = [name for name, enabled in services_raw.items() if enabled]
-                service_label = ", ".join(service_names) if service_names else "N/A"
                 from app.core.models import UsageCycle
                 cycle = (
                     session.query(UsageCycle)
@@ -465,13 +459,12 @@ class TelegramBotService:
                     f"📦 Plan: *{plan.name if plan else 'Unknown'}*\n"
                     f"📅 Expires: {sub.end_at.strftime('%d %b %Y') if sub.end_at else 'N/A'}\n"
                     f"📊 Usage: {used}/{limit} solves\n"
-                    f"Services: {service_label}\n"
                 )
             else:
                 status_msg += (
-                    "📦 Plan: *N/A*\n"
-                    "📅 Expires: N/A\n"
-                    "📊 Usage: N/A\n"
+                    f"📦 Plan: *N/A*\n"
+                    f"📅 Expires: N/A\n"
+                    f"📊 Usage: N/A\n"
                 )
 
             # API key status
@@ -542,8 +535,8 @@ class TelegramBotService:
             if not user or user.status != "active":
                 return "Your account is not active. Complete registration first."
 
-            from app.core.config import get_settings
             from app.services.user_key_service import UserKeyService
+            from app.core.config import get_settings
 
             svc = UserKeyService(session_factory=self._session_factory, settings=get_settings())
             key, plain = svc.rotate_key(user_id=user.id)
@@ -680,15 +673,8 @@ class TelegramBotService:
     def run(self):
         """Start the bot using long-polling."""
         try:
-            from telegram import KeyboardButton, ReplyKeyboardMarkup, Update
-            from telegram.ext import (
-                Application,
-                CallbackQueryHandler,
-                CommandHandler,
-                ContextTypes,
-                MessageHandler,
-                filters,
-            )
+            from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
+            from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
             app = Application.builder().token(self._token).build()
 
@@ -791,6 +777,39 @@ class TelegramBotService:
                     "Let's register! What's your full name?",
                     parse_mode="Markdown")
 
+            async def renew_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+                uid = str(update.effective_user.id)
+                chat_id = update.effective_chat.id
+
+                session = self._session()
+                try:
+                    user = session.query(User).filter(
+                        User.telegram_user_id == uid
+                    ).first()
+                finally:
+                    session.close()
+
+                if not user:
+                    await update.message.reply_text(
+                        "❌ You're not registered yet.\nUse /register to create an account."
+                    )
+                    return
+
+                self.set_state(chat_id, STATE_PLAN_SELECT, {
+                    "full_name": user.full_name,
+                    "mobile_number": user.mobile_number,
+                    "is_renewal": True,
+                })
+                msg = (
+                    f"🔄 *Renew Subscription*\n\n"
+                    f"Welcome back, {user.full_name}. Select a plan to renew:\n\n"
+                ) + self._get_plans_message()
+                keyboard = self._build_plan_keyboard(chat_id)
+                kwargs = {"parse_mode": "Markdown"}
+                if keyboard:
+                    kwargs["reply_markup"] = keyboard
+                await update.message.reply_text(msg, **kwargs)
+
             async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id = update.effective_chat.id
                 text = update.message.text.strip()
@@ -823,11 +842,11 @@ class TelegramBotService:
                     return
                 if text == "📊 My Status":
                     msg = self.handle_my_status(uid)
-                    await update.message.reply_text(msg)
+                    await update.message.reply_text(msg, parse_mode="Markdown")
                     return
                 if text == "💳 Payments":
                     msg = self.handle_payment_status(uid)
-                    await update.message.reply_text(msg)
+                    await update.message.reply_text(msg, parse_mode="Markdown")
                     return
                 if text == "🔑 My Key":
                     msg = self.handle_my_key(uid)
@@ -835,7 +854,7 @@ class TelegramBotService:
                     return
                 if text == "🔄 New Key":
                     msg = self.handle_regenerate_key(uid)
-                    await update.message.reply_text(msg)
+                    await update.message.reply_text(msg, parse_mode="Markdown")
                     return
                 if text == "❓ Help":
                     await update.message.reply_text(
@@ -844,6 +863,7 @@ class TelegramBotService:
                         "/start — Welcome & info\n"
                         "/register — Start registration\n"
                         "/my_status — Your account status\n"
+                        "/renew — Renew subscription\n"
                         "/payment_status — Payment history\n"
                         "/my_key — API key info\n"
                         "/help — This help",
@@ -912,6 +932,7 @@ class TelegramBotService:
                     "/start — Welcome & info\n"
                     "/register — Start registration\n"
                     "/my_status — Your account status\n"
+                    "/renew — Renew subscription\n"
                     "/payment_status — Payment history\n"
                     "/my_key — API key info\n"
                     "/help — This help",
@@ -941,12 +962,12 @@ class TelegramBotService:
                 if pending:
                     await query.edit_message_text(
                         "⏳ *Payment Already in Progress*\n\n"
-                        "Your payment is already being processed. Use /payment_status to check.",
+                        f"Your payment is already being processed. Use /payment_status to check.",
                         parse_mode="Markdown")
                     return
 
                 # Process plan selection
-                self.handle_plan_select(chat_id, str(plan_id + 1))  # Convert back to 1-based for compatibility
+                result = self.handle_plan_select(chat_id, str(plan_id + 1))  # Convert back to 1-based for compatibility
                 # Actually, handle_plan_select expects a 1-based index. Let's fix this.
                 # We need to look up the plan by ID directly.
 
@@ -962,7 +983,7 @@ class TelegramBotService:
                     upi = self._upi_id or "Not configured — contact admin"
 
                     note_prefix = self._read_db_setting("payment.note_prefix") or self._payment_note_prefix
-                    ref = f"{note_prefix}{datetime.now(UTC).strftime('%y%m%d')}{uuid.uuid4().hex[:6].upper()}"
+                    ref = f"{note_prefix}{datetime.now(timezone.utc).strftime('%y%m%d')}{uuid.uuid4().hex[:6].upper()}"
 
                     self.set_state(chat_id, STATE_PAYMENT_INSTRUCTIONS, {
                         "plan_id": plan_id,
@@ -1026,9 +1047,10 @@ class TelegramBotService:
                 file = await context.bot.get_file(photo.file_id)
 
                 # Save to disk
+                import os as _os
                 upload_dir = Path(__file__).resolve().parents[3] / "data" / "payment_screenshots"
                 upload_dir.mkdir(parents=True, exist_ok=True)
-                filename = f"pay_{uid}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.jpg"
+                filename = f"pay_{uid}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.jpg"
                 filepath = upload_dir / filename
                 await file.download_to_drive(str(filepath))
 
@@ -1081,7 +1103,7 @@ class TelegramBotService:
                             existing_payment.ocr_extracted_payer = ocr_data.get("payer")
                             existing_payment.upi_reference = extracted_ref or existing_payment.upi_reference
                             existing_payment.status = new_status
-                            existing_payment.updated_at = datetime.now(UTC)
+                            existing_payment.updated_at = datetime.now(timezone.utc)
                             session.commit()
                             payment = existing_payment
                         else:
@@ -1104,7 +1126,7 @@ class TelegramBotService:
                                 ocr_extracted_date=ocr_data.get("date"),
                                 ocr_extracted_payer=ocr_data.get("payer"),
                                 status=new_status,
-                                submitted_at=datetime.now(UTC),
+                                submitted_at=datetime.now(timezone.utc),
                             )
                             session.add(payment)
                             session.commit()
@@ -1147,9 +1169,8 @@ class TelegramBotService:
                     from PIL import Image
                     img = Image.open(filepath)
                     try:
-                        import re
-
                         import pytesseract
+                        import re
                         text = pytesseract.image_to_string(img)
                         # UPI ref patterns
                         ref_patterns = [
@@ -1183,6 +1204,7 @@ class TelegramBotService:
 
             app.add_handler(CommandHandler("start", start_cmd))
             app.add_handler(CommandHandler("register", register_cmd))
+            app.add_handler(CommandHandler("renew", renew_cmd))
             app.add_handler(CommandHandler("my_status", status_cmd))
             app.add_handler(CommandHandler("my_key", key_cmd))
             app.add_handler(CommandHandler("regenerate_key", regenerate_cmd))
@@ -1249,7 +1271,7 @@ def _run_standalone() -> None:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
     from app.core.config import get_settings
-    from app.core.db import get_session, init_db
+    from app.core.db import init_db, get_session
 
     settings = get_settings()
     init_db(settings)
@@ -1274,12 +1296,11 @@ def _run_standalone() -> None:
 
 # Entry point for standalone process
 if False and __name__ == "__main__":
-    import os
-    import sys
+    import os, sys
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
     from app.core.config import get_settings
-    from app.core.db import get_session, init_db
+    from app.core.db import init_db, get_session
 
     settings = get_settings()
     init_db(settings)
@@ -1310,9 +1331,7 @@ def start_bot(settings=None, session_factory=None) -> TelegramBotService | None:
     """Start the Telegram bot in a background thread. Called from server startup.
     Reads token from env var first, then config, then DB platform setting.
     """
-    import os
-    import threading
-
+    import os, threading
     from sqlalchemy import text
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     if not token and settings:

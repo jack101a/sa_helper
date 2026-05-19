@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import threading
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+from typing import Optional
 
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.core.models import User, UserApiKey, UserApiKeyDevice
-from app.core.security import compute_expiry_datetime, generate_plain_api_key, hash_api_key
+from app.core.models import UserApiKey, UserApiKeyDevice, User
+from app.core.security import generate_plain_api_key, hash_api_key, compute_expiry_datetime
 
 
 class UserKeyService:
@@ -40,7 +41,7 @@ class UserKeyService:
                 session.query(UserApiKey).filter(
                     UserApiKey.user_id == user_id,
                     UserApiKey.status == "active",
-                ).update({"status": "rotated", "revoked_at": datetime.now(UTC)})
+                ).update({"status": "rotated", "revoked_at": datetime.now(timezone.utc)})
 
                 # Generate new key
                 plain = generate_plain_api_key(self._settings)
@@ -54,7 +55,7 @@ class UserKeyService:
                     key_prefix_display=plain[:10] + "...",
                     status="active",
                     key_version=1,
-                    issued_at=datetime.now(UTC),
+                    issued_at=datetime.now(timezone.utc),
                     expires_at=expires_at,
                     created_by_admin_id=created_by_admin_id,
                 )
@@ -88,7 +89,7 @@ class UserKeyService:
                 # Revoke old
                 if old:
                     old.status = "rotated"
-                    old.revoked_at = datetime.now(UTC)
+                    old.revoked_at = datetime.now(timezone.utc)
                     old.revoked_reason = "key_rotation"
 
                 # Issue new
@@ -103,7 +104,7 @@ class UserKeyService:
                     key_prefix_display=plain[:10] + "...",
                     status="active",
                     key_version=old_version + 1,
-                    issued_at=datetime.now(UTC),
+                    issued_at=datetime.now(timezone.utc),
                     expires_at=expires_at,
                     rotated_from_key_id=old_id,
                     created_by_admin_id=created_by_admin_id,
@@ -125,7 +126,7 @@ class UserKeyService:
             if not key:
                 return None
             key.status = "revoked"
-            key.revoked_at = datetime.now(UTC)
+            key.revoked_at = datetime.now(timezone.utc)
             key.revoked_reason = reason
             session.commit()
             session.refresh(key)
@@ -153,7 +154,7 @@ class UserKeyService:
                 return None
 
             # Check expiry
-            if key.expires_at and key.expires_at < datetime.now(UTC):
+            if key.expires_at and key.expires_at < datetime.now(timezone.utc):
                 return None
 
             # Check user status
@@ -162,7 +163,7 @@ class UserKeyService:
                 return None
 
             # Update usage tracking
-            key.last_used_at = datetime.now(UTC)
+            key.last_used_at = datetime.now(timezone.utc)
             key.usage_count = (key.usage_count or 0) + 1
             session.commit()
 
@@ -173,7 +174,6 @@ class UserKeyService:
                 "status": key.status,
                 "key_version": key.key_version,
                 "user_status": user.status if user else "unknown",
-                "expires_at": key.expires_at.isoformat() if key.expires_at else None,
             }
         finally:
             session.close()
@@ -200,7 +200,7 @@ class UserKeyService:
     ) -> UserApiKeyDevice:
         session = self._session()
         try:
-            now = datetime.now(UTC)
+            now = datetime.now(timezone.utc)
             # Check if already bound
             existing = (
                 session.query(UserApiKeyDevice)
@@ -215,18 +215,47 @@ class UserKeyService:
                 session.commit()
                 return existing
 
-            # Check if key already has an active device (one-device policy)
-            active_device = (
+            # Check device limit from user's plan
+            max_devices = 1  # default
+            try:
+                from app.core.models import UserSubscription, SubscriptionPlan
+                key = session.query(UserApiKey).filter(UserApiKey.id == api_key_id).first()
+                if key and key.user_id:
+                    sub = (
+                        session.query(UserSubscription)
+                        .filter(
+                            UserSubscription.user_id == key.user_id,
+                            UserSubscription.status == "active",
+                        )
+                        .order_by(UserSubscription.created_at.desc())
+                        .first()
+                    )
+                    if sub and sub.plan_id:
+                        plan = session.query(SubscriptionPlan).filter(
+                            SubscriptionPlan.id == sub.plan_id
+                        ).first()
+                        if plan and plan.max_devices:
+                            max_devices = plan.max_devices
+            except Exception:
+                pass  # Fall back to default of 1
+
+            active_devices = (
                 session.query(UserApiKeyDevice)
                 .filter(
                     UserApiKeyDevice.api_key_id == api_key_id,
                     UserApiKeyDevice.status == "active",
                 )
-                .first()
+                .all()
             )
-            if active_device and active_device.device_fingerprint != device_fingerprint:
-                # Device mismatch — reject
-                return None  # Caller should handle as "device_mismatch"
+            # Check if this device is already bound
+            for dev in active_devices:
+                if dev.device_fingerprint == device_fingerprint:
+                    dev.last_seen_at = now
+                    session.commit()
+                    return dev
+            # Check if device limit reached
+            if len(active_devices) >= max_devices:
+                return None  # Caller should handle as "device_limit_reached"
 
             device = UserApiKeyDevice(
                 api_key_id=api_key_id,
@@ -261,7 +290,7 @@ class UserKeyService:
                 .first()
             )
             if device:
-                device.last_seen_at = datetime.now(UTC)
+                device.last_seen_at = datetime.now(timezone.utc)
                 session.commit()
                 return True
             return False

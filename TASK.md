@@ -1,32 +1,37 @@
-# TASK.md - T7-T10 Backup & Restore with rclone + Telegram
+# TASK.md - T11-T15 Plan Entitlements, Device Limits, Lifecycle
 
 ## Goal
-Execute tasks T7 through T10 for backup/restore: system-user split backups, rclone sync, Telegram backup upload, backup scheduler, and admin backup endpoints.
+Execute tasks T11 through T15: plan entitlements columns, payment entitlement copy, plan-based device limits, subscription auto-expiry, and Telegram /renew flow.
 
 ## Status
 COMPLETE
 
 ## Scope Included
-- Read AGENTS.md, implementation plan, and P2 task spec
-- Read required source files before editing
-- Ensure T7-T10 code is present and aligned to task instructions
+- Read mandatory docs and required source files before editing
+- Implement T11, T12, T13, T14, T15 in order
 - Run verification commands
 - Update `STATE.md`
-- Commit with message: `[T7-T10] Backup system with system/user split, rclone, Telegram`
+- Commit with message: `[T11-T15] Plan entitlements, device limits, auto-expiry, /renew`
 
 ## Scope Excluded
-- Unrelated feature changes
+- Unrelated refactors/features
 - Destructive commands
 - Files outside project root
 
 ## Plan
-- [x] Read required docs and target files
-- [x] Validate T7-T10 implementation presence
+- [x] Read AGENTS.md, implementation plan, and T11-T15 task spec
+- [x] Read required source files before editing
+- [x] Implement T11 (model columns, migration, create_plan wiring)
+- [x] Implement T12 (copy allowed_services into entitlements on approval)
+- [x] Implement T13 (plan-based max_devices in bind_device)
+- [x] Implement T14 (expire_overdue + expiry scheduler)
+- [x] Implement T15 (/renew command + 3-day warning)
 - [x] Run verification commands
-- [x] Update task/state records
-- [x] Commit required record
+- [x] Update TASK.md/STATE.md
+- [ ] Commit required changes
 
 ## Verification
-- `. .venv/bin/activate && cd backend && python -c "from app.services.backup_service import BackupService; print('OK')"` → `OK`
-- Method presence check prints expected backup/rclone/telegram methods including `create_system_backup`, `create_user_backup`, `list_all_backups`, `rclone_sync`, `telegram_backup`
-- `python -m py_compile backend/app/services/backup_service.py backend/app/api/admin_routes/backups.py backend/app/main.py` → `py_compile OK`
+- `python -c "from app.core.models import SubscriptionPlan; print('max_devices' in [c.name for c in SubscriptionPlan.__table__.columns])"` -> `True`
+- `python -c "from app.services.subscription_service import SubscriptionService; print(hasattr(SubscriptionService, 'expire_overdue'))"` -> `True`
+- `python -c "from app.services.telegram_bot import *; print('OK')"` -> `OK`
+- `python -m py_compile ...` on all edited files -> success

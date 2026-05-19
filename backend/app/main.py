@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone, timedelta
 from pathlib import Path as _Path
 
 from fastapi import FastAPI
@@ -124,6 +125,78 @@ async def _backup_scheduler(container) -> None:
             await asyncio.sleep(3600)
 
 
+async def _subscription_expiry_loop(container) -> None:
+    """Check for expired subscriptions every hour."""
+    await asyncio.sleep(120)  # wait 2 min after startup
+    while True:
+        try:
+            token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+
+            # Check for subscriptions expiring in 3 days — send warning
+            try:
+                from app.core.models import UserSubscription, User
+                session = get_session()
+                now_dt = datetime.now(timezone.utc)
+                three_days = now_dt + timedelta(days=3)
+                soon = (
+                    session.query(UserSubscription)
+                    .filter(
+                        UserSubscription.status == "active",
+                        UserSubscription.end_at.between(now_dt, three_days),
+                    )
+                    .all()
+                )
+                if soon and token:
+                    from telegram import Bot
+                    bot = Bot(token=token)
+                    for sub in soon:
+                        user = session.query(User).filter(User.id == sub.user_id).first()
+                        if user and user.telegram_chat_id:
+                            days_left = (sub.end_at - now_dt).days
+                            try:
+                                await bot.send_message(
+                                    chat_id=int(user.telegram_chat_id),
+                                    text=(
+                                        "⏰ *Subscription Expiring Soon*\n\n"
+                                        f"Your plan expires in *{days_left} days*.\n"
+                                        "Use /renew to continue your service."
+                                    ),
+                                    parse_mode="Markdown",
+                                )
+                            except Exception:
+                                pass
+                session.close()
+            except Exception as e:
+                logger.warning(f"expiry_warning_failed: {e}")
+
+            expired_users = container.subscription_service.expire_overdue()
+            if expired_users:
+                logger.info(f"auto_expired: {len(expired_users)} subscriptions")
+                if token:
+                    try:
+                        from telegram import Bot
+                        bot = Bot(token=token)
+                        for user_info in expired_users:
+                            chat_id = user_info.get("telegram_chat_id")
+                            if chat_id:
+                                await bot.send_message(
+                                    chat_id=int(chat_id),
+                                    text=(
+                                        "⚠️ *Subscription Expired*\n\n"
+                                        "Your subscription has expired.\n"
+                                        "Use /renew to purchase a new plan."
+                                    ),
+                                    parse_mode="Markdown",
+                                )
+                    except Exception as e:
+                        logger.warning(f"expiry_notify_failed: {e}")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"expiry_check_failed: {e}")
+        await asyncio.sleep(3600)  # check every hour
+
+
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     """Manage startup and shutdown lifecycle."""
@@ -148,12 +221,14 @@ async def lifespan(application: FastAPI):
 
     merge_task = asyncio.create_task(_exam_merge_loop(container))
     backup_task = asyncio.create_task(_backup_scheduler(container))
+    expiry_task = asyncio.create_task(_subscription_expiry_loop(container))
 
     yield
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
     merge_task.cancel()
     backup_task.cancel()
+    expiry_task.cancel()
     await container.solver_service.stop()
 
     # Guard: retrain_service is optional — only wired when the feature is on

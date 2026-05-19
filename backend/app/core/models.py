@@ -6,17 +6,18 @@ They coexist with the existing raw-SQL tables (api_keys, usage_events, etc.).
 
 from __future__ import annotations
 
-import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+from typing import Optional
 
 from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
-    Float,
     ForeignKey,
     Integer,
+    JSON,
     String,
+    Float,
     Text,
     UniqueConstraint,
 )
@@ -26,15 +27,7 @@ from app.core.db import Base
 
 
 def _utcnow() -> datetime:
-    return datetime.now(UTC)
-
-
-def _json_dict(value: str | None) -> dict:
-    try:
-        parsed = json.loads(value or "{}")
-        return parsed if isinstance(parsed, dict) else {}
-    except Exception:
-        return {}
+    return datetime.now(timezone.utc)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -95,9 +88,10 @@ class SubscriptionPlan(Base):
     duration_days = Column(Integer, nullable=False, default=30)
     price_amount = Column(Integer, nullable=False, default=0)  # in smallest currency unit (e.g., paise)
     currency = Column(String(3), nullable=False, default="INR")
-    services_json = Column(Text, nullable=False, default='{"autofill":true,"captcha":true,"stall":false,"solver":false,"custom":false}')
-    service_limits_json = Column(Text, nullable=False, default="{}")
     is_active = Column(Boolean, nullable=False, default=True)
+    max_devices = Column(Integer, default=1, nullable=False, server_default="1")
+    allowed_services = Column(JSON, default=dict, nullable=True)  # e.g., {"captcha": true, "solver": true, "autofill": true}
+    rate_limit_rpm = Column(Integer, default=60, nullable=False, server_default="60")
     created_at = Column(DateTime, nullable=False, default=_utcnow)
     updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
 
@@ -111,9 +105,10 @@ class SubscriptionPlan(Base):
             "duration_days": self.duration_days,
             "price_amount": self.price_amount,
             "currency": self.currency,
-            "services": _json_dict(self.services_json),
-            "service_limits": _json_dict(self.service_limits_json),
             "is_active": self.is_active,
+            "max_devices": self.max_devices,
+            "allowed_services": self.allowed_services or {},
+            "rate_limit_rpm": self.rate_limit_rpm,
         }
 
 
@@ -134,8 +129,6 @@ class UserSubscription(Base):
         # Values: pending, active, expired, cancelled, rejected
     )
     monthly_limit_snapshot = Column(Integer, nullable=False, default=0)
-    services_snapshot_json = Column(Text, nullable=False, default="{}")
-    service_limits_snapshot_json = Column(Text, nullable=False, default="{}")
     start_at = Column(DateTime, nullable=True)
     end_at = Column(DateTime, nullable=True)
     billing_anchor_day = Column(Integer, nullable=True)  # day of month for billing
@@ -158,8 +151,6 @@ class UserSubscription(Base):
             "plan_id": self.plan_id,
             "status": self.status,
             "monthly_limit_snapshot": self.monthly_limit_snapshot,
-            "services": _json_dict(self.services_snapshot_json),
-            "service_limits": _json_dict(self.service_limits_snapshot_json),
             "start_at": self.start_at.isoformat() if self.start_at else None,
             "end_at": self.end_at.isoformat() if self.end_at else None,
             "current_cycle_start_at": self.current_cycle_start_at.isoformat() if self.current_cycle_start_at else None,
@@ -361,259 +352,9 @@ class AuditLog(Base):
     created_at = Column(DateTime, nullable=False, default=_utcnow)
 
 
-# =============================================================================
-# LEGACY SETTINGS TABLES
-# =============================================================================
-
-class PlatformSettingRecord(Base):
-    __tablename__ = "platform_settings"
-
-    key = Column(String(255), primary_key=True)
-    value = Column(Text, nullable=False, default="")
-    description = Column(Text, nullable=True)
-    updated_at = Column(String(64), nullable=False)
-
-
-class AccessControlRecord(Base):
-    __tablename__ = "access_control"
-
-    key = Column(String(255), primary_key=True)
-    value = Column(Text, nullable=False)
-
-
-class AllowedDomainRecord(Base):
-    __tablename__ = "allowed_domains"
-
-    domain = Column(String(255), primary_key=True)
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # REQUEST JOBS (for worker queue)
 # ═══════════════════════════════════════════════════════════════════════════════
-
-# =============================================================================
-# LEGACY API KEY TABLES
-# =============================================================================
-
-class ApiKeyRecord(Base):
-    __tablename__ = "api_keys"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(255), nullable=False)
-    key_hash = Column(String(255), unique=True, nullable=False)
-    enabled = Column(Integer, nullable=False, default=1)
-    all_domains = Column(Integer, nullable=False, default=1)
-    created_at = Column(String(64), nullable=False)
-    expires_at = Column(String(64), nullable=True)
-    revoked_at = Column(String(64), nullable=True)
-    key_type = Column(String(32), nullable=False, default="user")
-    plan_name = Column(String(255), nullable=False, default="Standard")
-    mobile = Column(String(64), nullable=False, default="")
-    telegram_id = Column(String(64), nullable=False, default="")
-    services_json = Column(Text, nullable=False, default='{"autofill":true,"captcha":true,"stall":true,"solver":true,"custom":false}')
-
-
-class ApiKeyAllowedDomainRecord(Base):
-    __tablename__ = "api_key_allowed_domains"
-
-    key_id = Column(Integer, primary_key=True)
-    domain = Column(String(255), primary_key=True)
-
-
-class ApiKeyRateLimitRecord(Base):
-    __tablename__ = "api_key_rate_limits"
-
-    key_id = Column(Integer, primary_key=True)
-    requests_per_minute = Column(Integer, nullable=False)
-    burst = Column(Integer, nullable=False, default=0)
-
-
-class ApiKeyDeviceBindingRecord(Base):
-    __tablename__ = "api_key_device_bindings"
-
-    key_id = Column(Integer, primary_key=True)
-    device_id = Column(String(255), nullable=False)
-    user_agent = Column(String(512), nullable=True)
-    first_seen_at = Column(String(64), nullable=False)
-    last_seen_at = Column(String(64), nullable=False)
-
-
-class UsageEventRecord(Base):
-    __tablename__ = "usage_events"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    key_id = Column(Integer, nullable=False, index=True)
-    task_type = Column(String(64), nullable=False)
-    status = Column(String(32), nullable=False)
-    processing_ms = Column(Integer, nullable=False)
-    model_used = Column(String(255), nullable=True)
-    domain = Column(String(255), nullable=True)
-    ip = Column(String(45), nullable=True)
-    created_at = Column(String(64), nullable=False)
-
-
-# =============================================================================
-# LEGACY MODEL ROUTING TABLES
-# =============================================================================
-
-class ModelRouteRecord(Base):
-    __tablename__ = "model_routes"
-
-    domain = Column(String(255), primary_key=True)
-    ai_model_filename = Column(String(512), nullable=False)
-
-
-class ModelRegistryRecord(Base):
-    __tablename__ = "model_registry"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    ai_model_name = Column(String(255), nullable=False)
-    version = Column(String(64), nullable=False)
-    task_type = Column(String(64), nullable=False)
-    ai_runtime = Column(String(64), nullable=False, default="onnx")
-    ai_model_filename = Column(String(512), unique=True, nullable=False)
-    status = Column(String(32), nullable=False, default="active")
-    lifecycle_state = Column(String(32), nullable=False, default="production")
-    notes = Column(Text, nullable=True)
-    created_at = Column(String(64), nullable=False)
-    updated_at = Column(String(64), nullable=False)
-
-
-class FieldMappingRecord(Base):
-    __tablename__ = "field_mappings"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    domain = Column(String(255), nullable=False)
-    field_name = Column(String(255), nullable=False)
-    task_type = Column(String(64), nullable=False)
-    source_data_type = Column(String(64), nullable=False, default="image")
-    source_selector = Column(Text, nullable=False, default="")
-    target_data_type = Column(String(64), nullable=False, default="text")
-    target_selector = Column(Text, nullable=False, default="")
-    ai_model_id = Column(Integer, nullable=False)
-    created_at = Column(String(64), nullable=False)
-
-    __table_args__ = (
-        UniqueConstraint("domain", "field_name", "task_type", name="uq_field_mapping_key"),
-    )
-
-
-class FieldMappingProposalRecord(Base):
-    __tablename__ = "field_mapping_proposals"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    domain = Column(String(255), nullable=False)
-    task_type = Column(String(64), nullable=False)
-    source_data_type = Column(String(64), nullable=False)
-    source_selector = Column(Text, nullable=False)
-    target_data_type = Column(String(64), nullable=False)
-    target_selector = Column(Text, nullable=False)
-    proposed_field_name = Column(String(255), nullable=False)
-    reported_by = Column(Integer, nullable=False)
-    status = Column(String(32), nullable=False, default="pending")
-    created_at = Column(String(64), nullable=False)
-
-
-class ModelLifecycleEventRecord(Base):
-    __tablename__ = "model_lifecycle_events"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    ai_model_id = Column(Integer, nullable=False)
-    from_state = Column(String(32), nullable=True)
-    to_state = Column(String(32), nullable=False)
-    reason = Column(Text, nullable=True)
-    changed_by = Column(Integer, nullable=True)
-    created_at = Column(String(64), nullable=False)
-
-
-# =============================================================================
-# LEGACY AUTOFILL AND LOCATOR TABLES
-# =============================================================================
-
-class AutofillRuleProposalRecord(Base):
-    __tablename__ = "autofill_rule_proposals"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    idempotency_key = Column(String(255), unique=True, nullable=True)
-    device_id = Column(String(255), nullable=True)
-    api_key_id = Column(Integer, nullable=True)
-    status = Column(String(32), nullable=False, default="pending")
-    reviewed_by = Column(String(255), nullable=True)
-    reviewed_at = Column(String(64), nullable=True)
-    submitted_at = Column(String(64), nullable=True)
-    rule_json = Column(Text, nullable=False)
-    approved_rule_id = Column(String(255), nullable=True)
-    created_at = Column(String(64), nullable=False)
-
-
-class LocatorRecord(Base):
-    __tablename__ = "locators"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    domain = Column(String(255), nullable=False)
-    image_selector = Column(Text, nullable=False)
-    input_selector = Column(Text, nullable=False)
-    status = Column(String(32), nullable=False, default="pending")
-    created_at = Column(String(64), nullable=False)
-
-
-# =============================================================================
-# LEGACY TRAINING TABLES
-# =============================================================================
-
-class RetrainSampleRecord(Base):
-    __tablename__ = "retrain_samples"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    domain = Column(String(255), nullable=False)
-    image_path = Column(String(1024), nullable=False)
-    task_type = Column(String(64), nullable=False, default="image")
-    field_name = Column(String(255), nullable=True)
-    reported_by = Column(Integer, nullable=False)
-    status = Column(String(32), nullable=False, default="queued")
-    label_text = Column(Text, nullable=True)
-    labeled_by = Column(Integer, nullable=True)
-    labeled_at = Column(String(64), nullable=True)
-    consumed_by_job_id = Column(Integer, nullable=True)
-    created_at = Column(String(64), nullable=False)
-
-
-class RetrainJobRecord(Base):
-    __tablename__ = "retrain_jobs"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    status = Column(String(32), nullable=False, default="queued")
-    scheduled_for = Column(String(64), nullable=False)
-    started_at = Column(String(64), nullable=True)
-    finished_at = Column(String(64), nullable=True)
-    requested_by = Column(Integer, nullable=True)
-    min_samples = Column(Integer, nullable=False, default=20)
-    notes = Column(Text, nullable=True)
-    error_message = Column(Text, nullable=True)
-    produced_ai_model_id = Column(Integer, nullable=True)
-    total_samples = Column(Integer, nullable=False, default=0)
-
-
-class FailedPayloadLabelRecord(Base):
-    __tablename__ = "failed_payload_labels"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    filename = Column(String(512), unique=True, nullable=False)
-    domain = Column(String(255), nullable=False)
-    ai_guess = Column(Text, nullable=True)
-    corrected_text = Column(Text, nullable=False)
-    updated_at = Column(String(64), nullable=False)
-
-
-class ActiveLearningRecord(Base):
-    __tablename__ = "active_learning"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    domain = Column(String(255), nullable=False)
-    image_path = Column(String(1024), nullable=False)
-    reported_by = Column(Integer, nullable=False)
-    created_at = Column(String(64), nullable=False)
-
 
 class RequestJob(Base):
     __tablename__ = "request_jobs"
@@ -637,53 +378,6 @@ class RequestJob(Base):
     queued_at = Column(DateTime, nullable=False, default=_utcnow)
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
-
-
-# =============================================================================
-# MCQ LEARNING TABLES
-# =============================================================================
-
-class ExamAttemptRecord(Base):
-    __tablename__ = "exam_attempts"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    question_hash = Column(String(255), nullable=False, index=True)
-    selected_option = Column(Integer, nullable=False)
-    was_correct = Column(Integer, nullable=False)
-    method = Column(String(64), nullable=True)
-    processing_ms = Column(Integer, nullable=False, default=0)
-    domain = Column(String(255), nullable=True)
-    question_num = Column(Integer, nullable=True)
-    created_at = Column(String(64), nullable=False)
-
-
-class ExamLearnedRecord(Base):
-    __tablename__ = "exam_learned"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    question_hash = Column(String(255), unique=True, nullable=False, index=True)
-    question_phash = Column(String(64), nullable=False, default="", index=True)
-    question_text = Column(Text, default="")
-    option_1 = Column(Text, default="")
-    option_2 = Column(Text, default="")
-    option_3 = Column(Text, default="")
-    option_4 = Column(Text, default="")
-    correct_option = Column(Integer, nullable=False)
-    correct_option_hash = Column(String(255), nullable=False, default="")
-    correct_option_phash = Column(String(64), nullable=False, default="")
-    correct_option_text = Column(Text, nullable=False, default="")
-    confidence = Column(Float, nullable=False, default=0.8)
-    seen_count = Column(Integer, nullable=False, default=1)
-    first_seen = Column(String(64), nullable=False)
-    last_seen = Column(String(64), nullable=False)
-    source = Column(String(64), nullable=False, default="exam_feedback")
-    learning_mode = Column(String(64), nullable=False, default="hash_based")
-    ocr_quality = Column(String(64), nullable=False, default="unverified")
-    ocr_preview_unreliable = Column(Integer, nullable=False, default=1)
-    verified_count = Column(Integer, nullable=False, default=0)
-    wrong_count = Column(Integer, nullable=False, default=0)
-    last_verified_at = Column(String(64), nullable=True)
-    status = Column(String(32), nullable=False, default="training")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

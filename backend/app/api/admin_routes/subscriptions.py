@@ -40,8 +40,9 @@ async def create_plan(request: Request) -> Any:
             price_amount=body.get("price_amount", 0),
             currency=body.get("currency", "INR"),
             description=body.get("description", ""),
-            services=body.get("services"),
-            service_limits=body.get("service_limits"),
+            max_devices=body.get("max_devices", 1),
+            allowed_services=body.get("allowed_services", {}),
+            rate_limit_rpm=body.get("rate_limit_rpm", 60),
         )
         container.audit_service.log(
             actor_type="admin", action="plan_created",
