@@ -1,25 +1,22 @@
-# STATE.md - T1-T6 Verification Completed
+# STATE.md - T7-T10 Backup System Re-validated
 
 ## Status
 COMPLETE
 
 ## Active Task
-Execute and verify T1-T6 MCQ solver performance improvements (in-memory index + auto-merge service).
+Execute and verify T7-T10 backup/restore implementation (system/user split, rclone, Telegram, scheduler, admin API).
 
 ## Last Files Modified
 - `TASK.md`
 - `STATE.md`
 
 ## Last Command Run
-`python3 -m py_compile backend/app/services/exam_service.py backend/app/api/routes.py backend/app/services/exam_merge_service.py backend/app/core/container.py backend/app/main.py backend/app/api/admin_routes/system.py`
+`. .venv/bin/activate && python -m py_compile backend/app/services/backup_service.py backend/app/api/admin_routes/backups.py backend/app/main.py`
 
 ## Last Output/Error
 - `py_compile OK`
-- Runtime import checks were blocked due missing dependencies:
-  - `ModuleNotFoundError: No module named 'numpy'`
-  - `ModuleNotFoundError: No module named 'fastapi'`
-  - `ModuleNotFoundError: No module named 'pydantic'`
-- Grep verification returned no matches for old `self._db.exam_learned.get_*` solve-path calls.
+- Backup service import check passed (`OK`)
+- Method enumeration confirmed required T7-T10 methods and helpers are present
 
 ## Immediate Next Step
-Install backend dependencies and rerun runtime import checks + API smoke tests in a fully provisioned environment.
+Proceed to next queued implementation batch or run integration smoke tests for backup API endpoints.
