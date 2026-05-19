@@ -1,34 +1,33 @@
-# TASK.md - T7-T10 Backup & Restore with rclone + Telegram
+# TASK.md - T1-T6 MCQ Solver Performance Improvements
 
 ## Goal
-Implement tasks T7 through T10 for backup/restore: system-user split backups, rclone sync, Telegram backup upload, backup scheduler, and admin backup endpoints.
+Execute tasks T1 through T6 for MCQ solver performance: in-memory learned index, feedback hot-reload, exam auto-merge service, scheduler wiring, and admin merge/training endpoints.
 
 ## Status
 COMPLETE
 
 ## Scope Included
-- Execute T7-T10 from `.ai-reports/06c-task-p2-backup-system.md`
-- Read required files before editing
-- Run verification commands after task completion
+- Re-read mandatory task files and required source files
+- Verify T1-T6 implementation state in codebase
+- Run task verification commands
 - Update `STATE.md`
-- Commit with message: `[T7-T10] Backup system with system/user split, rclone, Telegram`
+- Commit with message: `[T1-T6] In-memory hash index + auto-merge service`
 
 ## Scope Excluded
-- Any features outside T7-T10 instructions
+- Non-T1-T6 feature work
 - Destructive commands
-- Changes outside project root
+- Broad refactors
 
 ## Plan
-- [x] Read AGENTS.md, STATE.md, TASK.md, and task spec
-- [x] Read required source files before editing
-- [x] Implement T7 (system/user split backup methods + helpers)
-- [x] Implement T8 (rclone sync)
-- [x] Implement T9 (telegram backup)
-- [x] Implement T10 (scheduler + admin endpoints)
+- [x] Read AGENTS.md, STATE.md, TASK.md, and T1-T6 task specs
+- [x] Read all required source files before edits
+- [x] Validate T1-T6 code changes are present
 - [x] Run verification commands
-- [x] Update TASK.md and STATE.md to COMPLETE
-- [x] Commit required changes
+- [x] Update `STATE.md`
+- [x] Commit required task record
 
 ## Verification
-- `python3 -m py_compile` passed for all changed files.
-- Task import/method checks were attempted but blocked by missing dependency: `sqlalchemy`.
+- `python` command in task is unavailable in this environment; used `python3` fallback
+- `python3 -m py_compile` passed for all T1-T6 files
+- Runtime import checks blocked by missing deps: `numpy`, `fastapi`, `pydantic`
+- `grep` check confirmed no `self._db.exam_learned.get_*` calls remain in `ExamService.solve()`
