@@ -1,0 +1,46 @@
+name: CI
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest httpx
+      - name: Run tests
+        env:
+          AUTH_HASH_SALT: test-salt
+          ADMIN_TOKEN: test-token
+          APP_ENV: test
+        run: pytest tests/ -v --tb=short
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -t sa-helper:ci .
+      - name: Health check
+        run: |
+          docker run -d --name ci-test \
+            -e AUTH_HASH_SALT=test \
+            -e ADMIN_TOKEN=test \
+            -e APP_ENV=test \
+            -p 8080:8080 sa-helper:ci
+          sleep 10
+          curl -sf http://localhost:8080/health || (docker logs ci-test && exit 1)
+          docker stop ci-test

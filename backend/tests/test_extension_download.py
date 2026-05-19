@@ -5,7 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.api.admin_routes import settings as settings_routes
@@ -20,7 +21,10 @@ class ExtensionDownloadTests(unittest.TestCase):
             extension_dir = root / "extension"
             output_dir = root / "backend" / "app" / "static" / "extensions"
             extension_dir.mkdir(parents=True, exist_ok=True)
-            (extension_dir / "manifest.json").write_text('{"manifest_version":3,"name":"MCQ","version":"1.0.0"}', encoding="utf-8")
+            (extension_dir / "manifest.json").write_text(
+                '{"manifest_version": 3, "name": "Test Extension", "version": "1.0.0"}',
+                encoding="utf-8",
+            )
 
             src_file = extension_dir / "marker.txt"
             src_file.write_text("v1", encoding="utf-8")

@@ -1,31 +1,27 @@
-# STATE.md - T11-T15 Plan Entitlements, Device Limits, Lifecycle
+# STATE.md - T16-T19 Test Harness + CI Pipeline
 
 ## Status
 COMPLETE
 
 ## Active Task
-Execute and verify T11-T15 implementation (plan entitlements, payment entitlement copy, plan-based device limits, auto-expiry loop, Telegram renew flow).
+Execute and verify T16-T19 implementation (shared test fixtures, auth middleware tests, admin guard tests, CI workflow).
 
 ## Last Files Modified
-- `backend/app/core/models.py`
-- `backend/migrations/versions/c3f4a9d8e2b1_add_plan_entitlements.py`
-- `backend/app/services/subscription_service.py`
-- `backend/app/api/admin_routes/subscriptions.py`
-- `backend/app/api/admin_routes/payments.py`
-- `backend/app/services/user_key_service.py`
-- `backend/app/main.py`
-- `backend/app/services/telegram_bot.py`
+- `backend/tests/conftest.py`
+- `backend/tests/test_auth_middleware.py`
+- `backend/tests/test_admin_guard.py`
+- `backend/tests/test_extension_download.py`
+- `.github/workflows/ci.yml`
 - `TASK.md`
 - `STATE.md`
 
 ## Last Command Run
-`cd backend && . ../.venv/bin/activate && python -m py_compile app/core/models.py app/services/subscription_service.py app/api/admin_routes/subscriptions.py app/api/admin_routes/payments.py app/services/user_key_service.py app/main.py app/services/telegram_bot.py`
+`cd backend && . ../.venv/bin/activate && python -m pytest tests/ -v --tb=short`
 
 ## Last Output/Error
-- `python -c ... SubscriptionPlan columns` -> `True`
-- `python -c ... hasattr(expire_overdue)` -> `True`
-- `python -c ... import telegram_bot` -> `OK`
-- `py_compile` completed with no errors
+- Test dependencies installed in `.venv` (`pytest`)
+- Full suite result: `24 passed, 1 warning` in ~2s
+- Warning: `httpx` deprecation about per-request cookies in one admin guard test
 
 ## Immediate Next Step
-Create a scoped commit for T11-T15 only on branch `scaling-check` (do not include unrelated working tree changes).
+Create a scoped commit for T16-T19 only on branch `scaling-check` with message `[T16-T19] Test harness + CI pipeline`.

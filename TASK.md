@@ -1,17 +1,17 @@
-# TASK.md - T11-T15 Plan Entitlements, Device Limits, Lifecycle
+# TASK.md - T16-T19 Test Harness + CI Pipeline
 
 ## Goal
-Execute tasks T11 through T15: plan entitlements columns, payment entitlement copy, plan-based device limits, subscription auto-expiry, and Telegram /renew flow.
+Execute tasks T16 through T19: shared test fixtures, auth middleware tests, admin guard tests, and CI workflow.
 
 ## Status
 COMPLETE
 
 ## Scope Included
 - Read mandatory docs and required source files before editing
-- Implement T11, T12, T13, T14, T15 in order
-- Run verification commands
+- Implement T16, T17, T18, T19 in order
+- Run required pytest suite and fix failures
 - Update `STATE.md`
-- Commit with message: `[T11-T15] Plan entitlements, device limits, auto-expiry, /renew`
+- Commit with message: `[T16-T19] Test harness + CI pipeline`
 
 ## Scope Excluded
 - Unrelated refactors/features
@@ -19,19 +19,15 @@ COMPLETE
 - Files outside project root
 
 ## Plan
-- [x] Read AGENTS.md, implementation plan, and T11-T15 task spec
+- [x] Read AGENTS.md, implementation plan, and T16-T19 task spec
 - [x] Read required source files before editing
-- [x] Implement T11 (model columns, migration, create_plan wiring)
-- [x] Implement T12 (copy allowed_services into entitlements on approval)
-- [x] Implement T13 (plan-based max_devices in bind_device)
-- [x] Implement T14 (expire_overdue + expiry scheduler)
-- [x] Implement T15 (/renew command + 3-day warning)
-- [x] Run verification commands
+- [x] Implement T16 (`backend/tests/conftest.py`)
+- [x] Implement T17 (`backend/tests/test_auth_middleware.py`)
+- [x] Implement T18 (`backend/tests/test_admin_guard.py`)
+- [x] Implement T19 (`.github/workflows/ci.yml`)
+- [x] Run `cd backend && python -m pytest tests/ -v --tb=short`
 - [x] Update TASK.md/STATE.md
 - [ ] Commit required changes
 
 ## Verification
-- `python -c "from app.core.models import SubscriptionPlan; print('max_devices' in [c.name for c in SubscriptionPlan.__table__.columns])"` -> `True`
-- `python -c "from app.services.subscription_service import SubscriptionService; print(hasattr(SubscriptionService, 'expire_overdue'))"` -> `True`
-- `python -c "from app.services.telegram_bot import *; print('OK')"` -> `OK`
-- `python -m py_compile ...` on all edited files -> success
+- `cd backend && python -m pytest tests/ -v --tb=short` -> `24 passed, 1 warning`
