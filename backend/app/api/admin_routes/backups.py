@@ -284,6 +284,29 @@ async def list_backups_all(request: Request) -> Any:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@router.post("/api/backups/restore")
+async def restore_split_backup(request: Request) -> Any:
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    container = request.app.state.container
+    body = await request.json()
+    backup_type = str(body.get("type", "")).strip().lower()
+    filename = str(body.get("filename", "")).strip()
+    if backup_type not in {"system", "users"}:
+        return JSONResponse({"error": "type must be 'system' or 'users'"}, status_code=400)
+    if not filename:
+        return JSONResponse({"error": "filename is required"}, status_code=400)
+    try:
+        if backup_type == "system":
+            result = container.backup_service.restore_system_backup(filename)
+        else:
+            result = container.backup_service.restore_user_backup(filename)
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @router.post("/api/backups/rclone-sync")
 async def rclone_sync_latest(request: Request) -> Any:
     denied = _admin_guard(request)

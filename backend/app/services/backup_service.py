@@ -872,6 +872,63 @@ class BackupService:
             "tables": table_summary,
         }
 
+    def restore_system_backup(self, backup_path: str | Path) -> dict:
+        """Restore a system split backup tarball created by create_system_backup()."""
+        backup_path = self._resolve_split_backup_path("system", backup_path)
+        restored_files: list[str] = []
+        restored_tables: dict[str, int] = {}
+
+        with tarfile.open(str(backup_path), "r:gz") as tar:
+            members = tar.getmembers()
+            for member in members:
+                if member.isdir():
+                    continue
+                if member.name.startswith("db_tables/") and member.name.endswith(".json"):
+                    table_name = Path(member.name).stem
+                    if table_name not in self.SYSTEM_DB_TABLES:
+                        continue
+                    extracted = tar.extractfile(member)
+                    if not extracted:
+                        continue
+                    rows = json.loads(extracted.read().decode("utf-8"))
+                    restored_tables[table_name] = self._restore_table_rows(table_name, rows)
+                    continue
+                self._restore_tar_member(tar, member)
+                restored_files.append(member.name)
+
+        return {
+            "success": True,
+            "type": "system",
+            "path": str(backup_path),
+            "files": restored_files,
+            "tables": restored_tables,
+        }
+
+    def restore_user_backup(self, backup_path: str | Path) -> dict:
+        """Restore lossless legacy user tables from create_user_backup()."""
+        backup_path = self._resolve_split_backup_path("users", backup_path)
+        with gzip.open(str(backup_path), "rt", encoding="utf-8") as f:
+            payload = json.load(f)
+
+        skipped_tables: list[str] = []
+        restorable_payload: dict[str, list[dict[str, Any]]] = {}
+        for table_name, rows in payload.items():
+            if table_name.startswith("_"):
+                continue
+            if table_name not in self.USER_DB_TABLES:
+                skipped_tables.append(table_name)
+                continue
+            restorable_payload[table_name] = rows
+        restored_tables = self._restore_table_group(self.USER_DB_TABLES, restorable_payload)
+
+        return {
+            "success": True,
+            "type": "users",
+            "path": str(backup_path),
+            "tables": restored_tables,
+            "skipped_tables": skipped_tables,
+        }
+
     def _prune_backups(self, directory: Path, prefix: str, keep: int) -> None:
         """Delete old backups, keeping only the most recent `keep` files."""
         try:
@@ -1011,3 +1068,107 @@ class BackupService:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(f"SELECT * FROM {table_name}").fetchall()
             return [dict(row) for row in rows]
+
+    def _resolve_split_backup_path(self, category: str, backup_path: str | Path) -> Path:
+        path = Path(backup_path)
+        if not path.is_absolute():
+            path = self._backup_dir / category / path
+        resolved = path.resolve()
+        category_dir = (self._backup_dir / category).resolve()
+        if resolved != category_dir and category_dir not in resolved.parents:
+            raise ValueError(f"backup path outside {category} backup directory")
+        if not resolved.exists() or not resolved.is_file():
+            raise FileNotFoundError(f"backup not found: {path}")
+        return resolved
+
+    def _restore_tar_member(self, tar: tarfile.TarFile, member: tarfile.TarInfo) -> None:
+        if member.islnk() or member.issym():
+            raise ValueError(f"unsafe backup link: {member.name}")
+        target = (self._root / member.name).resolve()
+        root = self._root.resolve()
+        if target != root and root not in target.parents:
+            raise ValueError(f"unsafe backup path: {member.name}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source = tar.extractfile(member)
+        if not source:
+            return
+        with source, target.open("wb") as out:
+            out.write(source.read())
+
+    def _restore_table_rows(self, table_name: str, rows: list[dict[str, Any]]) -> int:
+        allowed_tables = set(self.SYSTEM_DB_TABLES) | set(self.USER_DB_TABLES)
+        if table_name not in allowed_tables:
+            raise ValueError(f"restore not allowed for table: {table_name}")
+        if not isinstance(rows, list):
+            raise ValueError(f"table payload must be a list: {table_name}")
+
+        quoted_table = '"' + table_name.replace('"', '""') + '"'
+        with sqlite3.connect(str(self._db_path)) as conn:
+            columns = [
+                row[1]
+                for row in conn.execute(f"PRAGMA table_info({quoted_table})").fetchall()
+            ]
+            if not columns:
+                raise ValueError(f"table does not exist: {table_name}")
+
+            conn.execute(f"DELETE FROM {quoted_table}")
+            if rows:
+                usable_columns = [col for col in columns if any(col in row for row in rows)]
+                if not usable_columns:
+                    raise ValueError(f"no restorable columns for table: {table_name}")
+                quoted_columns = ", ".join('"' + col.replace('"', '""') + '"' for col in usable_columns)
+                placeholders = ", ".join("?" for _ in usable_columns)
+                values = [
+                    tuple(row.get(col) for col in usable_columns)
+                    for row in rows
+                ]
+                conn.executemany(
+                    f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({placeholders})",
+                    values,
+                )
+            conn.commit()
+        return len(rows)
+
+    def _restore_table_group(self, table_names: list[str], payload: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
+        restored: dict[str, int] = {}
+        with sqlite3.connect(str(self._db_path)) as conn:
+            table_columns: dict[str, list[str]] = {}
+            for table_name in table_names:
+                if table_name not in payload:
+                    continue
+                quoted_table = '"' + table_name.replace('"', '""') + '"'
+                columns = [
+                    row[1]
+                    for row in conn.execute(f"PRAGMA table_info({quoted_table})").fetchall()
+                ]
+                if not columns:
+                    raise ValueError(f"table does not exist: {table_name}")
+                table_columns[table_name] = columns
+
+            for table_name in reversed([name for name in table_names if name in payload]):
+                quoted_table = '"' + table_name.replace('"', '""') + '"'
+                conn.execute(f"DELETE FROM {quoted_table}")
+
+            for table_name in [name for name in table_names if name in payload]:
+                rows = payload[table_name]
+                if not isinstance(rows, list):
+                    raise ValueError(f"table payload must be a list: {table_name}")
+                columns = table_columns[table_name]
+                if rows:
+                    usable_columns = [col for col in columns if any(col in row for row in rows)]
+                    if not usable_columns:
+                        raise ValueError(f"no restorable columns for table: {table_name}")
+                    quoted_table = '"' + table_name.replace('"', '""') + '"'
+                    quoted_columns = ", ".join('"' + col.replace('"', '""') + '"' for col in usable_columns)
+                    placeholders = ", ".join("?" for _ in usable_columns)
+                    values = [
+                        tuple(row.get(col) for col in usable_columns)
+                        for row in rows
+                    ]
+                    conn.executemany(
+                        f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({placeholders})",
+                        values,
+                    )
+                restored[table_name] = len(rows)
+            conn.commit()
+        return restored

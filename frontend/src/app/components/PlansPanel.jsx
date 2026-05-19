@@ -16,6 +16,7 @@ export function PlansPanel({ showToast }) {
     price_amount: 0,
     max_devices: 1,
     rate_limit_rpm: 60,
+    rate_limit_burst: 10,
     allowed_services: defaultAllowedServices,
   };
   const [plans, setPlans] = useState([]);
@@ -76,6 +77,7 @@ export function PlansPanel({ showToast }) {
       monthly_limit: plan.monthly_limit, duration_days: plan.duration_days, price_amount: plan.price_amount,
       max_devices: Number(plan.max_devices || 1),
       rate_limit_rpm: Number(plan.rate_limit_rpm || 60),
+      rate_limit_burst: Number(plan.rate_limit_burst || 10),
       allowed_services: { ...defaultAllowedServices, ...(plan.allowed_services || {}) },
     });
   };
@@ -116,6 +118,7 @@ export function PlansPanel({ showToast }) {
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Duration</th>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Max Devices</th>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>RPM</th>
+                  <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Burst</th>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Services</th>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Active</th>
                   <th className={`text-right p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Actions</th>
@@ -133,6 +136,7 @@ export function PlansPanel({ showToast }) {
                         <td className="p-2"><input className={glassInput} type="number" value={form.duration_days} onChange={(e) => setForm({ ...form, duration_days: parseInt(e.target.value) || 0 })} /></td>
                         <td className="p-2"><input className={glassInput} type="number" min="1" max="10" value={form.max_devices || 1} onChange={(e) => setForm({ ...form, max_devices: parseInt(e.target.value) || 1 })} /></td>
                         <td className="p-2"><input className={glassInput} type="number" min="1" max="1000" value={form.rate_limit_rpm || 60} onChange={(e) => setForm({ ...form, rate_limit_rpm: parseInt(e.target.value) || 60 })} /></td>
+                        <td className="p-2"><input className={glassInput} type="number" min="1" max="1000" value={form.rate_limit_burst || 10} onChange={(e) => setForm({ ...form, rate_limit_burst: parseInt(e.target.value) || 10 })} /></td>
                         <td className="p-2">
                           <div className="flex flex-wrap gap-2 min-w-[220px]">
                             {["captcha", "solver", "autofill", "exam"].map((svc) => (
@@ -168,6 +172,7 @@ export function PlansPanel({ showToast }) {
                         <td className={`p-3 ${t_textMuted}`}>{p.duration_days} days</td>
                         <td className={`p-3 ${t_textHeading}`}>{Number(p.max_devices || 1)}</td>
                         <td className={`p-3 ${t_textHeading}`}>{Number(p.rate_limit_rpm || 60)}</td>
+                        <td className={`p-3 ${t_textHeading}`}>{Number(p.rate_limit_burst || 10)}</td>
                         <td className={`p-3 ${t_textMuted}`}>
                           {Object.entries(p.allowed_services || {})
                             .filter(([, enabled]) => !!enabled)
@@ -222,7 +227,7 @@ export function PlansPanel({ showToast }) {
                   <input className={glassInput} type="number" value={form.duration_days} onChange={(e) => setForm({ ...form, duration_days: parseInt(e.target.value) || 0 })} />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className={`text-xs block mb-1 ${t_textMuted}`}>Max Devices</label>
                   <input className={glassInput} type="number" min="1" max="10" value={form.max_devices || 1} onChange={(e) => setForm({ ...form, max_devices: parseInt(e.target.value) || 1 })} id="plan-max-devices" />
@@ -230,6 +235,10 @@ export function PlansPanel({ showToast }) {
                 <div>
                   <label className={`text-xs block mb-1 ${t_textMuted}`}>Rate Limit (req/min)</label>
                   <input className={glassInput} type="number" min="1" max="1000" value={form.rate_limit_rpm || 60} onChange={(e) => setForm({ ...form, rate_limit_rpm: parseInt(e.target.value) || 60 })} id="plan-rate-limit" />
+                </div>
+                <div>
+                  <label className={`text-xs block mb-1 ${t_textMuted}`}>Burst</label>
+                  <input className={glassInput} type="number" min="1" max="1000" value={form.rate_limit_burst || 10} onChange={(e) => setForm({ ...form, rate_limit_burst: parseInt(e.target.value) || 10 })} id="plan-rate-burst" />
                 </div>
               </div>
               <div>

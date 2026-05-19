@@ -92,6 +92,7 @@ class SubscriptionPlan(Base):
     max_devices = Column(Integer, default=1, nullable=False, server_default="1")
     allowed_services = Column(JSON, default=dict, nullable=True)  # e.g., {"captcha": true, "solver": true, "autofill": true}
     rate_limit_rpm = Column(Integer, default=60, nullable=False, server_default="60")
+    rate_limit_burst = Column(Integer, default=10, nullable=False, server_default="10")
     created_at = Column(DateTime, nullable=False, default=_utcnow)
     updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
 
@@ -109,6 +110,7 @@ class SubscriptionPlan(Base):
             "max_devices": self.max_devices,
             "allowed_services": self.allowed_services or {},
             "rate_limit_rpm": self.rate_limit_rpm,
+            "rate_limit_burst": self.rate_limit_burst,
         }
 
 

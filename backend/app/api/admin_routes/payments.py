@@ -143,16 +143,22 @@ async def approve_payment(request: Request, payment_id: int) -> Any:
                 svc.create_key(user_id=user.id)
 
             # Copy plan entitlements to API key
-            if plan and plan.allowed_services:
+            if plan:
                 try:
                     active_key = existing_key or session.query(UserApiKey).filter(
                         UserApiKey.user_id == user.id,
                         UserApiKey.status == "active",
                     ).first()
                     if active_key:
-                        container.db.set_api_key_entitlements(
+                        if plan.allowed_services:
+                            container.db.set_api_key_entitlements(
+                                int(active_key.id),
+                                services=plan.allowed_services,
+                            )
+                        container.db.set_api_key_rate_limit(
                             int(active_key.id),
-                            services=plan.allowed_services,
+                            requests_per_minute=int(plan.rate_limit_rpm or 60),
+                            burst=int(getattr(plan, "rate_limit_burst", 10) or 10),
                         )
                 except Exception as e:
                     logger.warning(f"entitlement_copy_failed: {e}")

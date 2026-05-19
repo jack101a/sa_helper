@@ -43,6 +43,7 @@ async def create_plan(request: Request) -> Any:
             max_devices=body.get("max_devices", 1),
             allowed_services=body.get("allowed_services", {}),
             rate_limit_rpm=body.get("rate_limit_rpm", 60),
+            rate_limit_burst=body.get("rate_limit_burst", 10),
         )
         container.audit_service.log(
             actor_type="admin", action="plan_created",

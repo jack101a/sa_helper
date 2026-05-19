@@ -1,17 +1,15 @@
 from __future__ import annotations
-
-import hashlib
-import hmac
 import json
-import logging
 import os
 import re
-from datetime import UTC, datetime
+import logging
+import secrets
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote_plus
-
 from fastapi import Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 
 _TRUSTED_IDENTITY_HEADERS = (
     "cf-access-authenticated-user-email",
@@ -19,6 +17,11 @@ _TRUSTED_IDENTITY_HEADERS = (
     "x-auth-request-user",
     "x-forwarded-user",
 )
+_ADMIN_SESSION_MAX_AGE_SECONDS = 60 * 60 * 12
+_ADMIN_LOGIN_WINDOW_SECONDS = 5 * 60
+_ADMIN_LOGIN_MAX_FAILURES = 5
+_ADMIN_SESSIONS: dict[str, float] = {}
+_ADMIN_LOGIN_FAILURES: dict[str, list[float]] = {}
 
 def _slug(value: str) -> str:
     normalized = re.sub(r"[^a-zA-Z0-9._-]+", "-", value.strip()).strip("-")
@@ -42,11 +45,47 @@ def _fmt_dt(value: str | None) -> str:
         return value
 
 def _admin_session_cookie(request: Request) -> str:
-    """Create deterministic admin session cookie value."""
-    settings = request.app.state.container.settings
-    auth_secret = f"{settings.auth.admin_username}:{settings.auth.admin_password}"
-    raw = f"{settings.auth.hash_salt}:{auth_secret}".encode()
-    return hashlib.sha256(raw).hexdigest()
+    """Create a non-deterministic, server-side admin session token."""
+    token = secrets.token_urlsafe(32)
+    _ADMIN_SESSIONS[token] = time.time() + _ADMIN_SESSION_MAX_AGE_SECONDS
+    return token
+
+def _admin_session_valid(token: str) -> bool:
+    """Return True when the token maps to a live server-side session."""
+    expires_at = _ADMIN_SESSIONS.get(token)
+    if not expires_at:
+        return False
+    if expires_at <= time.time():
+        _ADMIN_SESSIONS.pop(token, None)
+        return False
+    return True
+
+def _admin_session_destroy(token: str) -> None:
+    """Remove a server-side admin session token."""
+    if token:
+        _ADMIN_SESSIONS.pop(token, None)
+
+def _admin_login_client_key(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
+    if forwarded:
+        return forwarded
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+def _admin_login_rate_limited(request: Request) -> bool:
+    key = _admin_login_client_key(request)
+    cutoff = time.time() - _ADMIN_LOGIN_WINDOW_SECONDS
+    failures = [ts for ts in _ADMIN_LOGIN_FAILURES.get(key, []) if ts >= cutoff]
+    _ADMIN_LOGIN_FAILURES[key] = failures
+    return len(failures) >= _ADMIN_LOGIN_MAX_FAILURES
+
+def _admin_login_record_failure(request: Request) -> None:
+    key = _admin_login_client_key(request)
+    _ADMIN_LOGIN_FAILURES.setdefault(key, []).append(time.time())
+
+def _admin_login_clear_failures(request: Request) -> None:
+    _ADMIN_LOGIN_FAILURES.pop(_admin_login_client_key(request), None)
 
 def _is_request_secure(request: Request) -> bool:
     proto = request.headers.get("x-forwarded-proto", "").strip().lower()
@@ -82,7 +121,7 @@ def _admin_guard(request: Request) -> Response | None:
         )
 
     cookie_token = request.cookies.get("admin_session", "")
-    if cookie_token and hmac.compare_digest(cookie_token, _admin_session_cookie(request)):
+    if cookie_token and _admin_session_valid(cookie_token):
         return None
 
     return RedirectResponse(url="/admin/login", status_code=303)
@@ -118,8 +157,8 @@ def _write_auto_backup(container, reason: str) -> None:
         _BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
         payload = container.db.export_master_setup()
         payload["backup_reason"] = reason
-        payload["backup_created_at"] = datetime.now(UTC).isoformat()
-        stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        payload["backup_created_at"] = datetime.now(timezone.utc).isoformat()
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         snapshot = _BACKUPS_DIR / f"master-setup-{stamp}.json"
         snapshot.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         (_BACKUPS_DIR / "latest-master-setup.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")

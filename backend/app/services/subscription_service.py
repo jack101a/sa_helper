@@ -33,6 +33,7 @@ class SubscriptionService:
         max_devices: int = 1,
         allowed_services: dict | None = None,
         rate_limit_rpm: int = 60,
+        rate_limit_burst: int = 10,
     ) -> SubscriptionPlan:
         session = self._session()
         try:
@@ -47,6 +48,7 @@ class SubscriptionService:
                 max_devices=max_devices,
                 allowed_services=allowed_services or {},
                 rate_limit_rpm=rate_limit_rpm,
+                rate_limit_burst=rate_limit_burst,
             )
             session.add(plan)
             session.commit()

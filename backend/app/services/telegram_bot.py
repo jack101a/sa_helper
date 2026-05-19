@@ -108,8 +108,11 @@ class TelegramBotService:
     def _save_states(self):
         """Persist user states to disk."""
         try:
-            with self._state_file.open("w", encoding="utf-8") as f:
+            self._state_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp_file = self._state_file.with_suffix(f"{self._state_file.suffix}.tmp")
+            with tmp_file.open("w", encoding="utf-8") as f:
                 json.dump(self._user_states, f, ensure_ascii=False, indent=2)
+            tmp_file.replace(self._state_file)
         except Exception as e:
             logger.warning("telegram_states_save_failed", extra={"context": {"error": str(e)}})
 
