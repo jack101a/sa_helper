@@ -1,17 +1,15 @@
-# STATE.md - T23-T25 Database Unification
+# STATE.md - T26-T28 Security Hardening
 
 ## Status
 COMPLETE
 
 ## Active Task
-Execute and verify T23-T25 implementation (create_all_tables debug guard, Alembic legacy baseline, migration-first Database.init fallback).
+Execute and verify T26-T28 implementation (auth fallthrough ERROR logging, base64 image limits, admin cookie security flags).
 
 ## Last Files Modified
-- `backend/app/core/container.py`
-- `backend/app/core/database.py`
-- `backend/migrations/versions/b2c3d4e5f678_add_payment_and_key_tracking_fields.py`
-- `backend/migrations/versions/c3f4a9d8e2b1_add_plan_entitlements.py`
-- `backend/migrations/versions/e6a1c9b2d101_full_schema_baseline.py`
+- `backend/app/middleware/auth_middleware.py`
+- `backend/app/services/exam_service.py`
+- `backend/app/api/admin_routes/auth.py`
 - `TASK.md`
 - `STATE.md`
 
@@ -19,9 +17,10 @@ Execute and verify T23-T25 implementation (create_all_tables debug guard, Alembi
 `cd backend && . ../.venv/bin/activate && AUTH_HASH_SALT=test-salt ADMIN_TOKEN=test-token python -m pytest tests/ -v`
 
 ## Last Output/Error
-- Alembic fresh DB migration succeeds to `head` (new baseline revision included)
-- Fresh Alembic schema table list matches fresh `Database.init()` fallback table list (excluding Alembic metadata table `alembic_version`)
-- Backend tests: `24 passed, 1 warning`
+- Backend tests passed: `24 passed, 1 warning`
+- T26 applied: user-key exception fallthrough logging upgraded to `logger.error` with context (`error_type`, `path`, `api_key_present`)
+- T27 applied: `_b64_to_pil` now enforces max base64 payload length 5MB and max dimensions 4000x4000
+- T28 applied: admin session cookie set with `httponly=True`, `samesite="strict"`, `path="/admin"`
 
 ## Immediate Next Step
-Create scoped commit on `scaling-check` with message `[T23-T25] Database unification — Alembic baseline + init() guard`.
+Create scoped commit on `scaling-check` with message `[T26-T28] Security hardening — auth logging, image validation, cookie flags`.

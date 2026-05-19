@@ -1,14 +1,11 @@
 from __future__ import annotations
-
 import hmac
 import logging
 import os
-from pathlib import Path
-
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Request, Form, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-
+from pathlib import Path
 from .utils import _admin_session_cookie, _is_request_secure
 
 logger = logging.getLogger(__name__)
@@ -87,10 +84,10 @@ async def admin_login_submit(
         key="admin_session",
         value=_admin_session_cookie(request),
         httponly=True,
-        samesite=("none" if secure_cookie else "lax"),
+        samesite="strict",
         secure=secure_cookie,
         domain=cookie_domain,
-        path="/",
+        path="/admin",
         max_age=60 * 60 * 12,
     )
     return response

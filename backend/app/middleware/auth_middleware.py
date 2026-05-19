@@ -56,7 +56,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         device_id = self._get_device_id(request)
 
         # ── Try user-linked key first (new scalable system) ───────────────
-        user_result = await self._try_user_key(request, api_key, device_id, path, call_next)
+        user_result = await self._try_user_key(request, api_key, device_id, path)
         if user_result is not None:
             return user_result  # None means "try legacy", otherwise a response
 
@@ -77,9 +77,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
         request.state.device_id = device_id
         return await call_next(request)
 
-    async def _try_user_key(self, request: Request, api_key: str, device_id: str, path: str, call_next):
+    async def _try_user_key(self, request: Request, api_key: str, device_id: str, path: str):
         """Try user-linked key validation. Returns None to fall through to legacy."""
         try:
+            from app.services.user_key_service import UserKeyService
+            from app.core.db import get_session
 
             # Access user_key_service from app state
             user_key_svc = getattr(request.app.state, "user_key_service", None)
@@ -113,7 +115,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
             logger.info("user_key_valid", extra={"context": {"path": path, "user_id": record.get("user_id")}})
             return await call_next(request)
         except Exception as e:
-            logger.warning("user_key_check_failed", extra={"context": {"error": str(e)}})
+            logger.error(
+                "user_key_check_failed_fallthrough",
+                extra={"context": {
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "path": path,
+                    "api_key_present": bool(api_key),
+                }},
+            )
             return None  # Fall through to legacy on error
 
     def _get_device_id(self, request: Request) -> str:

@@ -89,8 +89,13 @@ def _b64_to_pil(b64: str) -> Image.Image:
     raw = b64
     if "," in raw and raw.startswith("data:"):
         raw = raw.split(",", 1)[1]
+    if len(raw) > 5 * 1024 * 1024:
+        raise ValueError("Image payload too large (max 5MB)")
     binary = base64.b64decode(raw)
-    return Image.open(BytesIO(binary)).convert("RGB")
+    img = Image.open(BytesIO(binary))
+    if img.width > 4000 or img.height > 4000:
+        raise ValueError(f"Image too large: {img.width}x{img.height} (max 4000x4000)")
+    return img.convert("RGB")
 
 
 def _hamming(a: str, b: str) -> int:
