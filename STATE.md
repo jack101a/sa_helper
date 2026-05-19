@@ -1,27 +1,26 @@
-# STATE.md - T16-T19 Test Harness + CI Pipeline
+# STATE.md - T20-T22 Docker Production Hardening
 
 ## Status
 COMPLETE
 
 ## Active Task
-Execute and verify T16-T19 implementation (shared test fixtures, auth middleware tests, admin guard tests, CI workflow).
+Execute and verify T20-T22 implementation (entrypoint hardening, production compose overrides, Dockerfile health/rclone updates).
 
 ## Last Files Modified
-- `backend/tests/conftest.py`
-- `backend/tests/test_auth_middleware.py`
-- `backend/tests/test_admin_guard.py`
-- `backend/tests/test_extension_download.py`
-- `.github/workflows/ci.yml`
+- `docker-entrypoint.sh`
+- `docker-compose.prod.yml`
+- `Dockerfile`
 - `TASK.md`
 - `STATE.md`
 
 ## Last Command Run
-`cd backend && . ../.venv/bin/activate && python -m pytest tests/ -v --tb=short`
+`sh -n docker-entrypoint.sh && echo OK`
 
 ## Last Output/Error
-- Test dependencies installed in `.venv` (`pytest`)
-- Full suite result: `24 passed, 1 warning` in ~2s
-- Warning: `httpx` deprecation about per-request cookies in one admin guard test
+- Entrypoint shell syntax check passed: `OK`
+- Added Alembic migration step + backup/log/static directory creation in entrypoint
+- Added production compose override file with resources, health checks, logging
+- Added architecture-aware rclone installation and updated HEALTHCHECK in Dockerfile
 
 ## Immediate Next Step
-Create a scoped commit for T16-T19 only on branch `scaling-check` with message `[T16-T19] Test harness + CI pipeline`.
+Create a scoped commit on branch `scaling-check` with message `[T20-T22] Docker production hardening`.

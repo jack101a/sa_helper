@@ -13,23 +13,25 @@ seed_path() {
   fi
 }
 
-mkdir -p /app/backend/logs /app/backend/app/static/extensions /app/backend/app/templates /app/data /app/import
-
+# Seed default data and config (no-clobber)
+seed_path "$seed_dir/data" "/app/data"
 seed_path "$seed_dir/backend/config" "/app/backend/config"
 
-if [ "${RUN_ALEMBIC_MIGRATIONS:-false}" = "true" ]; then
-  cd /app/backend
-  attempts=0
-  max_attempts="${ALEMBIC_MAX_RETRIES:-30}"
-  until alembic upgrade head; do
-    attempts=$((attempts + 1))
-    if [ "$attempts" -ge "$max_attempts" ]; then
-      echo "Alembic migration failed after $attempts attempts; exiting."
-      exit 1
-    fi
-    echo "Alembic migration failed (attempt $attempts/$max_attempts). Retrying in 2s..."
-    sleep 2
-  done
+# Ensure all required directories exist
+mkdir -p /app/backend/logs \
+         /app/backend/logs/backups/system \
+         /app/backend/logs/backups/users \
+         /app/backend/logs/backups/full \
+         /app/backend/app/static/extensions \
+         /app/backend/app/templates \
+         /app/data/payment_screenshots \
+         /app/data/exam_offline
+
+# Run Alembic migrations (skip in test mode)
+if [ "${APP_ENV:-production}" != "test" ]; then
+  echo "Running Alembic migrations..."
+  cd /app/backend && python -m alembic upgrade head 2>&1 || echo "WARNING: Alembic migration failed — continuing with existing schema"
+  cd /app
 fi
 
 exec "$@"

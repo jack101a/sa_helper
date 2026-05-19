@@ -1,17 +1,17 @@
-# TASK.md - T16-T19 Test Harness + CI Pipeline
+# TASK.md - T20-T22 Docker Production Hardening
 
 ## Goal
-Execute tasks T16 through T19: shared test fixtures, auth middleware tests, admin guard tests, and CI workflow.
+Execute tasks T20 through T22: hardened entrypoint, production compose overrides, and Dockerfile health/rclone improvements.
 
 ## Status
 COMPLETE
 
 ## Scope Included
 - Read mandatory docs and required source files before editing
-- Implement T16, T17, T18, T19 in order
-- Run required pytest suite and fix failures
+- Implement T20, T21, T22 in order
+- Run required syntax verification for entrypoint
 - Update `STATE.md`
-- Commit with message: `[T16-T19] Test harness + CI pipeline`
+- Commit with message: `[T20-T22] Docker production hardening`
 
 ## Scope Excluded
 - Unrelated refactors/features
@@ -19,15 +19,14 @@ COMPLETE
 - Files outside project root
 
 ## Plan
-- [x] Read AGENTS.md, implementation plan, and T16-T19 task spec
+- [x] Read AGENTS.md, implementation plan, and T20-T22 task spec
 - [x] Read required source files before editing
-- [x] Implement T16 (`backend/tests/conftest.py`)
-- [x] Implement T17 (`backend/tests/test_auth_middleware.py`)
-- [x] Implement T18 (`backend/tests/test_admin_guard.py`)
-- [x] Implement T19 (`.github/workflows/ci.yml`)
-- [x] Run `cd backend && python -m pytest tests/ -v --tb=short`
+- [x] Implement T20 (`docker-entrypoint.sh`)
+- [x] Implement T21 (`docker-compose.prod.yml`)
+- [x] Implement T22 (`Dockerfile`)
+- [x] Run `sh -n docker-entrypoint.sh`
 - [x] Update TASK.md/STATE.md
 - [ ] Commit required changes
 
 ## Verification
-- `cd backend && python -m pytest tests/ -v --tb=short` -> `24 passed, 1 warning`
+- `sh -n docker-entrypoint.sh && echo OK` -> `OK`

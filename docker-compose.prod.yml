@@ -1,0 +1,46 @@
+# Production overrides — use with: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+services:
+  sa-helper:
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "3.0"
+          memory: 4G
+        reservations:
+          memory: 2G
+    environment:
+      - APP_ENV=production
+      - DEBUG=false
+      - QUEUE_WORKERS=6
+      - EXAM_OCR_CONCURRENCY=4
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  telegram-bot:
+    restart: unless-stopped
+    init: true
+    depends_on:
+      sa-helper:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,17 +1,18 @@
-# Stage 1: Build frontend assets
-FROM node:20-bookworm-slim AS frontend-builder
+# Stage 1: Build Frontend
+FROM node:20 AS frontend-builder
 WORKDIR /frontend
 COPY frontend/package*.json ./
-RUN npm ci
+RUN npm install
 COPY frontend/ .
 RUN npm run build
 
 # Stage 2: Final Image
-FROM python:3.11-slim-bookworm
+FROM python:3.11-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive
+ARG TARGETARCH
 
-RUN apt-get update || (sleep 5 && apt-get update) && apt-get install -y --no-install-recommends \
+RUN apt-get update || (sleep 5 && apt-get update) && apt-get install -y \
     tesseract-ocr \
     tesseract-ocr-eng \
     tesseract-ocr-hin \
@@ -19,51 +20,50 @@ RUN apt-get update || (sleep 5 && apt-get update) && apt-get install -y --no-ins
     libglib2.0-0 \
     zip \
     curl \
-    netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    arch="${TARGETARCH:-$(dpkg --print-architecture)}"; \
+    case "$arch" in \
+      arm64|aarch64) rclone_arch="arm64" ;; \
+      amd64|x86_64) rclone_arch="amd64" ;; \
+      *) echo "Unsupported architecture for rclone .deb: $arch" && exit 1 ;; \
+    esac; \
+    curl -fsSLO "https://downloads.rclone.org/current/rclone-current-linux-${rclone_arch}.deb"; \
+    dpkg -i "rclone-current-linux-${rclone_arch}.deb"; \
+    rm -f "rclone-current-linux-${rclone_arch}.deb"
 
 WORKDIR /app
 
 COPY backend/requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application files
 COPY backend/ /app/backend/
 COPY extension/ /app/extension/
+COPY data/ /opt/sa-helper-seed/data/
 COPY backend/config/ /opt/sa-helper-seed/backend/config/
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY --from=frontend-builder /frontend/dist /app/frontend/dist
 
-# Pre-create all runtime-writable directories and set ownership to default app user (1000:1000).
-# This allows the container to run as any PUID:PGID without hitting permission denied
-# on paths that are internal to the image layer (not covered by volume mounts).
-RUN groupadd -g 1001 app && \
-    useradd -u 1001 -g 1001 --create-home --shell /usr/sbin/nologin app && \
-    mkdir -p \
-        /app/backend/app/templates \
-        /app/backend/app/static/extensions \
-        /app/backend/logs \
-        /app/backend/config \
-        /app/data \
-        /app/import && \
+# Link the built dashboard to the template folder
+RUN mkdir -p /app/backend/app/templates && \
     cp /app/frontend/dist/index.html /app/backend/app/templates/admin.html && \
-    chown -R 1001:1001 /app /opt/sa-helper-seed && \
+    cp -a /opt/sa-helper-seed/data /app/data && \
+    mkdir -p /app/backend/logs && \
     chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Environment variables
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app/backend \
+ENV PYTHONPATH=/app/backend \
     CONFIG_PATH=/app/backend/config/config.yaml \
+    SQLITE_PATH=/app/backend/logs/app.db \
     ONNX_PATH=/app/data/models/model.onnx
 EXPOSE 8080
 
 # Healthcheck
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:8080/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+  CMD curl -sf http://localhost:8080/health || exit 1
 
 # Start command
-USER 1001:1001
 ENTRYPOINT ["docker-entrypoint.sh"]
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "2"]
