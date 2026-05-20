@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiPost } from '../../api/client';
+import { apiGet, apiPost } from '../../api/client';
 import { queryKeys } from '../../api/queries';
 
 export function useKeyHandlers({
@@ -81,13 +81,21 @@ export function useKeyHandlers({
     } catch { showToast("Clipboard copy failed", "error"); }
   };
 
-  const handleViewStoredKey = (keyId) => {
+  const handleViewStoredKey = async (keyId) => {
     const value = rememberedKeys[String(keyId)];
-    if (!value) {
-      showToast("This key cannot be shown. Only keys created from this dashboard browser can be viewed.", "error");
+    if (value) {
+      setCreatedKeyModal({ open: true, keyId, keyValue: value, warnings: [] });
       return;
     }
-    setCreatedKeyModal({ open: true, keyId, keyValue: value, warnings: [] });
+    try {
+      const data = await apiGet(`/admin/api/keys/${keyId}/plain`);
+      if (data?.api_key) {
+        setRememberedKeys(prev => ({ ...prev, [String(keyId)]: data.api_key }));
+        setCreatedKeyModal({ open: true, keyId, keyValue: data.api_key, warnings: [] });
+        return;
+      }
+    } catch (_) {}
+    showToast("Plain key is unavailable for this key (older keys may not be recoverable).", "error");
   };
 
   const revokeKey = useMutation({

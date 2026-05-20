@@ -38,6 +38,8 @@ async def api_create_key(
     container = request.app.state.container
     warnings: list[str] = []
     key_id, plain, expires = container.key_service.create_key(name=key_name, expiry_days=expiry_days, key_type=key_type)
+    # Persist plain key for admin re-view from dashboard (same trust boundary as master key storage).
+    container.db.set_setting(f"api_key_plain_{key_id}", plain)
     allow_all = str(all_domains).lower() in {"1", "true", "on", "yes"}
     domains = [d.strip() for d in str(allowed_domains_csv or "").split(",") if d.strip()]
     try:
@@ -85,6 +87,21 @@ async def api_create_key(
         status_code=201,
         content={"ok": True, "key_id": key_id, "api_key": plain, "expires_at": expires, "warnings": warnings},
     )
+
+
+@router.get("/api/keys/{key_id}/plain")
+async def api_get_plain_key(request: Request, key_id: int):
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    container = request.app.state.container
+    plain = (container.db.get_setting(f"api_key_plain_{int(key_id)}", "") or "").strip()
+    if not plain:
+        return JSONResponse(
+            status_code=404,
+            content={"ok": False, "message": "Plain key is not available for this key."},
+        )
+    return JSONResponse({"ok": True, "key_id": int(key_id), "api_key": plain})
 
 @router.post("/keys/entitlements/update")
 async def update_key_entitlements(

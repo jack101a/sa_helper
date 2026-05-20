@@ -274,9 +274,10 @@ class TelegramBotService:
 
             price = plan.price_amount / 100
             price_str = f"₹{price:.2f}"
-            upi = self._upi_id or "Not configured — contact admin"
 
             # Read dynamic payment settings from DB
+            upi = self._read_db_setting("payment.upi_id") or self._upi_id or "Not configured — contact admin"
+            payee_name = self._read_db_setting("payment.payee_name") or self._payee_name
             note_prefix = self._read_db_setting("payment.note_prefix") or self._payment_note_prefix
             currency = self._read_db_setting("payment.currency") or self._currency
 
@@ -289,17 +290,17 @@ class TelegramBotService:
                 "price_amount": plan.price_amount,
                 "payment_ref": ref,
                 "upi_id": upi,
-                "payee_name": self._payee_name,
+                "payee_name": payee_name,
             })
 
             # Build UPI intent link dynamically
-            upi_link = build_upi_link(upi, self._payee_name, price, ref)
+            upi_link = build_upi_link(upi, payee_name, price, ref, currency)
             public_base = self._public_base_url()
             tap_url = ""
             if public_base:
                 token = encode_upi_payload(
                     upi_id=upi,
-                    payee_name=self._payee_name,
+                    payee_name=payee_name,
                     amount=price,
                     note=ref,
                     currency=currency,
@@ -318,6 +319,7 @@ class TelegramBotService:
                 f"{pay_line}\n\n"
                 f"📋 *Fallback UPI Details:*\n"
                 f"• UPI ID: `{upi}`\n"
+                f"• Payee: `{payee_name}`\n"
                 f"• Amount: {price_str}\n"
                 f"• Note: `{ref}`\n\n"
                 f"_After payment, send a *screenshot* of your payment confirmation._"
