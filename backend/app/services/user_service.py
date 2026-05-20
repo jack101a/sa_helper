@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+from typing import Optional
 
 from sqlalchemy.orm import Session
 
@@ -114,7 +115,7 @@ class UserService:
                 user.notes = notes
             if updated_by_admin_id is not None:
                 user.updated_by_admin_id = updated_by_admin_id
-            user.updated_at = datetime.now(UTC)
+            user.updated_at = datetime.now(timezone.utc)
             session.commit()
             session.refresh(user)
             return user
@@ -137,7 +138,7 @@ class UserService:
             if not user:
                 return None
             user.status = status
-            user.updated_at = datetime.now(UTC)
+            user.updated_at = datetime.now(timezone.utc)
             if updated_by_admin_id is not None:
                 user.updated_by_admin_id = updated_by_admin_id
             session.commit()

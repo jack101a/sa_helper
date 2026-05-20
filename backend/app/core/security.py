@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import secrets
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.core.config import Settings
 
@@ -20,14 +20,14 @@ def generate_plain_api_key(settings: Settings) -> str:
 def hash_api_key(plain_key: str, salt: str) -> str:
     """Hash API key with SHA-256 + salt."""
 
-    raw = f"{salt}:{plain_key}".encode()
+    raw = f"{salt}:{plain_key}".encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
 
 
 def compute_expiry(days: int) -> str:
     """Return UTC ISO expiration timestamp string (for legacy TEXT columns)."""
 
-    expires = datetime.now(UTC) + timedelta(days=days)
+    expires = datetime.now(timezone.utc) + timedelta(days=days)
     return expires.isoformat()
 
 
@@ -35,7 +35,7 @@ def compute_expiry_datetime(days: int) -> datetime | None:
     """Return UTC expiration as datetime (for SQLAlchemy DateTime columns)."""
     if days <= 0:
         return None
-    return datetime.now(UTC) + timedelta(days=days)
+    return datetime.now(timezone.utc) + timedelta(days=days)
 
 
 def is_expired(expires_at: str | None) -> bool:
@@ -43,7 +43,7 @@ def is_expired(expires_at: str | None) -> bool:
 
     if not expires_at:
         return False
-    return datetime.fromisoformat(expires_at) < datetime.now(UTC)
+    return datetime.fromisoformat(expires_at) < datetime.now(timezone.utc)
 
 
 def is_valid_base64(payload: str) -> bool:

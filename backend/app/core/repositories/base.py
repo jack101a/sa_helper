@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -15,10 +14,6 @@ class BaseRepository:
 
     def connect(self):
         return self.db.connect()
-
-    @property
-    def _use_sqlalchemy(self) -> bool:
-        return self.db.legacy_sqlalchemy_enabled
 
     def _normalize_domain(self, domain: str | None) -> str:
         return self.db._normalize_domain(domain)

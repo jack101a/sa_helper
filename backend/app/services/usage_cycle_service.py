@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timezone, timedelta
+from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from app.core.models import UsageCycle, UserSubscription
+from app.core.models import UsageCycle, UserSubscription, User
 
 
 class UsageCycleService:
@@ -22,7 +23,7 @@ class UsageCycleService:
         """Get the current active usage cycle, or create one from the active subscription."""
         session = self._session()
         try:
-            now = datetime.now(UTC)
+            now = datetime.now(timezone.utc)
 
             # Find active cycle
             cycle = (
@@ -116,7 +117,7 @@ class UsageCycleService:
                 return {"allowed": False, "reason": "quota_exceeded", "used": new_used, "limit": cycle.monthly_limit}
 
             cycle.used_count = new_used
-            cycle.updated_at = datetime.now(UTC)
+            cycle.updated_at = datetime.now(timezone.utc)
             session.commit()
             return {"allowed": True, "used": new_used, "limit": cycle.monthly_limit, "cycle_id": cycle.id}
         except Exception:
@@ -130,7 +131,7 @@ class UsageCycleService:
         This prevents TOCTOU races that could exceed the monthly limit under concurrent load."""
         session = self._session()
         try:
-            now = datetime.now(UTC)
+            now = datetime.now(timezone.utc)
             # Atomic: increment only if under limit, returns rowcount = 1 if successful
             result = session.execute(
                 "UPDATE usage_cycles SET used_count = used_count + :amount, updated_at = :now "
@@ -177,7 +178,7 @@ class UsageCycleService:
         """Force-reset the current cycle (admin override for bonus quota)."""
         session = self._session()
         try:
-            now = datetime.now(UTC)
+            now = datetime.now(timezone.utc)
             old = (
                 session.query(UsageCycle)
                 .filter(UsageCycle.user_id == user_id, UsageCycle.cycle_end_at > now)

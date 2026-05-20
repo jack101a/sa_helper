@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Request, Query
 from fastapi.responses import JSONResponse
 
 from .utils import _admin_guard
@@ -164,8 +164,8 @@ async def list_all_user_keys(
     denied = _admin_guard(request)
     if denied:
         return denied
+    from app.core.models import UserApiKey, User
     from app.core.db import get_session
-    from app.core.models import User, UserApiKey
     session = get_session()
     try:
         q = session.query(UserApiKey)

@@ -15,6 +15,7 @@
             DEFAULT_DOB: '01-02-2003',
             DEFAULT_LANGUAGE: 'HINDI',
             DEFAULT_STATE: 'MH',
+            MIN_OPTIONS: 3,
         };
 
         let interval = null;
@@ -38,7 +39,7 @@
         function hasMockQuestionDom() {
             return !!(
                 (getQImageEl() || getQuestionText().length > 0)
-                && getOptionSlots().length >= 4
+                && getOptionSlots().length >= CFG.MIN_OPTIONS
             );
         }
 
@@ -123,7 +124,7 @@
                 document.getElementById('choice' + i)
                 || document.querySelector(`img[name="choice${i}"]`)
             ).filter(Boolean);
-            if (byChoice.length >= 4) return byChoice;
+            if (byChoice.length >= CFG.MIN_OPTIONS) return byChoice;
             const slots = getOptionSlots();
             return slots.map(slot => slot.container?.querySelector('img')).filter(Boolean);
         }
@@ -199,8 +200,8 @@
             const qImg = getQImageEl();
             const qText = getQuestionText();
             const slots = getOptionSlots();
-            if (slots.length < 4) {
-                console.log('[MockTrainer] waiting: less than 4 option slots');
+            if (slots.length < CFG.MIN_OPTIONS) {
+                console.log(`[MockTrainer] waiting: less than ${CFG.MIN_OPTIONS} option slots`);
                 return;
             }
 
@@ -214,7 +215,7 @@
                 const txt = (slot.container?.innerText || '').replace(/\s+/g, ' ').trim();
                 return textToPayload(txt, `O${slot.option}: `);
             }).filter(Boolean);
-            if (!qPayload || optPayloads.length < 4) {
+            if (!qPayload || optPayloads.length < CFG.MIN_OPTIONS) {
                 console.log('[MockTrainer] waiting: missing payloads', { qPayload: !!qPayload, options: optPayloads.length });
                 return;
             }
@@ -228,6 +229,10 @@
                 const teacher = await parseTeacherAnswer();
                 if (!(teacher?.ok && teacher.option >= 1 && teacher.option <= 4)) {
                     console.warn('[MockTrainer] Teacher answer unavailable:', teacher?.reason || 'unknown');
+                    return;
+                }
+                if (!slots.some(slot => slot.option === teacher.option)) {
+                    console.warn('[MockTrainer] Teacher answer points to missing option slot:', teacher.option);
                     return;
                 }
 

@@ -1,25 +1,17 @@
 from __future__ import annotations
-
 import base64
 import sqlite3
 from pathlib import Path
+from typing import Any
+from fastapi import APIRouter, Request, Form, File, UploadFile, HTTPException
+from fastapi.responses import RedirectResponse, JSONResponse
+from .utils import (
+    _admin_guard, _write_auto_backup, _slug, _model_upload_error,
+    _model_upload_success, _default_field_for_task, _wants_json
+)
 from urllib.parse import quote_plus
-
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse, RedirectResponse
-
 from app.core.database import Database
 from app.core.paths import get_project_root
-
-from .utils import (
-    _admin_guard,
-    _default_field_for_task,
-    _model_upload_error,
-    _model_upload_success,
-    _slug,
-    _wants_json,
-    _write_auto_backup,
-)
 
 router = APIRouter(tags=["admin-models"])
 

@@ -1,41 +1,38 @@
-# TASK.md - Stabilization Fixes From AI Reports
+# TASK.md - Split API Workers From Schedulers
 
 ## Goal
-Implement the high-value follow-up fixes identified from `.ai-reports/`: admin login/session hardening, Telegram state safety, plan burst limits, capacity config alignment, backup restore completion, and focused regression coverage.
+Restore API performance with two uvicorn workers while keeping backup, MCQ merge, and subscription expiry schedulers single-instance in Docker deployment.
 
 ## Status
 COMPLETE
 
 ## Scope Included
-- Admin login brute-force rate limiting
-- Non-deterministic admin session tokens with server-side expiry
-- Atomic Telegram mock/registration state writes
-- `rate_limit_burst` support for plans where locally feasible
-- Production capacity config alignment
-- System/user backup restore completion where current backup format supports it
-- Focused tests for the implemented fixes
-- Verification with backend tests and frontend build where touched
+- Add a dedicated scheduler process entrypoint.
+- Gate FastAPI lifespan background loops behind an env flag.
+- Restore API Docker CMD to two uvicorn workers.
+- Add a scheduler service to Docker Compose sharing the same volumes/env.
+- Ensure only the API container runs Alembic migrations.
+- Validate Python imports and compose config.
+- Update STATE.md.
 
 ## Scope Excluded
-- Full SQLAlchemy legacy table migration
-- PostgreSQL production migration
-- Major route/service refactors
-- Real live exam behavior changes
-- Destructive git commands
+- Pushing to GitHub.
+- Full Docker image build, because Docker socket access is denied for this user.
+- Changing solver queue internals or captcha/MCQ algorithms.
 
 ## Plan
-- [x] Read AGENTS.md, STATE.md, existing TASK.md, and worktree status
-- [x] Inspect relevant backend/frontend/extension files before edits
-- [x] Implement admin session and login rate-limit hardening
-- [x] Implement atomic Telegram state writes
-- [x] Implement plan `rate_limit_burst` propagation/UI
-- [x] Apply capacity settings in production config/compose
-- [x] Implement supported backup restore endpoints/service helpers
-- [x] Add/update focused tests
-- [x] Run backend tests
-- [x] Run frontend build if frontend changed
-- [x] Update STATE.md
+- [x] Read AGENTS.md, STATE.md, TASK.md, and current deployment files.
+- [x] Inspect `main.py`, Dockerfile, compose files before edits.
+- [x] Add scheduler module and env-gated API background tasks.
+- [x] Restore API workers to 2 and add scheduler service.
+- [x] Gate migrations to API container only.
+- [x] Run verification commands.
+- [x] Update STATE.md.
 
 ## Verification
-- `cd backend && . ../.venv/bin/activate && AUTH_HASH_SALT=test-salt ADMIN_TOKEN=test-token python -m pytest tests/ -v`
-- `cd frontend && npm run build`
+- `cd backend && ../.venv/bin/python -m py_compile app/main.py app/scheduler.py` passed.
+- Production-style import with `RUN_BACKGROUND_TASKS=false` passed.
+- Scheduler module import/sanity check passed: `scheduler OK True`.
+- `docker-compose -f docker-compose.yml -f docker-compose.prod.yml config` passed.
+- Fresh Alembic migration plus production-style import/query passed: `OK 2.0.0 0`.
+- Docker build attempt failed due local Docker socket permission denied.

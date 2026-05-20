@@ -1,17 +1,13 @@
 from __future__ import annotations
-
-import json
 import os
+import json
 import re
-
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, RedirectResponse
+from pathlib import Path
+from fastapi import APIRouter, Request, Form, HTTPException, UploadFile, File
+from fastapi.responses import RedirectResponse, FileResponse
 from pydantic import BaseModel
-
-from app.core.paths import get_project_root
 from app.core.userscript_utils import parse_userscript_meta
-from app.workers.dispatch import run_task_with_timeout
-
+from app.core.paths import get_project_root
 from .utils import _admin_guard, _write_auto_backup
 
 router = APIRouter(tags=["admin-settings"])
@@ -186,14 +182,7 @@ async def get_settings(request: Request):
     settings_list = container.db.get_all_settings()
     # Mask secrets for display
     masked = []
-    SECRET_KEYS = {
-        "exam.litellm_api_key",
-        "alerts.callmebot_apikey",
-        "telegram.bot_token",
-        "backup.encryption_key",
-        "backup.gdrive.client_secret",
-        "backup.gdrive.token_json",
-    }
+    SECRET_KEYS = {"exam.litellm_api_key", "alerts.callmebot_apikey", "telegram.bot_token"}
     for s in settings_list:
         row = dict(s)
         if row["key"] in SECRET_KEYS and row["value"]:
@@ -293,16 +282,6 @@ def _telegram_token(container) -> str:
     return (container.db.get_setting("telegram.bot_token") or "").strip()
 
 
-def _telegram_token_source(container) -> str:
-    if os.getenv("TELEGRAM_BOT_TOKEN", "").strip():
-        return "env"
-    if (container.settings.telegram.bot_token or "").strip():
-        return "config"
-    if (container.db.get_setting("telegram.bot_token") or "").strip():
-        return "database"
-    return "missing"
-
-
 def _telegram_enabled(container) -> bool:
     env_enabled = os.getenv("TELEGRAM_BOT_ENABLED")
     if env_enabled is not None and env_enabled.strip():
@@ -311,12 +290,6 @@ def _telegram_enabled(container) -> bool:
     if db_enabled is not None:
         return _truthy(db_enabled)
     return bool(container.settings.telegram.bot_enabled)
-
-
-def _redis_enabled(container) -> bool:
-    settings = getattr(container, "settings", None)
-    redis = getattr(settings, "redis", None)
-    return bool(getattr(redis, "enabled", False))
 
 
 @router.get("/api/telegram/status")
@@ -333,28 +306,11 @@ async def telegram_status(request: Request):
     except Exception:
         package_available = False
         package_version = ""
-    token = _telegram_token(container)
-    enabled = _telegram_enabled(container)
-    bot_running = bool(getattr(request.app.state, "telegram_bot", None))
-    diagnostics = []
-    if not token:
-        diagnostics.append("telegram.bot_token is missing")
-    if not enabled:
-        diagnostics.append("telegram.bot_enabled is false")
-    if not package_available:
-        diagnostics.append("python-telegram-bot package is missing")
-    if enabled and token and not bot_running:
-        diagnostics.append("bot is configured but not running inside this API process; use docker-compose telegram-bot or START_TELEGRAM_BOT_IN_API=true")
     return {
-        "enabled": enabled,
-        "token_set": bool(token),
-        "token_source": _telegram_token_source(container),
+        "enabled": _telegram_enabled(container) or bool(_telegram_token(container)),
+        "token_set": bool(_telegram_token(container)),
         "package_available": package_available,
         "package_version": package_version,
-        "bot_running_in_api": bot_running,
-        "backup_channel_set": bool(container.db.get_setting("backup.telegram_channel_id")),
-        "last_backup_error": container.db.get_setting("backup.telegram_last_error", ""),
-        "diagnostics": diagnostics,
         "process_model": "docker-compose telegram-bot service or python -m app.services.telegram_bot",
     }
 
@@ -420,18 +376,7 @@ async def repack_extension(request: Request):
     if denied:
         return denied
     container = request.app.state.container
-    if _redis_enabled(container):
-        try:
-            result = await run_task_with_timeout(
-                "maintenance.package_extension",
-                queue="maintenance",
-                timeout_seconds=60,
-            )
-            success = bool(result.get("ok"))
-        except Exception:
-            success = container.extension_service.package_extension()
-    else:
-        success = container.extension_service.package_extension()
+    success = container.extension_service.package_extension()
     if not success:
         raise HTTPException(500, "Failed to package extension. Check backend logs.")
     return {"ok": True, "message": "Extension repackaged successfully"}
@@ -447,18 +392,7 @@ async def download_extension(request: Request, format: str = "zip"):
     container = request.app.state.container
     filename = _extension_filename_for_format(format)  # validate format before packaging
 
-    if _redis_enabled(container):
-        try:
-            result = await run_task_with_timeout(
-                "maintenance.package_extension",
-                queue="maintenance",
-                timeout_seconds=60,
-            )
-            success = bool(result.get("ok"))
-        except Exception:
-            success = container.extension_service.package_extension()
-    else:
-        success = container.extension_service.package_extension()
+    success = container.extension_service.package_extension()
     if not success:
         raise HTTPException(500, "Failed to package extension. Check backend logs.")
 
@@ -703,7 +637,7 @@ async def upload_qr_image(request: Request, file: UploadFile = File(...)):
     
     # Save the URL to settings
     container = request.app.state.container
-    qr_url = "/admin/api/settings/qr-image"
+    qr_url = f"/admin/api/settings/qr-image"
     container.db.set_setting("payment.qr_image_url", qr_url)
     
     return {"ok": True, "url": qr_url, "filename": filename}

@@ -31,6 +31,10 @@ logger = logging.getLogger(__name__)
 _API_VERSION = "2.0.0"
 
 
+def _env_enabled(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).lower() in {"1", "true", "yes", "on"}
+
+
 async def _exam_merge_loop(container) -> None:
     """Auto-merge verified learned questions into main bank on schedule."""
     while True:
@@ -219,16 +223,19 @@ async def lifespan(application: FastAPI):
         if bot:
             application.state.telegram_bot = bot
 
-    merge_task = asyncio.create_task(_exam_merge_loop(container))
-    backup_task = asyncio.create_task(_backup_scheduler(container))
-    expiry_task = asyncio.create_task(_subscription_expiry_loop(container))
+    background_tasks: list[asyncio.Task] = []
+    if _env_enabled("RUN_BACKGROUND_TASKS"):
+        background_tasks = [
+            asyncio.create_task(_exam_merge_loop(container)),
+            asyncio.create_task(_backup_scheduler(container)),
+            asyncio.create_task(_subscription_expiry_loop(container)),
+        ]
 
     yield
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
-    merge_task.cancel()
-    backup_task.cancel()
-    expiry_task.cancel()
+    for task in background_tasks:
+        task.cancel()
     await container.solver_service.stop()
 
     # Guard: retrain_service is optional — only wired when the feature is on

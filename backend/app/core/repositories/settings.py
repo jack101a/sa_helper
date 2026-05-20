@@ -1,13 +1,7 @@
 from __future__ import annotations
-
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
-
-from app.core.db import get_session
-from app.core.models import AccessControlRecord, AllowedDomainRecord, PlatformSettingRecord
-
 from .base import BaseRepository
-
 
 class SettingsRepository(BaseRepository):
     # Keys and their default values — used when no DB row exists yet
@@ -64,15 +58,6 @@ class SettingsRepository(BaseRepository):
 
     def get_setting(self, key: str, default: str | None = None) -> str:
         """Read a single runtime setting from DB. Falls back to class default then param default."""
-        if self._use_sqlalchemy:
-            session = get_session()
-            try:
-                row = session.get(PlatformSettingRecord, key)
-                if row:
-                    return str(row.value)
-            finally:
-                session.close()
-            return self._SETTING_DEFAULTS.get(key, default or "")
         with self.connect() as conn:
             row = conn.execute(
                 "SELECT value FROM platform_settings WHERE key = ?", (key,)
@@ -85,25 +70,7 @@ class SettingsRepository(BaseRepository):
     def set_setting(self, key: str, value: str, description: str | None = None) -> None:
         """Upsert a runtime setting into the DB."""
         desc = description or self._SETTING_DESCRIPTIONS.get(key)
-        now = datetime.now(UTC).isoformat()
-        if self._use_sqlalchemy:
-            session = get_session()
-            try:
-                row = session.get(PlatformSettingRecord, key)
-                if row:
-                    row.value = value
-                    if desc is not None:
-                        row.description = desc
-                    row.updated_at = now
-                else:
-                    session.add(PlatformSettingRecord(key=key, value=value, description=desc, updated_at=now))
-                session.commit()
-                return
-            except Exception:
-                session.rollback()
-                raise
-            finally:
-                session.close()
+        now = datetime.now(timezone.utc).isoformat()
         with self._lock:
             with self.connect() as conn:
                 conn.execute(
@@ -121,30 +88,12 @@ class SettingsRepository(BaseRepository):
 
     def get_all_settings(self) -> list[dict]:
         """Return all settings rows for admin display, merging with defaults."""
-        if self._use_sqlalchemy:
-            session = get_session()
-            try:
-                rows = {
-                    row.key: {
-                        "key": row.key,
-                        "value": row.value,
-                        "description": row.description,
-                        "updated_at": row.updated_at,
-                    }
-                    for row in session.query(PlatformSettingRecord).order_by(PlatformSettingRecord.key).all()
-                }
-            finally:
-                session.close()
-            return self._merge_setting_defaults(rows)
         with self.connect() as conn:
             rows = {
                 row["key"]: {"key": row["key"], "value": row["value"],
                              "description": row["description"], "updated_at": row["updated_at"]}
                 for row in conn.execute("SELECT * FROM platform_settings ORDER BY key")
             }
-        return self._merge_setting_defaults(rows)
-
-    def _merge_setting_defaults(self, rows: dict[str, dict]) -> list[dict]:
         # Fill in any missing keys from defaults so admin sees all available settings
         result = []
         for key, default_val in self._SETTING_DEFAULTS.items():
@@ -164,35 +113,12 @@ class SettingsRepository(BaseRepository):
         return result
 
     def get_global_access(self) -> bool:
-        if self._use_sqlalchemy:
-            session = get_session()
-            try:
-                row = session.get(AccessControlRecord, "global_access")
-                return row.value == "true" if row else True
-            finally:
-                session.close()
         with self.connect() as conn:
             cursor = conn.execute("SELECT value FROM access_control WHERE key = 'global_access'")
             row = cursor.fetchone()
             return row["value"] == "true" if row else True
 
     def set_global_access(self, enabled: bool) -> None:
-        if self._use_sqlalchemy:
-            session = get_session()
-            try:
-                val = "true" if enabled else "false"
-                row = session.get(AccessControlRecord, "global_access")
-                if row:
-                    row.value = val
-                else:
-                    session.add(AccessControlRecord(key="global_access", value=val))
-                session.commit()
-                return
-            except Exception:
-                session.rollback()
-                raise
-            finally:
-                session.close()
         with self._lock:
             with self.connect() as conn:
                 val = "true" if enabled else "false"
@@ -203,16 +129,6 @@ class SettingsRepository(BaseRepository):
                 conn.commit()
 
     def get_allowed_domains(self) -> list[str]:
-        if self._use_sqlalchemy:
-            session = get_session()
-            try:
-                normalized = {
-                    self._normalize_domain(row.domain)
-                    for row in session.query(AllowedDomainRecord).all()
-                }
-                return sorted([d for d in normalized if d])
-            finally:
-                session.close()
         with self.connect() as conn:
             normalized = {
                 self._normalize_domain(row["domain"])
@@ -231,18 +147,6 @@ class SettingsRepository(BaseRepository):
         clean_domain = self._normalize_domain(domain)
         if not clean_domain:
             return
-        if self._use_sqlalchemy:
-            session = get_session()
-            try:
-                if session.get(AllowedDomainRecord, clean_domain) is None:
-                    session.add(AllowedDomainRecord(domain=clean_domain))
-                session.commit()
-                return
-            except Exception:
-                session.rollback()
-                raise
-            finally:
-                session.close()
         with self._lock:
             with self.connect() as conn:
                 conn.execute("INSERT OR IGNORE INTO allowed_domains (domain) VALUES (?)", (clean_domain,))
@@ -252,19 +156,6 @@ class SettingsRepository(BaseRepository):
         clean_domain = self._normalize_domain(domain)
         if not clean_domain:
             return
-        if self._use_sqlalchemy:
-            session = get_session()
-            try:
-                row = session.get(AllowedDomainRecord, clean_domain)
-                if row:
-                    session.delete(row)
-                    session.commit()
-                return
-            except Exception:
-                session.rollback()
-                raise
-            finally:
-                session.close()
         with self._lock:
             with self.connect() as conn:
                 conn.execute("DELETE FROM allowed_domains WHERE domain = ?", (clean_domain,))
@@ -284,91 +175,14 @@ class SettingsRepository(BaseRepository):
             "model_registry": self.db.models.get_model_registry(),
             "field_mappings": self.db.models.get_all_field_mappings(),
             "locators": self.db.autofill.get_approved_locators(),
-            "exported_at": datetime.now(UTC).isoformat(),
+            "exported_at": datetime.now(timezone.utc).isoformat(),
         }
 
     def import_master_setup(self, payload: dict[str, Any]) -> None:
         """Import setup snapshot (metadata only; model files must exist on disk)."""
-        if self._use_sqlalchemy:
-            self.set_global_access(bool(payload.get("global_access", True)))
-
-            session = get_session()
-            try:
-                session.query(AllowedDomainRecord).delete()
-                for domain in payload.get("allowed_domains", []) or []:
-                    clean_domain = self._normalize_domain(domain)
-                    if clean_domain:
-                        session.add(AllowedDomainRecord(domain=clean_domain))
-                session.commit()
-            except Exception:
-                session.rollback()
-                raise
-            finally:
-                session.close()
-
-            for setting in payload.get("platform_settings", []) or []:
-                key = str(setting.get("key") or "").strip()
-                if key:
-                    self.set_setting(
-                        key,
-                        str(setting.get("value") or "").strip(),
-                        setting.get("description"),
-                    )
-
-            self.db.autofill.bulk_import_approved_rules(payload.get("autofill_rules", []) or [])
-
-            model_id_by_filename: dict[str, int] = {
-                str(item.get("ai_model_filename") or ""): int(item["id"])
-                for item in self.db.models.get_model_registry()
-                if item.get("ai_model_filename") and item.get("id") is not None
-            }
-            for item in payload.get("model_registry", []) or []:
-                filename = str(item.get("ai_model_filename") or "").strip()
-                if not filename:
-                    continue
-                if filename not in model_id_by_filename:
-                    model_id = self.db.models.add_model_registry_entry(
-                        ai_model_name=str(item.get("ai_model_name") or "imported-model").strip() or "imported-model",
-                        version=str(item.get("version") or "v1").strip() or "v1",
-                        task_type=str(item.get("task_type") or "image").strip() or "image",
-                        ai_runtime=str(item.get("ai_runtime") or "onnx").strip() or "onnx",
-                        ai_model_filename=filename,
-                        notes=item.get("notes"),
-                        status=str(item.get("status") or "active").strip() or "active",
-                        lifecycle_state=str(item.get("lifecycle_state") or "candidate").strip() or "candidate",
-                    )
-                    model_id_by_filename[filename] = int(model_id)
-
-            for route in payload.get("model_routes", []) or []:
-                domain = self._normalize_domain(route.get("domain"))
-                filename = str(route.get("ai_model_filename") or "").strip()
-                if domain and filename:
-                    self.db.models.set_model_route(domain, filename)
-
-            for fm in payload.get("field_mappings", []) or []:
-                domain = self._normalize_domain(fm.get("domain"))
-                field_name = str(fm.get("field_name") or "").strip()
-                task_type = str(fm.get("task_type") or "image").strip() or "image"
-                filename = str(fm.get("ai_model_filename") or "").strip()
-                ai_model_id = model_id_by_filename.get(filename)
-                if domain and field_name and ai_model_id:
-                    self.db.models.set_field_mapping(
-                        domain=domain,
-                        field_name=field_name,
-                        task_type=task_type,
-                        ai_model_id=ai_model_id,
-                        source_data_type=str(fm.get("source_data_type") or task_type).strip() or task_type,
-                        source_selector=str(fm.get("source_selector") or "").strip(),
-                        target_data_type=str(fm.get("target_data_type") or "text_input").strip() or "text_input",
-                        target_selector=str(fm.get("target_selector") or "").strip(),
-                    )
-
-            self.db.autofill.bulk_replace_approved_locators(payload.get("locators", {}) or {})
-            return
-
         with self._lock:
             with self.connect() as conn:
-                now = datetime.now(UTC).isoformat()
+                now = datetime.now(timezone.utc).isoformat()
                 global_access = bool(payload.get("global_access", True))
                 conn.execute(
                     "INSERT INTO access_control (key, value) VALUES ('global_access', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -407,9 +221,15 @@ class SettingsRepository(BaseRepository):
                     if rule_json and approved_id:
                         conn.execute(
                             """
-                            INSERT OR IGNORE INTO autofill_rule_proposals
+                            INSERT INTO autofill_rule_proposals 
                                 (idempotency_key, device_id, api_key_id, status, submitted_at, rule_json, approved_rule_id, reviewed_at, created_at)
                             VALUES (?, ?, ?, 'approved', ?, ?, ?, ?, ?)
+                            ON CONFLICT(idempotency_key) DO UPDATE SET
+                                status = 'approved',
+                                submitted_at = excluded.submitted_at,
+                                rule_json = excluded.rule_json,
+                                approved_rule_id = excluded.approved_rule_id,
+                                reviewed_at = excluded.reviewed_at
                             """,
                             ("imported_" + approved_id, "imported", 0, now, rule_json, approved_id, now, now),
                         )

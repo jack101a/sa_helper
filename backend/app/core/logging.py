@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from app.core.config import Settings
 
@@ -16,7 +16,7 @@ class JsonFormatter(logging.Formatter):
         """Return JSON-serialized log payload."""
 
         payload = {
-            "ts": datetime.now(UTC).isoformat(),
+            "ts": datetime.now(timezone.utc).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),

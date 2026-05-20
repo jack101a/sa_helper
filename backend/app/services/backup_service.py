@@ -91,16 +91,20 @@ class BackupService:
         "data/hashes/sign_label.json",
         "data/hashes/sign_hashes_perceptual.json",
         "data/userscripts/",
+        "data/automation_scripts/",
         "data/mappings/",
         "backend/config/config.yaml",
     ]
 
     SYSTEM_DB_TABLES = [
+        "access_control",
+        "allowed_domains",
         "model_routes",
-        "domain_model_mappings",
+        "model_registry",
+        "field_mappings",
         "platform_settings",
-        "autofill_rules",
-        "locator_rules",
+        "autofill_rule_proposals",
+        "locators",
         "automation_methods",
         "exam_learned",
     ]
@@ -747,8 +751,14 @@ class BackupService:
         tarball_path = sys_dir / f"system_{timestamp}.tar.gz"
         included_files = []
         included_tables = []
+        system_data = self._export_system_data()
 
         with tarfile.open(str(tarball_path), "w:gz") as tar:
+            data = json.dumps(system_data, indent=2, default=str).encode("utf-8")
+            info = tarfile.TarInfo(name="system-data.json")
+            info.size = len(data)
+            tar.addfile(info, BytesIO(data))
+
             # Add file-based assets
             for rel_path in self.SYSTEM_FILE_PATHS:
                 full_path = (project_root / rel_path).resolve()
@@ -877,15 +887,32 @@ class BackupService:
         backup_path = self._resolve_split_backup_path("system", backup_path)
         restored_files: list[str] = []
         restored_tables: dict[str, int] = {}
+        system_data: dict[str, Any] | None = None
 
         with tarfile.open(str(backup_path), "r:gz") as tar:
             members = tar.getmembers()
             for member in members:
                 if member.isdir():
                     continue
+                if member.name == "system-data.json":
+                    extracted = tar.extractfile(member)
+                    if extracted:
+                        system_data = json.loads(extracted.read().decode("utf-8"))
+                    continue
                 if member.name.startswith("db_tables/") and member.name.endswith(".json"):
                     table_name = Path(member.name).stem
                     if table_name not in self.SYSTEM_DB_TABLES:
+                        continue
+                    if system_data and table_name in {
+                        "access_control",
+                        "allowed_domains",
+                        "model_routes",
+                        "model_registry",
+                        "field_mappings",
+                        "platform_settings",
+                        "autofill_rule_proposals",
+                        "locators",
+                    }:
                         continue
                     extracted = tar.extractfile(member)
                     if not extracted:
@@ -895,6 +922,10 @@ class BackupService:
                     continue
                 self._restore_tar_member(tar, member)
                 restored_files.append(member.name)
+
+        if system_data:
+            self._restore_system_data(system_data)
+            restored_tables["system-data"] = 1
 
         return {
             "success": True,

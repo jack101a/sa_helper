@@ -39,7 +39,7 @@ class AlertService:
 
     _BASE = "https://api.callmebot.com/whatsapp.php"
 
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: "Database") -> None:
         self._db = db
 
     # ── Read settings from DB on every call ───────────────────────────────────

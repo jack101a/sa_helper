@@ -181,15 +181,30 @@ class ExamService:
         self._ocr_semaphore = threading.BoundedSemaphore(self._ocr_concurrency())
         self._sign_lock = threading.Lock()
 
-        # Load static data files (these don't change at runtime)
-        q_path = data_dir / "questions" / "questions.json"
+        self.reload_static_data()
+
+        # Reusable thread pool for OCR (created once, not per request)
+        self._ocr_pool = concurrent.futures.ThreadPoolExecutor(max_workers=5)
+        # In-memory learned question index (replaces SQL queries in solve)
+        # Keyed by question_hash and question_phash for O(1) and O(n) lookup
+        self._learned_by_hash: dict[str, dict] = {}
+        self._learned_by_phash: dict[str, dict] = {}
+        self._reload_learned_index()
+
+    async def close(self) -> None:
+        self._ocr_pool.shutdown(wait=False)
+        await self._http.aclose()
+
+    def reload_static_data(self) -> dict[str, int]:
+        """Reload static question and sign hash files after system restore."""
+        q_path = self._data_dir / "questions" / "questions.json"
         self._questions: list[dict] = []
         if q_path.exists():
             with q_path.open(encoding="utf-8") as f:
                 self._questions = json.load(f)
             logger.info("exam_db_loaded", extra={"context": {"count": len(self._questions)}})
 
-        sh_path = data_dir / "hashes" / "sign_hashes.json"
+        sh_path = self._data_dir / "hashes" / "sign_hashes.json"
         self._sign_hashes: dict[str, str] = {}  # hash_hex → label
         if sh_path.exists():
             with sh_path.open(encoding="utf-8") as f:
@@ -204,31 +219,26 @@ class ExamService:
                     self._sign_hashes = raw
             logger.info("sign_hashes_loaded", extra={"context": {"count": len(self._sign_hashes)}})
 
-        sl_path = data_dir / "hashes" / "sign_label.json"
+        sl_path = self._data_dir / "hashes" / "sign_label.json"
         self._sign_labels: dict[str, str] = {}
         if sl_path.exists():
             with sl_path.open(encoding="utf-8") as f:
                 self._sign_labels = json.load(f)
 
         # Load perceptual hashes (pHash) for fuzzy sign matching
-        ph_path = data_dir / "hashes" / "sign_hashes_perceptual.json"
+        ph_path = self._data_dir / "hashes" / "sign_hashes_perceptual.json"
         self._sign_phash: dict[str, str] = {}  # phash_hex → label
         if ph_path.exists():
             with ph_path.open(encoding="utf-8") as f:
                 self._sign_phash = json.load(f)
             logger.info("sign_phash_loaded", extra={"context": {"count": len(self._sign_phash)}})
 
-        # Reusable thread pool for OCR (created once, not per request)
-        self._ocr_pool = concurrent.futures.ThreadPoolExecutor(max_workers=5)
-        # In-memory learned question index (replaces SQL queries in solve)
-        # Keyed by question_hash and question_phash for O(1) and O(n) lookup
-        self._learned_by_hash: dict[str, dict] = {}
-        self._learned_by_phash: dict[str, dict] = {}
-        self._reload_learned_index()
-
-    async def close(self) -> None:
-        self._ocr_pool.shutdown(wait=False)
-        await self._http.aclose()
+        return {
+            "questions": len(self._questions),
+            "sign_hashes": len(self._sign_hashes),
+            "sign_labels": len(self._sign_labels),
+            "sign_phashes": len(self._sign_phash),
+        }
 
     def _reload_learned_index(self) -> None:
         """Load all non-rejected learned questions into memory for fast solve lookup."""

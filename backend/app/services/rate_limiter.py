@@ -6,8 +6,9 @@ When Redis is unavailable, falls back to in-memory (single-process only).
 
 from __future__ import annotations
 
-import threading
 import time
+import threading
+from typing import Optional
 
 from app.core.config import Settings
 

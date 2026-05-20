@@ -1,9 +1,6 @@
 from __future__ import annotations
-
 from typing import Any
-
 from .base import BaseRepository
-
 
 class ExamRepository(BaseRepository):
     def get_exam_stats(self) -> dict[str, Any]:

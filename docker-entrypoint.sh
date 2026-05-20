@@ -28,7 +28,7 @@ mkdir -p /app/backend/logs \
          /app/data/exam_offline
 
 # Run Alembic migrations (skip in test mode)
-if [ "${APP_ENV:-production}" != "test" ]; then
+if [ "${APP_ENV:-production}" != "test" ] && [ "${RUN_MIGRATIONS:-true}" != "false" ]; then
   echo "Running Alembic migrations..."
   cd /app/backend && python -m alembic upgrade head 2>&1 || echo "WARNING: Alembic migration failed — continuing with existing schema"
   cd /app

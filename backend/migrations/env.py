@@ -10,7 +10,7 @@ from sqlalchemy import create_engine, pool
 # Ensure the backend package is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from app.core.config import get_settings
+from app.core.config import get_settings, _resolve_path
 
 # Alembic Config object
 config = context.config
@@ -25,20 +25,10 @@ settings = get_settings()
 # Determine dialect from settings (supports SQLite and PostgreSQL)
 db_type = os.getenv("DB_TYPE", "sqlite").lower()
 if db_type == "postgresql":
-    db_url = os.getenv("DATABASE_URL") or settings.storage.database_url
-    if not db_url:
-        database = settings.storage.postgres_db
-        user = settings.storage.postgres_user
-        password = settings.storage.postgres_password
-        host = settings.storage.postgres_host
-        port = settings.storage.postgres_port
-        if all([database, user, password, host, port]):
-            db_url = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{database}"
-    if not db_url:
-        raise RuntimeError(
-            "PostgreSQL migrations require DATABASE_URL or storage.postgres_* "
-            "values in config.yaml."
-        )
+    db_url = os.getenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/unified_platform",
+    )
     # Alembic uses sync driver for migrations
     db_url = db_url.replace("+asyncpg", "+psycopg2")
 else:

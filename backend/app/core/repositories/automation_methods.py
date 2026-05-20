@@ -1,10 +1,7 @@
 from __future__ import annotations
-
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
-
 from .base import BaseRepository
-
 
 class AutomationMethodRepository(BaseRepository):
     def list_automation_methods(self, method_type: str | None = None) -> list[dict[str, Any]]:
@@ -38,7 +35,7 @@ class AutomationMethodRepository(BaseRepository):
     def create_automation_method(
         self, name: str, description: str, method_type: str, payload_json: str
     ) -> dict[str, Any]:
-        now = datetime.now(UTC).isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with self._lock:
             with self.connect() as conn:
                 cur = conn.execute(
@@ -73,7 +70,7 @@ class AutomationMethodRepository(BaseRepository):
         if not parts:
             return False
         
-        now = datetime.now(UTC).isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         parts.append("updated_at = ?")
         params.append(now)
         params.append(method_id)
@@ -99,7 +96,7 @@ class AutomationMethodRepository(BaseRepository):
                     return False
                 
                 method_type = row["method_type"]
-                now = datetime.now(UTC).isoformat()
+                now = datetime.now(timezone.utc).isoformat()
                 
                 # Deactivate others
                 conn.execute(

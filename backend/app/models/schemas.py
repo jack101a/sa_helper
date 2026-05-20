@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+
 # ── Shared ────────────────────────────────────────────────────────────────────
 TaskType  = Literal["image", "text"]   # "audio" removed (non-text captcha stripped)
 ModelMode = Literal["fast", "accurate"]

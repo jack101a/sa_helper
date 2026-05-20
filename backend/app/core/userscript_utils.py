@@ -1,6 +1,5 @@
 import re
 
-
 def parse_userscript_meta(code: str) -> dict:
     """
     Parses the ==UserScript== metadata block from a userscript's source code.

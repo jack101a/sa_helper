@@ -300,6 +300,9 @@ async def restore_split_backup(request: Request) -> Any:
     try:
         if backup_type == "system":
             result = container.backup_service.restore_system_backup(filename)
+            if hasattr(container, "exam_service"):
+                result["exam_reload"] = container.exam_service.reload_static_data()
+                container.exam_service._reload_learned_index()
         else:
             result = container.backup_service.restore_user_backup(filename)
         return JSONResponse(result)
@@ -320,5 +323,22 @@ async def rclone_sync_latest(request: Request) -> Any:
             latest = container.backup_service._backup_dir / category / f"latest_{category}.json.gz"
         if latest.exists():
             r = container.backup_service.rclone_sync(latest)
+            results.append({**r, "category": category})
+    return JSONResponse({"results": results})
+
+
+@router.post("/api/backups/telegram-sync")
+async def telegram_sync_latest(request: Request) -> Any:
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    container = request.app.state.container
+    results = []
+    for category in ["system", "users"]:
+        latest = container.backup_service._backup_dir / category / f"latest_{category}.tar.gz"
+        if not latest.exists():
+            latest = container.backup_service._backup_dir / category / f"latest_{category}.json.gz"
+        if latest.exists():
+            r = await container.backup_service.telegram_backup(latest)
             results.append({**r, "category": category})
     return JSONResponse({"results": results})

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+from typing import Optional
 
 from sqlalchemy.orm import Session
 
@@ -37,7 +38,7 @@ class PaymentService:
         session = self._session()
         try:
             from datetime import timedelta
-            now = datetime.now(UTC)
+            now = datetime.now(timezone.utc)
             payment = PaymentRecord(
                 user_id=user_id,
                 subscription_id=subscription_id,
@@ -103,7 +104,7 @@ class PaymentService:
             payment = session.query(PaymentRecord).filter(PaymentRecord.id == payment_id).first()
             if not payment:
                 return None
-            now = datetime.now(UTC)
+            now = datetime.now(timezone.utc)
             payment.status = "approved"
             payment.verified_by_admin_id = verified_by_admin_id
             payment.verified_at = now
@@ -128,7 +129,7 @@ class PaymentService:
             payment = session.query(PaymentRecord).filter(PaymentRecord.id == payment_id).first()
             if not payment:
                 return None
-            now = datetime.now(UTC)
+            now = datetime.now(timezone.utc)
             payment.status = "rejected"
             payment.rejection_reason = rejection_reason
             payment.verified_by_admin_id = verified_by_admin_id

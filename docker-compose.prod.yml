@@ -16,6 +16,7 @@ services:
       - DEBUG=false
       - QUEUE_WORKERS=6
       - EXAM_OCR_CONCURRENCY=4
+      - RUN_BACKGROUND_TASKS=false
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
       interval: 30s
@@ -28,12 +29,35 @@ services:
         max-size: "50m"
         max-file: "5"
 
+  scheduler:
+    restart: unless-stopped
+    init: true
+    depends_on:
+      sa-helper:
+        condition: service_healthy
+    environment:
+      - APP_ENV=production
+      - DEBUG=false
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 768M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
   telegram-bot:
     restart: unless-stopped
     init: true
     depends_on:
       sa-helper:
         condition: service_healthy
+    environment:
+      - APP_ENV=production
+      - DEBUG=false
     deploy:
       resources:
         limits:

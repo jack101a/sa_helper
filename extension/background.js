@@ -666,50 +666,6 @@ async function apiPost(path, body) {
     return data;
 }
 
-async function enqueueProposal(path, body, kind) {
-    const data = await storageGet(['proposalQueue']);
-    const queue = Array.isArray(data.proposalQueue) ? data.proposalQueue : [];
-    const id = body.idempotency_key || body.client_id || `${kind}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    if (!queue.some(item => item.id === id)) {
-        queue.push({ id, kind, path, body, attempts: 0, status: 'pending', lastError: '', nextTry: 0, createdAt: Date.now() });
-        await storageSet({ proposalQueue: queue });
-    }
-    processProposalQueue('enqueue').catch(e => console.warn('[ProposalQueue] retry failed:', e.message));
-    return { queued: true, id };
-}
-
-async function processProposalQueue(source = 'manual') {
-    const data = await storageGet(['proposalQueue', 'isMaster', 'apiKey']);
-    if (!data.apiKey) return { sent: 0, failed: 0, queued: 0, reason: 'no_key' };
-    const now = Date.now();
-    const queue = Array.isArray(data.proposalQueue) ? data.proposalQueue : [];
-    let sent = 0;
-    let failed = 0;
-    const kept = [];
-    for (const item of queue) {
-        if (item.nextTry && item.nextTry > now) {
-            kept.push(item);
-            continue;
-        }
-        try {
-            await apiPost(item.path, item.body);
-            sent++;
-        } catch (e) {
-            const attempts = (item.attempts || 0) + 1;
-            failed++;
-            kept.push({
-                ...item,
-                attempts,
-                status: 'failed',
-                lastError: e.message,
-                nextTry: now + Math.min(300000, 5000 * attempts * attempts),
-            });
-        }
-    }
-    await storageSet({ proposalQueue: kept, proposalQueueLastSync: { source, sent, failed, queued: kept.length, at: now } });
-    return { sent, failed, queued: kept.length };
-}
-
 async function incrementStat(key) {
     const data = await storageGet([key]);
     const val = (data[key] || 0) + 1;
@@ -917,17 +873,16 @@ async function syncPendingRoutesToServer() {
         }
         seenLocal.add(sig);
         kept.push(route);
-        const mappingPayload = {
-            domain: normalizeDomain(route.domain),
-            task_type: route.taskType,
-            source_data_type: route.taskType,
-            source_selector: route.sourceSelector,
-            target_data_type: 'text_input',
-            target_selector: route.targetSelector,
-            proposed_field_name: route.fieldName || `${route.taskType}_default`,
-        };
         try {
-            await apiPost('/v1/field-mappings/propose', mappingPayload);
+            await apiPost('/v1/field-mappings/propose', {
+                domain: normalizeDomain(route.domain),
+                task_type: route.taskType,
+                source_data_type: route.taskType,
+                source_selector: route.sourceSelector,
+                target_data_type: 'text_input',
+                target_selector: route.targetSelector,
+                proposed_field_name: route.fieldName || `${route.taskType}_default`,
+            });
             if (route.taskType === 'image') {
                 await apiPost('/v1/locators/propose', {
                     domain: normalizeDomain(route.domain),
@@ -936,8 +891,7 @@ async function syncPendingRoutesToServer() {
                 });
             }
             proposed++;
-        } catch (e) {
-            await enqueueProposal('/v1/field-mappings/propose', mappingPayload, 'captcha-route');
+        } catch (_) {
             failed++;
         }
     }
@@ -1421,9 +1375,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'PROPOSE_FIELD_MAPPING') {
         apiPost('/v1/field-mappings/propose', msg.payload)
         .then(r => sendResponse({ ok: true, result: r }))
-        .catch(e => enqueueProposal('/v1/field-mappings/propose', msg.payload, 'captcha-route')
-            .then(q => sendResponse({ ok: false, queued: true, result: q, error: e.message }))
-            .catch(qe => sendResponse({ ok: false, error: qe.message })));
+        .catch(e => sendResponse({ ok: false, error: e.message }));
         return true;
     }
 
@@ -1440,13 +1392,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     if (msg.type === 'SYNC_PENDING_ROUTES') {
         syncPendingRoutesToServer()
-        .then(r => sendResponse({ ok: true, result: r }))
-        .catch(e => sendResponse({ ok: false, error: e.message }));
-        return true;
-    }
-
-    if (msg.type === 'SYNC_PROPOSAL_QUEUE') {
-        processProposalQueue('message')
         .then(r => sendResponse({ ok: true, result: r }))
         .catch(e => sendResponse({ ok: false, error: e.message }));
         return true;
@@ -1478,7 +1423,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 // Auto-propose to server if Master key is active
                 if (data.isMaster && data.apiKey) {
                     getDeviceId().then(devId => {
-                        const proposalPayload = {
+                        apiPost('/v1/autofill/proposals', {
                             idempotency_key: rule.local_rule_id,
                             submitted_at: new Date().toISOString(),
                             client: {
@@ -1497,13 +1442,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                                 priority: 100,
                                 meta: rule.meta || {}
                              }
-                        };
-                        apiPost('/v1/autofill/proposals', proposalPayload)
-                            .catch(e => enqueueProposal('/v1/autofill/proposals', proposalPayload, 'autofill-rule')
-                                .then(() => console.warn('[Autofill] Auto-propose queued:', e.message)));
+                        }).catch(e => console.warn('[Autofill] Auto-propose failed:', e.message));
                     });
-                } else {
-                    rule.proposal_status = data.isMaster ? 'missing_api_key' : 'master_key_required';
                 }
             }
 

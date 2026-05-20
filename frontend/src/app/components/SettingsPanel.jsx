@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import PropTypes from "prop-types";
-import { Download, Upload, Save, Bell, Globe, Shield, Loader2, Inbox, Send, CreditCard, Image, RotateCcw, DatabaseBackup, CheckCircle2, Cloud, KeyRound } from "lucide-react";
+import { Download, Upload, Save, Bell, Globe, Shield, Loader2, Inbox, Send, CreditCard, Image, RotateCcw, Database, Users, RefreshCw, CloudUpload } from "lucide-react";
 import { useThemeContext } from "../context/ThemeContext";
-import { apiGet, apiPostForm, apiPostJson } from "../../api/client";
+import { apiGet, apiPostJson } from "../../api/client";
 import { EmptyState } from "./EmptyState";
 
 export function SettingsPanel({
@@ -19,7 +19,6 @@ export function SettingsPanel({
   setSettingsKeyBurst,
   settingsCustomDomain,
   setSettingsCustomDomain,
-  cloudBackupConfigured,
   handleSettingsKeyChange,
   handleSaveKeyAccessSettings,
   handleAddSettingsCustomDomain,
@@ -29,14 +28,7 @@ export function SettingsPanel({
   handleRestoreLatestBackup,
   handleExportMasterSetup,
   handleImportMasterSetup,
-  handleExportAutofill,
-  handleImportAutofill,
-  handleExportCaptcha,
-  handleImportCaptcha,
-  handleExportFullBackup,
-  handleImportFullBackup,
-  handleCloudBackupPush,
-  handleCloudBackupPull,
+  refreshData,
   showToast
 }) {
   const { isDark, t_textHeading, t_textMuted, t_borderLight, t_rowHover, glassPanel, glassButton, glassInput, badgeSuccess, solidButton } = useThemeContext();
@@ -47,6 +39,94 @@ export function SettingsPanel({
   const [telegramTesting, setTelegramTesting] = useState(false);
   const selectedKey = apiKeys.find(k => String(k.id) === String(settingsKeyId));
   const selectedServices = selectedKey?.services || {};
+  const [backupList, setBackupList] = useState({ system: [], users: [], full: [] });
+  const [backupLoading, setBackupLoading] = useState(false);
+  const [backupWorking, setBackupWorking] = useState("");
+  const [selectedSystemBackup, setSelectedSystemBackup] = useState("");
+  const [selectedUserBackup, setSelectedUserBackup] = useState("");
+
+  const formatBackupSize = (bytes) => {
+    const value = Number(bytes || 0);
+    if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+    if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
+    return `${value} B`;
+  };
+
+  const formatBackupDate = (value) => {
+    if (!value) return "";
+    try {
+      return new Date(value).toLocaleString();
+    } catch {
+      return String(value);
+    }
+  };
+
+  const refreshBackups = async () => {
+    setBackupLoading(true);
+    try {
+      const data = await apiGet("/admin/api/backups/list");
+      const next = {
+        system: data.system || [],
+        users: data.users || [],
+        full: data.full || [],
+      };
+      setBackupList(next);
+      setSelectedSystemBackup(current => current || next.system[0]?.name || "");
+      setSelectedUserBackup(current => current || next.users[0]?.name || "");
+    } catch (e) {
+      showToast("Failed to load backups: " + e.message, "error");
+    } finally {
+      setBackupLoading(false);
+    }
+  };
+
+  const createSplitBackup = async (type) => {
+    setBackupWorking(type);
+    try {
+      await apiPostJson(`/admin/api/backups/${type}`, {});
+      await refreshBackups();
+      showToast(type === "system" ? "System backup created." : "User backup created.");
+    } catch (e) {
+      showToast("Backup failed: " + e.message, "error");
+    } finally {
+      setBackupWorking("");
+    }
+  };
+
+  const restoreSplitBackup = async (type) => {
+    const filename = type === "system" ? selectedSystemBackup : selectedUserBackup;
+    if (!filename) return showToast("Select a backup first.", "error");
+    if (!confirm(`Restore ${type} backup ${filename}? This overwrites matching local data.`)) return;
+    setBackupWorking(`restore-${type}`);
+    try {
+      const data = await apiPostJson("/admin/api/backups/restore", { type, filename });
+      refreshData?.();
+      const reloaded = data.exam_reload ? ` Exam reloaded: ${data.exam_reload.questions || 0} questions, ${data.exam_reload.sign_hashes || 0} hashes.` : "";
+      showToast(type === "system" ? "System backup restored." : "User backup restored.");
+      if (reloaded) showToast(reloaded.trim());
+    } catch (e) {
+      showToast("Restore failed: " + e.message, "error");
+    } finally {
+      setBackupWorking("");
+    }
+  };
+
+  const syncBackups = async (target) => {
+    setBackupWorking(target);
+    try {
+      const data = await apiPostJson(`/admin/api/backups/${target}`, {});
+      const failed = (data.results || []).filter(r => r.success === false || r.ok === false);
+      if (failed.length) {
+        showToast(`${target} completed with ${failed.length} failure(s).`, "error");
+      } else {
+        showToast(target === "rclone-sync" ? "Latest backups sent to rclone." : "Latest backups sent to Telegram.");
+      }
+    } catch (e) {
+      showToast("Sync failed: " + e.message, "error");
+    } finally {
+      setBackupWorking("");
+    }
+  };
 
   useEffect(() => {
     apiGet("/admin/api/settings/telegram.bot_token")
@@ -56,6 +136,7 @@ export function SettingsPanel({
       .then(d => setTelegramEnabled(String(d.value || "").toLowerCase() === "true"))
       .catch(() => {});
     refreshTelegramStatus();
+    refreshBackups();
   }, []);
 
   const refreshTelegramStatus = async () => {
@@ -115,214 +196,6 @@ export function SettingsPanel({
   const [qrUrl, setQrUrl] = useState("");
   const [qrUploading, setQrUploading] = useState(false);
   const [paymentSaving, setPaymentSaving] = useState(false);
-
-  const [backupHealth, setBackupHealth] = useState(null);
-  const [backupSettings, setBackupSettings] = useState({
-    encryptionKey: "",
-    retentionCount: "7",
-    telegramChannelId: "",
-    gdriveEnabled: false,
-    gdriveFolderId: "",
-    gdriveClientId: "",
-    gdriveClientSecret: "",
-  });
-  const [backupBusy, setBackupBusy] = useState("");
-
-  useEffect(() => {
-    refreshBackupHealth();
-    Promise.all([
-      apiGet("/admin/api/settings/backup.encryption_key").catch(() => ({ value: "" })),
-      apiGet("/admin/api/settings/backup.retention_count").catch(() => ({ value: "7" })),
-      apiGet("/admin/api/settings/backup.telegram_channel_id").catch(() => ({ value: "" })),
-      apiGet("/admin/api/settings/backup.gdrive.enabled").catch(() => ({ value: "false" })),
-      apiGet("/admin/api/settings/backup.gdrive.folder_id").catch(() => ({ value: "" })),
-      apiGet("/admin/api/settings/backup.gdrive.client_id").catch(() => ({ value: "" })),
-      apiGet("/admin/api/settings/backup.gdrive.client_secret").catch(() => ({ value: "" })),
-    ]).then(([encryption, retention, channel, enabled, folder, clientId, clientSecret]) => {
-      setBackupSettings({
-        encryptionKey: encryption.value || "",
-        retentionCount: retention.value || "7",
-        telegramChannelId: channel.value || "",
-        gdriveEnabled: String(enabled.value || "").toLowerCase() === "true",
-        gdriveFolderId: folder.value || "",
-        gdriveClientId: clientId.value || "",
-        gdriveClientSecret: clientSecret.value || "",
-      });
-    });
-  }, []);
-
-  const refreshBackupHealth = async () => {
-    try {
-      const data = await apiGet("/admin/api/system/backup-health");
-      setBackupHealth(data);
-    } catch (_) {}
-  };
-
-  const updateBackupSetting = (key, value) => {
-    setBackupSettings(prev => ({ ...prev, [key]: value }));
-  };
-
-  const latestBackup = backupHealth?.last_backup || null;
-  const backupSetupHint = (() => {
-    if (!backupHealth) return "";
-    if (!backupHealth.telegram_token_set) return "Set Telegram bot token in Telegram Bot settings.";
-    if (!backupHealth.telegram_channel_set) return "Set Telegram backup channel ID.";
-    if (!backupHealth.telegram_local_api) return "Using hosted Bot API; large files will be sent in parts.";
-    if (!backupHealth.gdrive_client_configured) return "Set Google Drive OAuth client env to enable sign-in.";
-    if (!backupHealth.gdrive_connected) return "Sign in with Google to connect Drive uploads.";
-    return "";
-  })();
-
-  const saveBackupSettings = async () => {
-    setBackupBusy("settings");
-    try {
-      await apiPostJson("/admin/api/settings/bulk", {
-        settings: {
-          "backup.encryption_key": backupSettings.encryptionKey,
-          "backup.retention_count": backupSettings.retentionCount,
-          "backup.telegram_channel_id": backupSettings.telegramChannelId,
-          "backup.gdrive.enabled": backupSettings.gdriveEnabled ? "true" : "false",
-          "backup.gdrive.folder_id": backupSettings.gdriveFolderId,
-        }
-      });
-      await refreshBackupHealth();
-      showToast("Backup settings saved");
-    } catch (e) {
-      showToast(e.message || "Failed to save backup settings", "error");
-    } finally {
-      setBackupBusy("");
-    }
-  };
-
-  const createPackageBackup = async () => {
-    setBackupBusy("create");
-    try {
-      const result = await apiPostJson("/admin/api/system/backup", {});
-      await refreshBackupHealth();
-      showToast(result.status === "completed" ? "Backup package created" : result.error || "Backup failed", result.status === "completed" ? "success" : "error");
-    } catch (e) {
-      showToast(e.message || "Backup failed", "error");
-    } finally {
-      setBackupBusy("");
-    }
-  };
-
-  const validateBackupPackage = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setBackupBusy("validate");
-    try {
-      const fd = new FormData();
-      fd.append("backup_file", file);
-      const result = await apiPostForm("/admin/api/system/backups/validate", fd);
-      showToast(result.ok ? "Backup package validated" : result.error || "Validation failed", result.ok ? "success" : "error");
-    } catch (err) {
-      showToast(err.message || "Validation failed", "error");
-    } finally {
-      e.target.value = "";
-      setBackupBusy("");
-    }
-  };
-
-  const importSystemBundle = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setBackupBusy("import-bundle");
-    try {
-      const fd = new FormData();
-      fd.append("bundle_file", file);
-      const result = await apiPostForm("/admin/api/system/import-bundle", fd);
-      showToast(result.status === "completed" ? `Bundle imported (${result.file_count || 0} files)` : result.error || "Bundle import failed", result.status === "completed" ? "success" : "error");
-    } catch (err) {
-      showToast(err.message || "Bundle import failed", "error");
-    } finally {
-      e.target.value = "";
-      setBackupBusy("");
-    }
-  };
-
-  const restoreBackupPackage = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!confirm("Restore this backup package now? This overwrites server data and files.")) {
-      e.target.value = "";
-      return;
-    }
-    setBackupBusy("restore");
-    try {
-      const fd = new FormData();
-      fd.append("backup_file", file);
-      const result = await apiPostForm("/admin/api/system/backups/restore-package", fd);
-      await refreshBackupHealth();
-      showToast(result.status === "completed" ? "Backup package restored" : result.error || "Restore failed", result.status === "completed" ? "success" : "error");
-    } catch (err) {
-      showToast(err.message || "Restore failed", "error");
-    } finally {
-      e.target.value = "";
-      setBackupBusy("");
-    }
-  };
-
-  const uploadLatestToTelegram = async () => {
-    if (!latestBackup) return showToast("Create a backup first", "error");
-    setBackupBusy("telegram");
-    try {
-      const result = await apiPostJson(`/admin/api/system/backups/${latestBackup.id}/telegram`, {});
-      showToast(result.ok ? "Latest backup sent to Telegram" : (result.error || "Telegram upload failed"), result.ok ? "success" : "error");
-    } catch (e) {
-      showToast(e.message || "Telegram upload failed", "error");
-    } finally {
-      setBackupBusy("");
-    }
-  };
-
-  const testTelegramBackupDestination = async () => {
-    setBackupBusy("telegram-test");
-    try {
-      const payload = {
-        save: true,
-      };
-      if (backupSettings.telegramChannelId.trim()) {
-        payload.chat_id = backupSettings.telegramChannelId.trim();
-      }
-      const result = await apiPostJson("/admin/api/system/backups/telegram/test", payload);
-      showToast(result.ok ? "Telegram destination test sent" : (result.error || "Telegram destination test failed"), result.ok ? "success" : "error");
-      await refreshBackupHealth();
-    } catch (e) {
-      showToast(e.data?.hint || e.data?.error || e.message || "Telegram destination test failed", "error");
-    } finally {
-      setBackupBusy("");
-    }
-  };
-
-  const uploadLatestToDrive = async () => {
-    if (!latestBackup) return showToast("Create a backup first", "error");
-    setBackupBusy("drive");
-    try {
-      const result = await apiPostJson(`/admin/api/system/backups/${latestBackup.id}/gdrive`, {});
-      showToast(result.ok ? "Latest backup uploaded to Drive" : result.error || "Drive upload failed", result.ok ? "success" : "error");
-      await refreshBackupHealth();
-    } catch (e) {
-      showToast(e.message || "Drive upload failed", "error");
-    } finally {
-      setBackupBusy("");
-    }
-  };
-
-  const openDriveAuth = async () => {
-    setBackupBusy("drive-auth");
-    try {
-      const redirectUri = `${window.location.origin}/admin/api/system/backups/gdrive/callback`;
-      const result = await apiGet(`/admin/api/system/backups/gdrive/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}`);
-      if (!result.ok || !result.url) {
-        throw new Error(result.error || "Google Drive OAuth is not configured");
-      }
-      window.location.href = result.url;
-    } catch (e) {
-      showToast(e.message || "Google Drive sign-in failed", "error");
-      setBackupBusy("");
-    }
-  };
 
   useEffect(() => {
     apiGet("/admin/api/settings/payment.upi_id")
@@ -634,164 +507,80 @@ export function SettingsPanel({
 
       {/* Backups Section */}
       <div className={`rounded-2xl p-6 transition-colors duration-500 ${glassPanel}`}>
-        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-5">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-emerald-500/15 text-emerald-500 rounded-lg">
-              <DatabaseBackup size={20} />
-            </div>
-            <div>
-              <h3 className={`text-base font-semibold ${t_textHeading}`}>Data Resilience</h3>
-              <p className={`text-xs ${t_textMuted}`}>Portable backup packages for redeploy and restore.</p>
-            </div>
-          </div>
-          <button type="button" onClick={refreshBackupHealth} className={glassButton}>
-            <RotateCcw size={14} />
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <h3 className={`text-base font-semibold ${t_textHeading}`}>Data Resilience</h3>
+          <button type="button" onClick={refreshBackups} disabled={backupLoading} className={glassButton}>
+            {backupLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
             Refresh
           </button>
         </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className={`rounded-xl border p-4 ${t_borderLight}`}>
+            <div className="flex items-center gap-2 mb-3">
+              <Database size={16} className="text-cyan-400" />
+              <h4 className={`text-sm font-semibold ${t_textHeading}`}>System Backup</h4>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <button type="button" onClick={() => createSplitBackup("system")} disabled={!!backupWorking} className={glassButton}>
+                {backupWorking === "system" ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                Create System
+              </button>
+              <select className={glassInput} value={selectedSystemBackup} onChange={(e) => setSelectedSystemBackup(e.target.value)}>
+                <option value="">No system backups</option>
+                {backupList.system.map((item) => (
+                  <option key={item.name} value={item.name}>{item.name}</option>
+                ))}
+              </select>
+              <button type="button" onClick={() => restoreSplitBackup("system")} disabled={!selectedSystemBackup || !!backupWorking} className={glassButton}>
+                {backupWorking === "restore-system" ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                Restore
+              </button>
+            </div>
+            {backupList.system[0] && (
+              <p className={`text-[11px] mt-2 ${t_textMuted}`}>
+                Latest: {formatBackupSize(backupList.system[0].size)} · {formatBackupDate(backupList.system[0].created)}
+              </p>
+            )}
+          </div>
 
-        <div className={`grid grid-cols-1 md:grid-cols-4 gap-3 rounded-xl border p-4 mb-5 ${t_borderLight}`}>
-          <div>
-            <p className={`text-[10px] uppercase font-bold ${t_textMuted}`}>Backups</p>
-            <p className={`text-xl font-semibold ${t_textHeading}`}>{backupHealth?.total_backups ?? "-"}</p>
-          </div>
-          <div>
-            <p className={`text-[10px] uppercase font-bold ${t_textMuted}`}>Latest</p>
-            <p className={`text-sm font-medium truncate ${t_textHeading}`}>{latestBackup?.name || "None"}</p>
-          </div>
-          <div>
-            <p className={`text-[10px] uppercase font-bold ${t_textMuted}`}>Telegram</p>
-            <p className={`text-sm ${backupHealth?.telegram_token_set && backupHealth?.telegram_channel_set ? "text-emerald-400" : t_textMuted}`}>
-              {backupHealth?.telegram_token_set && backupHealth?.telegram_channel_set ? "Ready" : backupHealth?.telegram_channel_set ? "Token missing" : "Not set"}
-            </p>
-            <p className={`text-[10px] truncate ${t_textMuted}`}>{backupHealth?.telegram_local_api ? "Local Bot API" : "Hosted Bot API"}</p>
-          </div>
-          <div>
-            <p className={`text-[10px] uppercase font-bold ${t_textMuted}`}>Google Drive</p>
-            <p className={`text-sm ${backupHealth?.gdrive_connected ? "text-emerald-400" : t_textMuted}`}>
-              {backupHealth?.gdrive_connected ? "Connected" : backupHealth?.gdrive_client_configured ? "Sign in needed" : "Client missing"}
-            </p>
+          <div className={`rounded-xl border p-4 ${t_borderLight}`}>
+            <div className="flex items-center gap-2 mb-3">
+              <Users size={16} className="text-emerald-400" />
+              <h4 className={`text-sm font-semibold ${t_textHeading}`}>User Backup</h4>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <button type="button" onClick={() => createSplitBackup("users")} disabled={!!backupWorking} className={glassButton}>
+                {backupWorking === "users" ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                Create Users
+              </button>
+              <select className={glassInput} value={selectedUserBackup} onChange={(e) => setSelectedUserBackup(e.target.value)}>
+                <option value="">No user backups</option>
+                {backupList.users.map((item) => (
+                  <option key={item.name} value={item.name}>{item.name}</option>
+                ))}
+              </select>
+              <button type="button" onClick={() => restoreSplitBackup("users")} disabled={!selectedUserBackup || !!backupWorking} className={glassButton}>
+                {backupWorking === "restore-users" ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                Restore
+              </button>
+            </div>
+            {backupList.users[0] && (
+              <p className={`text-[11px] mt-2 ${t_textMuted}`}>
+                Latest: {formatBackupSize(backupList.users[0].size)} · {formatBackupDate(backupList.users[0].created)}
+              </p>
+            )}
           </div>
         </div>
 
-        {(backupHealth?.telegram_last_error || backupHealth?.gdrive_last_error) && (
-          <div className={`rounded-xl border p-3 mb-5 text-xs space-y-1 ${t_borderLight} ${t_textMuted}`}>
-            {backupHealth?.telegram_last_error && <p>Telegram: {backupHealth.telegram_last_error}</p>}
-            {backupHealth?.gdrive_last_error && <p>Google Drive: {backupHealth.gdrive_last_error}</p>}
-          </div>
-        )}
-
-        {backupSetupHint && (
-          <div className={`rounded-xl border p-3 mb-5 text-xs ${t_borderLight} ${t_textMuted}`}>
-            {backupSetupHint}
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-          <div className="space-y-4">
-            <h4 className={`text-xs font-bold uppercase tracking-widest flex items-center gap-2 ${t_textMuted}`}>
-              <KeyRound size={14} /> Package Settings
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className={`text-xs block mb-1 ${t_textMuted}`}>Encryption Key</label>
-                <input
-                  type="password"
-                  className={glassInput}
-                  value={backupSettings.encryptionKey}
-                  onChange={(e) => updateBackupSetting("encryptionKey", e.target.value)}
-                  placeholder="Required for encrypted .upbak"
-                />
-              </div>
-              <div>
-                <label className={`text-xs block mb-1 ${t_textMuted}`}>Retention Count</label>
-                <input
-                  type="number"
-                  min="1"
-                  className={glassInput}
-                  value={backupSettings.retentionCount}
-                  onChange={(e) => updateBackupSetting("retentionCount", e.target.value)}
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className={`text-xs block mb-1 ${t_textMuted}`}>Telegram Backup Channel ID</label>
-                <input
-                  className={glassInput}
-                  value={backupSettings.telegramChannelId}
-                  onChange={(e) => updateBackupSetting("telegramChannelId", e.target.value)}
-                  placeholder="-1001234567890"
-                />
-              </div>
-            </div>
-            <button type="button" onClick={saveBackupSettings} disabled={backupBusy === "settings"} className={solidButton}>
-              {backupBusy === "settings" ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-              Save Backup Settings
-            </button>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-              <button type="button" onClick={createPackageBackup} disabled={backupBusy === "create"} className={glassButton}>
-                {backupBusy === "create" ? <Loader2 size={14} className="animate-spin" /> : <DatabaseBackup size={14} />}
-                Create Package
-              </button>
-              <button type="button" onClick={uploadLatestToTelegram} disabled={!latestBackup || backupBusy === "telegram"} className={`${glassButton} ${!latestBackup ? "opacity-40" : ""}`}>
-                {backupBusy === "telegram" ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                Send Latest
-              </button>
-              <button type="button" onClick={testTelegramBackupDestination} disabled={backupBusy === "telegram-test"} className={glassButton}>
-                {backupBusy === "telegram-test" ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                Test Destination
-              </button>
-              <label className={`cursor-pointer ${glassButton}`}>
-                {backupBusy === "validate" ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-                Validate Package
-                <input type="file" accept=".upbak,.zip" className="hidden" onChange={validateBackupPackage} />
-              </label>
-              <label className={`cursor-pointer ${glassButton}`}>
-                {backupBusy === "import-bundle" ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                Import Bundle
-                <input type="file" accept=".zip,.upbak" className="hidden" onChange={importSystemBundle} />
-              </label>
-              <label className={`cursor-pointer ${glassButton}`}>
-                {backupBusy === "restore" ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                Full Restore
-                <input type="file" accept=".upbak,.zip" className="hidden" onChange={restoreBackupPackage} />
-              </label>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <h4 className={`text-xs font-bold uppercase tracking-widest flex items-center gap-2 ${t_textMuted}`}>
-              <Cloud size={14} /> Google Drive
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <label className={`flex items-center gap-2 text-xs ${t_textMuted}`}>
-                <input
-                  type="checkbox"
-                  checked={backupSettings.gdriveEnabled}
-                  onChange={(e) => updateBackupSetting("gdriveEnabled", e.target.checked)}
-                />
-                Enable Drive uploads
-              </label>
-              <div>
-                <label className={`text-xs block mb-1 ${t_textMuted}`}>Drive Folder ID</label>
-                <input
-                  className={glassInput}
-                  value={backupSettings.gdriveFolderId}
-                  onChange={(e) => updateBackupSetting("gdriveFolderId", e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <button type="button" onClick={openDriveAuth} disabled={backupBusy === "drive-auth"} className={glassButton}>
-                {backupBusy === "drive-auth" ? <Loader2 size={14} className="animate-spin" /> : <Cloud size={14} />}
-                Sign in with Google
-              </button>
-              <button type="button" onClick={uploadLatestToDrive} disabled={!latestBackup || backupBusy === "drive"} className={`${glassButton} ${!latestBackup ? "opacity-40" : ""}`}>
-                {backupBusy === "drive" ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                Upload Latest
-              </button>
-            </div>
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+          <button type="button" onClick={() => syncBackups("rclone-sync")} disabled={!!backupWorking} className={glassButton}>
+            {backupWorking === "rclone-sync" ? <Loader2 size={14} className="animate-spin" /> : <CloudUpload size={14} />}
+            Rclone Sync
+          </button>
+          <button type="button" onClick={() => syncBackups("telegram-sync")} disabled={!!backupWorking} className={glassButton}>
+            {backupWorking === "telegram-sync" ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+            Telegram Upload
+          </button>
         </div>
       </div>
 
@@ -1001,7 +790,6 @@ SettingsPanel.propTypes = {
   setSettingsKeyBurst: PropTypes.func.isRequired,
   settingsCustomDomain: PropTypes.string.isRequired,
   setSettingsCustomDomain: PropTypes.func.isRequired,
-  cloudBackupConfigured: PropTypes.bool.isRequired,
   handleSettingsKeyChange: PropTypes.func.isRequired,
   handleSaveKeyAccessSettings: PropTypes.func.isRequired,
   handleAddSettingsCustomDomain: PropTypes.func.isRequired,
@@ -1011,13 +799,6 @@ SettingsPanel.propTypes = {
   handleRestoreLatestBackup: PropTypes.func.isRequired,
   handleExportMasterSetup: PropTypes.func.isRequired,
   handleImportMasterSetup: PropTypes.func.isRequired,
-  handleExportAutofill: PropTypes.func.isRequired,
-  handleImportAutofill: PropTypes.func.isRequired,
-  handleExportCaptcha: PropTypes.func.isRequired,
-  handleImportCaptcha: PropTypes.func.isRequired,
-  handleExportFullBackup: PropTypes.func.isRequired,
-  handleImportFullBackup: PropTypes.func.isRequired,
-  handleCloudBackupPush: PropTypes.func.isRequired,
-  handleCloudBackupPull: PropTypes.func.isRequired,
+  refreshData: PropTypes.func,
   showToast: PropTypes.func.isRequired,
 };

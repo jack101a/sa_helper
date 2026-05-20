@@ -1,0 +1,51 @@
+"""Single-process background scheduler entrypoint.
+
+Run this as a separate container/process so API workers can scale without
+running duplicate backup, subscription expiry, or MCQ merge jobs.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import signal
+
+from app.main import (
+    _backup_scheduler,
+    _exam_merge_loop,
+    _subscription_expiry_loop,
+    container,
+)
+
+logger = logging.getLogger(__name__)
+
+
+async def run() -> None:
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, stop_event.set)
+
+    tasks = [
+        asyncio.create_task(_exam_merge_loop(container), name="exam-merge-loop"),
+        asyncio.create_task(_backup_scheduler(container), name="backup-scheduler"),
+        asyncio.create_task(_subscription_expiry_loop(container), name="subscription-expiry-loop"),
+    ]
+    logger.info("scheduler_started", extra={"context": {"tasks": [task.get_name() for task in tasks]}})
+
+    try:
+        await stop_event.wait()
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await container.exam_service.close()
+        logger.info("scheduler_stopped")
+
+
+def main() -> None:
+    asyncio.run(run())
+
+
+if __name__ == "__main__":
+    main()

@@ -7,11 +7,13 @@ It coexists with the existing raw-SQL Database facade for legacy tables.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from typing import Generator
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session, declarative_base, sessionmaker
+from sqlalchemy.orm import Session, sessionmaker, declarative_base
 
 from app.core.config import Settings
 
@@ -48,13 +50,10 @@ def init_db(settings: Settings) -> Engine:
 
     db_type = settings.storage.db_type
     if db_type == "postgresql":
-        database_url = settings.storage.database_url
-        if not database_url:
-            raise RuntimeError(
-                "DB_TYPE=postgresql requires DATABASE_URL or POSTGRES_* "
-                "environment variables (including POSTGRES_PASSWORD)."
-            )
-        url = _build_postgresql_url(database_url)
+        url = _build_postgresql_url(
+            settings.storage.database_url
+            or os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/unified_platform")
+        )
     else:
         url = _build_sqlite_url(settings.storage.sqlite_path)
 

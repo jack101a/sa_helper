@@ -28,11 +28,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the backend code
 COPY backend/ /app/backend/
+COPY data/ /opt/sa-helper-seed/data/
 COPY backend/config/ /opt/sa-helper-seed/backend/config/
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 # Create necessary directories
-RUN mkdir -p /app/backend/logs /app/backend/datasets /app/data && \
+RUN cp -a /opt/sa-helper-seed/data /app/data && \
+    mkdir -p /app/backend/logs /app/backend/datasets && \
     chmod +x /usr/local/bin/docker-entrypoint.sh
 
 ENV PYTHONPATH=/app/backend \

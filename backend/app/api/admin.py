@@ -1,26 +1,11 @@
 """Admin dashboard route definitions — Router Composition."""
 
 from __future__ import annotations
-
 from fastapi import APIRouter
-
 from app.api.admin_routes import (
-    analytics,
-    auth,
-    autofill,
-    automation_methods,
-    backups,
-    captcha_proposals,
-    datasets,
-    keys,
-    locators,
-    models,
-    payments,
-    settings,
-    subscriptions,
-    system,
-    user_keys,
-    users,
+    auth, keys, models, datasets, backups, autofill, locators,
+    settings, analytics, captcha_proposals, users, payments, subscriptions,
+    user_keys, system, automation_methods,
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])

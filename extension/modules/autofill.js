@@ -101,19 +101,9 @@
                 if (!el || _filledElements.has(el)) continue;
 
                 // Guards
-                if (settings.skipHidden && (el.offsetParent === null || el.getClientRects().length === 0)) continue;
+                if (settings.skipHidden && el.offsetParent === null) continue;
                 if (settings.skipLocked && (el.disabled || el.readOnly)) continue;
                 if (settings.skipPassword && el.type === 'password') continue;
-                const tag = (el.tagName || '').toLowerCase();
-                const type = String(el.type || '').toLowerCase();
-                const editable = tag === 'select' || tag === 'textarea' || tag === 'button' || tag === 'a'
-                    || ['text', 'email', 'number', 'tel', 'search', 'url', 'checkbox', 'radio', ''].includes(type);
-                if (!editable) continue;
-                if (step.action === 'click' && step.safe_click !== true && step.allowClick !== true) {
-                    console.warn('[Autofill] Skipping unsafe click step. Approve rule with safe_click=true to enable.', step);
-                    continue;
-                }
-                if (step.action !== 'click' && ['button', 'submit', 'reset', 'file'].includes(type)) continue;
 
                 // Resolve Value (Profile Tokens)
                 let fillValue = step.value ?? '';

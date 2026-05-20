@@ -1,10 +1,7 @@
 from __future__ import annotations
-
 from typing import Any
-
-from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse
-
+from fastapi import APIRouter, Request, Form
+from fastapi.responses import RedirectResponse, JSONResponse
 from .utils import _admin_guard
 
 router = APIRouter(tags=["admin-locators"])
@@ -37,7 +34,7 @@ async def export_captcha_config(request: Request) -> Any:
     container = request.app.state.container
     return JSONResponse({
         "field_mappings": container.db.models.get_all_field_mappings(),
-        "locators": container.db.get_approved_locators(),
+        "locators": container.db.autofill.get_approved_locators(),
     })
 
 
@@ -50,30 +47,44 @@ async def import_captcha_config(request: Request) -> Any:
     container = request.app.state.container
     try:
         payload = await request.json()
-        model_id_by_filename = {
-            str(row.get("ai_model_filename") or ""): int(row["id"])
-            for row in container.db.get_model_registry()
-            if row.get("ai_model_filename") and row.get("id") is not None
-        }
-        for fm in payload.get("field_mappings", []) or []:
-            domain = container.db.settings._normalize_domain(fm.get("domain"))
-            field_name = str(fm.get("field_name") or "").strip()
-            task_type = str(fm.get("task_type") or "image").strip() or "image"
-            filename = str(fm.get("ai_model_filename") or "").strip()
-            ai_model_id = model_id_by_filename.get(filename)
-            if domain and field_name and ai_model_id:
-                container.db.set_field_mapping(
-                    domain=domain,
-                    field_name=field_name,
-                    task_type=task_type,
-                    ai_model_id=ai_model_id,
-                    source_data_type=fm.get("source_data_type") or task_type,
-                    source_selector=fm.get("source_selector") or "",
-                    target_data_type=fm.get("target_data_type") or "text",
-                    target_selector=fm.get("target_selector") or "",
-                )
+        # Re-use parts of the master import logic but scoped to captcha
+        with container.db.settings._lock:
+            with container.db.settings.connect() as conn:
+                # Import field_mappings
+                for fm in payload.get("field_mappings", []) or []:
+                    domain = container.db.settings._normalize_domain(fm.get("domain"))
+                    field_name = str(fm.get("field_name") or "").strip()
+                    task_type = str(fm.get("task_type") or "image").strip() or "image"
+                    filename = str(fm.get("ai_model_filename") or "").strip()
+                    if domain and field_name and filename:
+                        # Find model ID by filename
+                        row = conn.execute("SELECT id FROM model_registry WHERE ai_model_filename = ?", (filename,)).fetchone()
+                        if row:
+                            ai_model_id = int(row["id"])
+                            conn.execute(
+                                """
+                                INSERT INTO field_mappings (domain, field_name, task_type, source_data_type, source_selector, target_data_type, target_selector, ai_model_id)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                ON CONFLICT(domain, field_name) DO UPDATE SET
+                                    task_type = excluded.task_type,
+                                    ai_model_id = excluded.ai_model_id
+                                """,
+                                (domain, field_name, task_type, fm.get("source_data_type"), fm.get("source_selector"), fm.get("target_data_type"), fm.get("target_selector"), ai_model_id),
+                            )
 
-        container.db.bulk_replace_approved_locators(payload.get("locators", {}) or {})
+                # Import locators
+                locators = payload.get("locators", {}) or {}
+                for domain, row in locators.items():
+                    d = container.db.settings._normalize_domain(domain)
+                    img = str((row or {}).get("img") or "").strip()
+                    inp = str((row or {}).get("input") or "").strip()
+                    if d and img and inp:
+                        conn.execute(
+                            "INSERT INTO locators (domain, image_selector, input_selector, status) VALUES (?, ?, ?, 'approved') "
+                            "ON CONFLICT(domain) DO UPDATE SET image_selector=excluded.image_selector, input_selector=excluded.input_selector",
+                            (d, img, inp),
+                        )
+                conn.commit()
         return JSONResponse({"ok": True})
     except Exception as e:
         raise HTTPException(400, detail=str(e))
