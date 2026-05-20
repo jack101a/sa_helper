@@ -1,18 +1,13 @@
-# STATE.md - Split API Workers From Schedulers
+# STATE.md - Fix GHCR Docker Rclone Build Failure
 
 ## Status
 COMPLETE
 
 ## Active Task
-Restored two API workers safely by moving backup, MCQ merge, and subscription expiry loops into a dedicated scheduler service.
+Fixed GitHub Actions Docker build failure by replacing direct rclone `.deb` download with Debian package installation.
 
 ## Last Files Modified
-- `backend/app/main.py`
-- `backend/app/scheduler.py`
 - `Dockerfile`
-- `docker-compose.yml`
-- `docker-compose.prod.yml`
-- `docker-entrypoint.sh`
 - `TASK.md`
 - `STATE.md`
 
@@ -20,14 +15,10 @@ Restored two API workers safely by moving backup, MCQ merge, and subscription ex
 `docker build -t sa-helper-docker-audit:latest .`
 
 ## Last Output/Error
-- API Docker CMD is back to `uvicorn ... --workers 2`.
-- API compose env has `RUN_BACKGROUND_TASKS=false`, so API workers do not run duplicate schedulers.
-- New `scheduler` service runs `python -m app.scheduler` as the single owner of backup, MCQ merge, and subscription expiry loops.
-- API container runs migrations with `RUN_MIGRATIONS=true`; scheduler and Telegram containers use `RUN_MIGRATIONS=false` to avoid migration races.
-- Production compose config rendered successfully with API, scheduler, and Telegram services.
-- Python compile/import checks passed.
-- Fresh Alembic migration plus production-style import/query passed: `OK 2.0.0 0`.
-- Docker build still cannot run locally: `/var/run/docker.sock` permission denied.
+- Root cause: Buildx failed in Dockerfile rclone download step because `curl -f` returned exit code 22 for the direct `downloads.rclone.org/current/rclone-current-linux-${arch}.deb` URL.
+- Fix: Dockerfile now installs `rclone` through `apt-get install -y rclone`, which works with Debian package indexes for both amd64 and arm64 builds.
+- Static check passed: `git diff --check Dockerfile TASK.md`.
+- Local Docker build remains blocked by host permissions: `/var/run/docker.sock` permission denied.
 
 ## Immediate Next Step
-Push `scaling-check` and use GitHub Actions to perform the real multi-arch Docker build. Keep production env secrets non-empty: `AUTH_HASH_SALT`, `ADMIN_TOKEN`, and `ADMIN_PASSWORD`.
+Push `scaling-check` again so GitHub Actions can rebuild the multi-arch image.

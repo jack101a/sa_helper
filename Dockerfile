@@ -10,8 +10,6 @@ RUN npm run build
 FROM python:3.11-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive
-ARG TARGETARCH
-
 RUN apt-get update || (sleep 5 && apt-get update) && apt-get install -y \
     tesseract-ocr \
     tesseract-ocr-eng \
@@ -20,18 +18,8 @@ RUN apt-get update || (sleep 5 && apt-get update) && apt-get install -y \
     libglib2.0-0 \
     zip \
     curl \
+    rclone \
     && rm -rf /var/lib/apt/lists/*
-
-RUN set -eux; \
-    arch="${TARGETARCH:-$(dpkg --print-architecture)}"; \
-    case "$arch" in \
-      arm64|aarch64) rclone_arch="arm64" ;; \
-      amd64|x86_64) rclone_arch="amd64" ;; \
-      *) echo "Unsupported architecture for rclone .deb: $arch" && exit 1 ;; \
-    esac; \
-    curl -fsSLO "https://downloads.rclone.org/current/rclone-current-linux-${rclone_arch}.deb"; \
-    dpkg -i "rclone-current-linux-${rclone_arch}.deb"; \
-    rm -f "rclone-current-linux-${rclone_arch}.deb"
 
 WORKDIR /app
 
