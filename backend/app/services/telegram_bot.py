@@ -9,6 +9,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import os
 import time
 import uuid
 from datetime import datetime, timezone
@@ -17,6 +18,7 @@ from pathlib import Path
 import qrcode
 from app.core.models import User, SubscriptionPlan, PaymentRecord, UserSubscription
 from app.core.db import get_session
+from app.core.payment_links import build_upi_link, encode_upi_payload
 
 logger = logging.getLogger(__name__)
 
@@ -51,15 +53,6 @@ def _find_qr_image() -> Path | None:
     return None
 
 
-def _make_upi_link(upi_id: str, name: str, amount: float, note: str = "", currency: str = "INR") -> str:
-    """Generate a UPI intent deep link for one-click payment."""
-    amt = f"{amount:.2f}"
-    link = f"upi://pay?pa={upi_id}&pn={name}&am={amt}&cu={currency}"
-    if note:
-        link += f"&tn={note}"
-    return link
-
-
 class TelegramBotService:
     """Handles Telegram bot registration and payment flow.
 
@@ -87,6 +80,18 @@ class TelegramBotService:
 
     def _session(self):
         return self._session_factory()
+
+    def _public_base_url(self) -> str:
+        raw = (
+            self._read_db_setting("server.public_base_url")
+            or os.getenv("PUBLIC_BASE_URL", "")
+            or ""
+        ).strip()
+        if not raw:
+            return ""
+        if raw.startswith("http://") or raw.startswith("https://"):
+            return raw.rstrip("/")
+        return f"https://{raw}".rstrip("/")
 
     # ── State Management ──────────────────────────────────────────────────
 
@@ -288,14 +293,29 @@ class TelegramBotService:
             })
 
             # Build UPI intent link dynamically
-            upi_link = _make_upi_link(upi, self._payee_name, price, ref)
+            upi_link = build_upi_link(upi, self._payee_name, price, ref)
+            public_base = self._public_base_url()
+            tap_url = ""
+            if public_base:
+                token = encode_upi_payload(
+                    upi_id=upi,
+                    payee_name=self._payee_name,
+                    amount=price,
+                    note=ref,
+                    currency=currency,
+                    ttl_seconds=1800,
+                )
+                tap_url = f"{public_base}/pay/upi?t={token}"
+
+            has_tap_to_pay = tap_url.startswith("https://") or tap_url.startswith("http://")
+            pay_line = "_Click below to pay using UPI._" if has_tap_to_pay else "_Use your UPI app with details below._"
 
             msg = (
                 f"*Plan:* {plan.name}\n"
                 f"*Amount:* {price_str}\n"
                 f"*Validity:* {plan.duration_days} days\n"
                 f"*Ref:* `{ref}`\n\n"
-                f"_Click below to pay using UPI._\n\n"
+                f"{pay_line}\n\n"
                 f"📋 *Fallback UPI Details:*\n"
                 f"• UPI ID: `{upi}`\n"
                 f"• Amount: {price_str}\n"
@@ -303,11 +323,13 @@ class TelegramBotService:
                 f"_After payment, send a *screenshot* of your payment confirmation._"
             )
 
-            # Build inline keyboard with Tap to Pay button
-            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-            inline_keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("📲 Tap to Pay", url=upi_link)],
-            ])
+            inline_keyboard = None
+            if has_tap_to_pay:
+                # Telegram only accepts http/https URLs in inline keyboard buttons.
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+                inline_keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📲 Tap to Pay", url=tap_url)],
+                ])
 
             # Generate QR dynamically from UPI URL
             qr_buf = _generate_qr_bytes(upi_link)
@@ -705,7 +727,14 @@ class TelegramBotService:
                 kwargs = {"parse_mode": "Markdown"}
                 if state["state"] != STATE_NAME:
                     kwargs["reply_markup"] = _main_keyboard()
-                await update.message.reply_text(msg, **kwargs)
+                try:
+                    await update.message.reply_text(msg, **kwargs)
+                except Exception:
+                    # Some stored names/content can break Telegram Markdown parsing.
+                    await update.message.reply_text(
+                        msg.replace("*", "").replace("_", ""),
+                        reply_markup=kwargs.get("reply_markup"),
+                    )
 
             async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 uid = str(update.effective_user.id)
@@ -978,11 +1007,14 @@ class TelegramBotService:
                     await query.edit_message_text(result["text"], parse_mode="Markdown")
                     return
 
-                await query.edit_message_text(
-                    result["text"],
-                    parse_mode="Markdown",
-                    reply_markup=result.get("inline_keyboard"),
-                )
+                try:
+                    await query.edit_message_text(
+                        result["text"],
+                        parse_mode="Markdown",
+                        reply_markup=result.get("inline_keyboard"),
+                    )
+                except Exception:
+                    await query.edit_message_text(result["text"], parse_mode="Markdown")
 
                 try:
                     await context.bot.send_photo(

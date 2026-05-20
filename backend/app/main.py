@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -10,6 +11,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path as _Path
 
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -19,6 +21,7 @@ from app.core.config import get_settings
 from app.core.container import build_container
 from app.core.db import get_session
 from app.core.logging import configure_logging
+from app.core.payment_links import build_upi_link, decode_upi_payload
 from app.middleware.auth_middleware import AuthMiddleware
 from app.middleware.logging_middleware import LoggingMiddleware
 from app.middleware.rate_limit_middleware import RateLimitMiddleware
@@ -286,3 +289,53 @@ if _admin_assets.exists():
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "service": "unified-platform", "version": _API_VERSION}
+
+
+@app.get("/pay/upi", response_class=HTMLResponse)
+async def pay_upi(t: str = "") -> HTMLResponse:
+    payload = decode_upi_payload(t)
+    if not payload:
+        return HTMLResponse("Invalid or expired payment link.", status_code=400)
+
+    upi_link = build_upi_link(
+        upi_id=str(payload.get("pa", "")),
+        name=str(payload.get("pn", "")),
+        amount=float(payload.get("am", "0") or "0"),
+        note=str(payload.get("tn", "")),
+        currency=str(payload.get("cu", "INR") or "INR"),
+    )
+    safe_upi = html.escape(upi_link, quote=True)
+    safe_upi_id = html.escape(str(payload.get("pa", "")))
+    safe_amount = html.escape(str(payload.get("am", "")))
+    safe_note = html.escape(str(payload.get("tn", "")))
+
+    page = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>UPI Payment</title>
+  <meta http-equiv="refresh" content="0; url={safe_upi}">
+  <style>
+    body {{ font-family: Arial, sans-serif; margin: 0; padding: 24px; line-height: 1.45; }}
+    .card {{ max-width: 560px; margin: 0 auto; border: 1px solid #ddd; border-radius: 10px; padding: 16px; }}
+    .btn {{ display: inline-block; padding: 10px 14px; border-radius: 8px; border: 1px solid #222; text-decoration: none; color: #111; }}
+    .muted {{ color: #555; font-size: 14px; }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Continue to UPI App</h2>
+    <p class="muted">If your app does not open automatically, tap the button below.</p>
+    <p><a class="btn" href="{safe_upi}">Open UPI App</a></p>
+    <hr>
+    <p><strong>UPI ID:</strong> {safe_upi_id}</p>
+    <p><strong>Amount:</strong> {safe_amount}</p>
+    <p><strong>Note:</strong> {safe_note}</p>
+  </div>
+  <script>
+    try {{ window.location.href = "{safe_upi}"; }} catch (_) {{}}
+  </script>
+</body>
+</html>"""
+    return HTMLResponse(page, status_code=200)

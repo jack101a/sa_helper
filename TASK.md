@@ -1,35 +1,31 @@
-# TASK.md - Implement Exam Workflow Quotas
+# TASK.md - Telegram Domain Inline Pay Button
 
 ## Goal
-Implement the deferred rate-limit design: captcha remains request-level RPM limited, while MCQ/stall exam automation is counted as complete exam workflows with daily/monthly quotas instead of per-question solves.
+Implement Telegram-safe inline payment button using your HTTPS domain, with backend endpoint redirecting to UPI deep link.
 
 ## Status
 COMPLETE
 
 ## Scope Included
-- Inspect current API auth, rate-limit middleware, usage-cycle service, exam routes, and extension exam workflow messages.
-- Identify the safest completion signal for a full mock/stall exam workflow.
-- Add backend quota enforcement/recording for exam workflows.
-- Add minimal extension call to record a completed exam workflow after the final exam result.
-- Preserve existing captcha/normal request rate limiting.
-- Run targeted backend/frontend/extension verification and update STATE.md.
+- Add signed payment-link token helpers.
+- Add `/pay/upi` public endpoint that validates token and redirects/opens UPI link with fallback page.
+- Wire Telegram plan selection button to domain URL instead of direct `upi://`.
+- Keep QR/manual fallback intact.
+- Verify compile/import and token decode.
 
 ## Scope Excluded
-- Rewriting the auth/rate limiter architecture.
-- Changing live real-exam behavior outside the mock/stall exam completion flow.
-- Changing plan UI fields beyond what already exists.
-- Destructive commands.
+- Full payment provider integration.
+- Frontend/admin UI changes.
 
 ## Plan
-- [x] Sync AGENTS.md/STATE.md/TASK.md and worktree state.
-- [x] Read current rate-limit, usage-cycle, auth, exam route, and extension workflow files.
-- [x] Add backend exam workflow quota endpoint/service path.
-- [x] Add extension completion call only at mock/stall exam done stage.
-- [x] Verify tests/build/import and targeted grep/smoke checks.
+- [x] Read current Telegram flow and app routing.
+- [x] Add shared signed payment-link helper module.
+- [x] Add `/pay/upi` endpoint in backend.
+- [x] Wire Telegram button to HTTPS domain payment URL.
+- [x] Verify compile/import and token roundtrip.
 - [x] Update STATE.md.
 
 ## Verification
-- Backend py_compile/import checks for changed modules.
-- Backend tests: `cd backend && ../.venv/bin/python -m pytest tests/ -v --tb=short`.
-- Frontend build only if frontend touched.
-- Grep to ensure workflow quota call is only in mock/stall exam path.
+- `cd backend && ../.venv/bin/python -m py_compile app/core/payment_links.py app/services/telegram_bot.py app/main.py`
+- token roundtrip check: `encode_upi_payload` + `decode_upi_payload` => `token_ok True`
+- `cd backend && DEBUG=false RUN_BACKGROUND_TASKS=false AUTH_HASH_SALT=test-salt ADMIN_TOKEN=test-token ADMIN_USERNAME=admin ADMIN_PASSWORD=123456 PUBLIC_BASE_URL=https://example.com SQLITE_PATH=/tmp/sa-helper-paylink.db ../.venv/bin/python -c "from app.main import app; print('OK')"`
