@@ -16,6 +16,65 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["v1"])
 
 
+def _exam_daily_limit(container) -> int:
+    try:
+        raw = container.db.get_setting("exam.workflow_daily_limit", "5")
+        return max(1, int(raw))
+    except Exception:
+        return 5
+
+
+def _current_user_id(request: Request) -> int | None:
+    key_record = request.state.api_key_record
+    if key_record.get("key_type") == "master":
+        return None
+    user_id = key_record.get("user_id")
+    return int(user_id) if user_id else None
+
+
+def _quota_response(request: Request) -> dict:
+    ensure_service_allowed(request, "solver")
+    user_id = _current_user_id(request)
+    if user_id is None:
+        return {"allowed": True, "quota_enforced": False}
+    container = request.app.state.container
+    result = container.usage_cycle_service.check_exam_workflow_quota(
+        user_id,
+        daily_limit=_exam_daily_limit(container),
+    )
+    if not result.get("allowed"):
+        raise HTTPException(429, result.get("reason", "exam workflow quota exceeded"))
+    return {"allowed": True, "quota_enforced": True, **result}
+
+
+@router.post("/exam/workflow/start")
+async def exam_workflow_start(request: Request, payload: dict | None = None) -> dict:
+    """Check quota once before a mock/stall exam workflow starts."""
+    return _quota_response(request)
+
+
+@router.post("/exam/workflow/complete")
+async def exam_workflow_complete(request: Request, payload: dict | None = None) -> dict:
+    """Count one completed mock/stall exam workflow."""
+    ensure_service_allowed(request, "solver")
+    user_id = _current_user_id(request)
+    if user_id is None:
+        return {"allowed": True, "quota_enforced": False}
+
+    body = payload or {}
+    container = request.app.state.container
+    result = container.usage_cycle_service.record_exam_workflow_complete(
+        user_id,
+        str(body.get("workflow_id") or ""),
+        daily_limit=_exam_daily_limit(container),
+        domain=Database._normalize_domain(body.get("domain")),
+        question_count=int(body.get("question_count") or 0),
+    )
+    if not result.get("allowed"):
+        raise HTTPException(429, result.get("reason", "exam workflow quota exceeded"))
+    return {"allowed": True, "quota_enforced": True, **result}
+
+
 @router.post("/exam/solve", response_model=ExamSolveResponse)
 async def exam_solve(request: Request, payload: ExamSolveRequest) -> ExamSolveResponse:
     ensure_service_allowed(request, "solver")

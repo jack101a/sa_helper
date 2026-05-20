@@ -7,7 +7,12 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from app.core.models import UsageCycle, UserSubscription, User
+from app.core.models import ExamWorkflowUsage, UsageCycle, UserSubscription, User
+
+
+def _utcnow_db() -> datetime:
+    """Naive UTC datetime for DB comparisons; SQLite drops timezone info."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class UsageCycleService:
@@ -23,7 +28,7 @@ class UsageCycleService:
         """Get the current active usage cycle, or create one from the active subscription."""
         session = self._session()
         try:
-            now = datetime.now(timezone.utc)
+            now = _utcnow_db()
 
             # Find active cycle
             cycle = (
@@ -94,6 +99,118 @@ class UsageCycleService:
 
         return {"allowed": True, "used": cycle.used_count, "limit": cycle.monthly_limit, "cycle_id": cycle.id}
 
+    def check_exam_workflow_quota(self, user_id: int, daily_limit: int = 5) -> dict:
+        """Check daily and monthly quota for one full exam workflow."""
+        monthly = self.check_quota(user_id)
+        today = _utcnow_db().date().isoformat()
+        session = self._session()
+        try:
+            used_today = (
+                session.query(ExamWorkflowUsage)
+                .filter(
+                    ExamWorkflowUsage.user_id == user_id,
+                    ExamWorkflowUsage.usage_date == today,
+                )
+                .count()
+            )
+        finally:
+            session.close()
+
+        result = {
+            **monthly,
+            "daily_used": used_today,
+            "daily_limit": daily_limit,
+            "usage_date": today,
+        }
+        if used_today >= daily_limit:
+            return {**result, "allowed": False, "reason": "daily_quota_exceeded"}
+        return result
+
+    def record_exam_workflow_complete(
+        self,
+        user_id: int,
+        workflow_id: str,
+        *,
+        daily_limit: int = 5,
+        domain: str | None = None,
+        question_count: int = 0,
+    ) -> dict:
+        """Count one completed exam workflow once for daily and monthly quota."""
+        workflow_id = str(workflow_id or "").strip()[:64]
+        if not workflow_id:
+            return {"allowed": False, "reason": "missing_workflow_id"}
+
+        today = _utcnow_db().date().isoformat()
+        session = self._session()
+        try:
+            existing = (
+                session.query(ExamWorkflowUsage)
+                .filter(ExamWorkflowUsage.workflow_id == workflow_id)
+                .first()
+            )
+            if existing:
+                if int(existing.user_id) != int(user_id):
+                    return {"allowed": False, "reason": "workflow_id_conflict"}
+                quota = self.check_exam_workflow_quota(user_id, daily_limit=daily_limit)
+                return {**quota, "allowed": True, "duplicate": True}
+
+            used_today = (
+                session.query(ExamWorkflowUsage)
+                .filter(
+                    ExamWorkflowUsage.user_id == user_id,
+                    ExamWorkflowUsage.usage_date == today,
+                )
+                .count()
+            )
+            if used_today >= daily_limit:
+                return {
+                    "allowed": False,
+                    "reason": "daily_quota_exceeded",
+                    "daily_used": used_today,
+                    "daily_limit": daily_limit,
+                    "usage_date": today,
+                }
+        finally:
+            session.close()
+
+        monthly = self.increment_usage(user_id, amount=1)
+        if not monthly.get("allowed"):
+            return monthly
+
+        session = self._session()
+        try:
+            usage = ExamWorkflowUsage(
+                user_id=user_id,
+                workflow_id=workflow_id,
+                usage_date=today,
+                domain=domain,
+                question_count=max(0, int(question_count or 0)),
+                completed_at=_utcnow_db(),
+            )
+            session.add(usage)
+            session.commit()
+            daily_used = (
+                session.query(ExamWorkflowUsage)
+                .filter(
+                    ExamWorkflowUsage.user_id == user_id,
+                    ExamWorkflowUsage.usage_date == today,
+                )
+                .count()
+            )
+            return {
+                **monthly,
+                "daily_used": daily_used,
+                "daily_limit": daily_limit,
+                "usage_date": today,
+                "workflow_id": workflow_id,
+                "duplicate": False,
+            }
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     def increment_usage(self, user_id: int, amount: int = 1) -> dict:
         """Atomically increment usage count. Returns updated quota state."""
         session = self._session()
@@ -117,7 +234,7 @@ class UsageCycleService:
                 return {"allowed": False, "reason": "quota_exceeded", "used": new_used, "limit": cycle.monthly_limit}
 
             cycle.used_count = new_used
-            cycle.updated_at = datetime.now(timezone.utc)
+            cycle.updated_at = _utcnow_db()
             session.commit()
             return {"allowed": True, "used": new_used, "limit": cycle.monthly_limit, "cycle_id": cycle.id}
         except Exception:
@@ -131,7 +248,7 @@ class UsageCycleService:
         This prevents TOCTOU races that could exceed the monthly limit under concurrent load."""
         session = self._session()
         try:
-            now = datetime.now(timezone.utc)
+            now = _utcnow_db()
             # Atomic: increment only if under limit, returns rowcount = 1 if successful
             result = session.execute(
                 "UPDATE usage_cycles SET used_count = used_count + :amount, updated_at = :now "
@@ -178,7 +295,7 @@ class UsageCycleService:
         """Force-reset the current cycle (admin override for bonus quota)."""
         session = self._session()
         try:
-            now = datetime.now(timezone.utc)
+            now = _utcnow_db()
             old = (
                 session.query(UsageCycle)
                 .filter(UsageCycle.user_id == user_id, UsageCycle.cycle_end_at > now)

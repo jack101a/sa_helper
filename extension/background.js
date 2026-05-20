@@ -1226,6 +1226,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return true;
     }
 
+    if (msg.type === 'EXAM_WORKFLOW_START') {
+        apiPost('/v1/exam/workflow/start', {
+            workflow_id: msg.workflowId,
+            domain:      msg.domain,
+        })
+        .then(data => sendResponse({ ok: true, data }))
+        .catch(err => sendResponse({ ok: false, error: err.message }));
+        return true;
+    }
+
+    if (msg.type === 'EXAM_WORKFLOW_COMPLETE') {
+        apiPost('/v1/exam/workflow/complete', {
+            workflow_id:    msg.workflowId,
+            domain:         msg.domain,
+            question_count: msg.questionCount,
+        })
+        .then(data => sendResponse({ ok: true, data }))
+        .catch(err => sendResponse({ ok: false, error: err.message }));
+        return true;
+    }
+
     // ── Exam Feedback (self-learning) ─────────────────────────
     if (msg.type === 'MOCK_PARSE_SHOW_ANSWER') {
         const tabId = sender?.tab?.id;
@@ -1460,19 +1481,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                     });
                 }
             });
-        });
-        return false;
-    }
-
-    // ── Screenshot on exam pass ──────────────────────────────────
-    if (msg.type === 'CAPTURE_SCREENSHOT') {
-        const tabId = sender.tab?.id;
-        if (!tabId) return false;
-        chrome.tabs.captureVisibleTab({ format: 'png', quality: 100 }, dataUrl => {
-            if (chrome.runtime.lastError || !dataUrl) return;
-            const ts       = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
-            const filename = `result_${ts}.png`;
-            chrome.downloads.download({ url: dataUrl, filename, saveAs: false });
         });
         return false;
     }

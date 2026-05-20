@@ -1,4 +1,6 @@
 from __future__ import annotations
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -20,7 +22,6 @@ _TRUSTED_IDENTITY_HEADERS = (
 _ADMIN_SESSION_MAX_AGE_SECONDS = 60 * 60 * 12
 _ADMIN_LOGIN_WINDOW_SECONDS = 5 * 60
 _ADMIN_LOGIN_MAX_FAILURES = 5
-_ADMIN_SESSIONS: dict[str, float] = {}
 _ADMIN_LOGIN_FAILURES: dict[str, list[float]] = {}
 
 def _slug(value: str) -> str:
@@ -45,25 +46,52 @@ def _fmt_dt(value: str | None) -> str:
         return value
 
 def _admin_session_cookie(request: Request) -> str:
-    """Create a non-deterministic, server-side admin session token."""
-    token = secrets.token_urlsafe(32)
-    _ADMIN_SESSIONS[token] = time.time() + _ADMIN_SESSION_MAX_AGE_SECONDS
-    return token
+    """Create a signed admin session token that survives multi-worker routing."""
+    issued_at = str(int(time.time()))
+    nonce = secrets.token_urlsafe(16)
+    payload = f"{issued_at}.{nonce}"
+    signature = hmac.new(
+        _admin_session_secret(request),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"{payload}.{signature}"
 
-def _admin_session_valid(token: str) -> bool:
-    """Return True when the token maps to a live server-side session."""
-    expires_at = _ADMIN_SESSIONS.get(token)
-    if not expires_at:
+def _admin_session_secret(request: Request) -> bytes:
+    settings = request.app.state.container.settings
+    secret = (
+        settings.auth.admin_token
+        or settings.auth.hash_salt
+        or settings.auth.admin_password
+        or "admin-session"
+    )
+    return str(secret).encode("utf-8")
+
+def _admin_session_valid(request: Request, token: str) -> bool:
+    """Return True when the signed admin session token is live and untampered."""
+    parts = token.split(".")
+    if len(parts) != 3:
         return False
-    if expires_at <= time.time():
-        _ADMIN_SESSIONS.pop(token, None)
+    issued_at_raw, nonce, signature = parts
+    try:
+        issued_at = int(issued_at_raw)
+    except ValueError:
+        return False
+    if issued_at <= 0 or issued_at + _ADMIN_SESSION_MAX_AGE_SECONDS <= time.time():
+        return False
+    payload = f"{issued_at_raw}.{nonce}"
+    expected = hmac.new(
+        _admin_session_secret(request),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(signature, expected):
         return False
     return True
 
 def _admin_session_destroy(token: str) -> None:
-    """Remove a server-side admin session token."""
-    if token:
-        _ADMIN_SESSIONS.pop(token, None)
+    """Stateless signed sessions expire by age; logout clears the browser cookie."""
+    return None
 
 def _admin_login_client_key(request: Request) -> str:
     forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
@@ -115,15 +143,17 @@ def _admin_guard(request: Request) -> Response | None:
     settings = request.app.state.container.settings
     has_user_pass = bool((settings.auth.admin_username or "").strip() and settings.auth.admin_password)
     if not has_user_pass:
-        return HTMLResponse(
-            "Admin auth is not configured. Set ADMIN_USERNAME + ADMIN_PASSWORD.",
-            status_code=503,
-        )
+        message = "Admin auth is not configured. Set ADMIN_USERNAME + ADMIN_PASSWORD."
+        if _wants_json(request):
+            return JSONResponse({"error": message}, status_code=503)
+        return HTMLResponse(message, status_code=503)
 
     cookie_token = request.cookies.get("admin_session", "")
-    if cookie_token and _admin_session_valid(cookie_token):
+    if cookie_token and _admin_session_valid(request, cookie_token):
         return None
 
+    if _wants_json(request):
+        return JSONResponse({"error": "admin_auth_required"}, status_code=401)
     return RedirectResponse(url="/admin/login", status_code=303)
 
 def _wants_json(request: Request) -> bool:

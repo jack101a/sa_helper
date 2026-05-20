@@ -13,6 +13,10 @@ from app.core.config import Settings
 
 # How often (seconds) to sweep stale buckets from the event dict.
 _BUCKET_PRUNE_INTERVAL = 120
+_EXAM_WORKFLOW_LIMITED_PATHS = {
+    "/v1/exam/solve",
+    "/v1/exam/feedback",
+}
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -44,6 +48,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if not request.url.path.startswith("/v1"):
             return await call_next(request)
         if request.url.path in {"/v1/key/create", "/v1/key/revoke"}:
+            return await call_next(request)
+        if request.url.path in _EXAM_WORKFLOW_LIMITED_PATHS:
             return await call_next(request)
 
         key_record = getattr(request.state, "api_key_record", None)

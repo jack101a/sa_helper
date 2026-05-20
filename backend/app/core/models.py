@@ -335,6 +335,19 @@ class UsageCycle(Base):
     updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
 
 
+class ExamWorkflowUsage(Base):
+    __tablename__ = "exam_workflow_usage"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    workflow_id = Column(String(64), nullable=False, unique=True)
+    usage_date = Column(String(10), nullable=False, index=True)
+    domain = Column(String(255), nullable=True)
+    question_count = Column(Integer, nullable=False, default=0)
+    completed_at = Column(DateTime, nullable=False, default=_utcnow)
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # AUDIT LOGS
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -1,31 +1,35 @@
-# TASK.md - Fix GHCR Docker Rclone Build Failure
+# TASK.md - Implement Exam Workflow Quotas
 
 ## Goal
-Fix GitHub Actions Docker build failure caused by direct rclone `.deb` download returning curl exit code 22.
+Implement the deferred rate-limit design: captcha remains request-level RPM limited, while MCQ/stall exam automation is counted as complete exam workflows with daily/monthly quotas instead of per-question solves.
 
 ## Status
 COMPLETE
 
 ## Scope Included
-- Replace fragile direct rclone download in Dockerfile with package-manager install.
-- Keep multi-arch Buildx compatibility for amd64 and arm64.
-- Run lightweight verification that does not require Docker daemon access.
-- Commit the fix for pushing.
-- Update STATE.md.
+- Inspect current API auth, rate-limit middleware, usage-cycle service, exam routes, and extension exam workflow messages.
+- Identify the safest completion signal for a full mock/stall exam workflow.
+- Add backend quota enforcement/recording for exam workflows.
+- Add minimal extension call to record a completed exam workflow after the final exam result.
+- Preserve existing captcha/normal request rate limiting.
+- Run targeted backend/frontend/extension verification and update STATE.md.
 
 ## Scope Excluded
-- Full local Docker build, because Docker socket access is denied for this user.
-- Changing application runtime behavior.
+- Rewriting the auth/rate limiter architecture.
+- Changing live real-exam behavior outside the mock/stall exam completion flow.
+- Changing plan UI fields beyond what already exists.
+- Destructive commands.
 
 ## Plan
-- [x] Read AGENTS.md, STATE.md, TASK.md, and Dockerfile.
-- [x] Patch Dockerfile rclone install.
-- [x] Validate Dockerfile syntax/path expectations with static checks.
-- [x] Commit fix.
+- [x] Sync AGENTS.md/STATE.md/TASK.md and worktree state.
+- [x] Read current rate-limit, usage-cycle, auth, exam route, and extension workflow files.
+- [x] Add backend exam workflow quota endpoint/service path.
+- [x] Add extension completion call only at mock/stall exam done stage.
+- [x] Verify tests/build/import and targeted grep/smoke checks.
 - [x] Update STATE.md.
 
 ## Verification
-- Dockerfile now installs `rclone` via Debian apt package.
-- Direct `downloads.rclone.org/current/*.deb` URL is removed.
-- `git diff --check Dockerfile TASK.md` passed.
-- `docker build -t sa-helper-docker-audit:latest .` still cannot run locally because Docker socket access is denied.
+- Backend py_compile/import checks for changed modules.
+- Backend tests: `cd backend && ../.venv/bin/python -m pytest tests/ -v --tb=short`.
+- Frontend build only if frontend touched.
+- Grep to ensure workflow quota call is only in mock/stall exam path.

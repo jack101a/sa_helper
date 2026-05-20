@@ -257,6 +257,10 @@ class TelegramBotService:
         except (ValueError, KeyError):
             return {"text": "Please reply with a valid number.", "qr_bytes": None, "inline_keyboard": None}
 
+        return self.handle_plan_select_by_id(chat_id, plan_id)
+
+    def handle_plan_select_by_id(self, chat_id: int, plan_id: int) -> dict:
+        """Build payment instructions for an exact plan id from inline callbacks."""
         session = self._session()
         try:
             plan = session.query(SubscriptionPlan).filter(SubscriptionPlan.id == plan_id).first()
@@ -969,69 +973,25 @@ class TelegramBotService:
                         parse_mode="Markdown")
                     return
 
-                # Process plan selection
-                result = self.handle_plan_select(chat_id, str(plan_id + 1))  # Convert back to 1-based for compatibility
-                # Actually, handle_plan_select expects a 1-based index. Let's fix this.
-                # We need to look up the plan by ID directly.
+                result = self.handle_plan_select_by_id(chat_id, plan_id)
+                if not result.get("qr_bytes") and not result.get("inline_keyboard"):
+                    await query.edit_message_text(result["text"], parse_mode="Markdown")
+                    return
 
-                session = self._session()
+                await query.edit_message_text(
+                    result["text"],
+                    parse_mode="Markdown",
+                    reply_markup=result.get("inline_keyboard"),
+                )
+
                 try:
-                    plan = session.query(SubscriptionPlan).filter(SubscriptionPlan.id == plan_id).first()
-                    if not plan:
-                        await query.edit_message_text("Plan not found. Please try again.")
-                        return
-
-                    price = plan.price_amount / 100
-                    price_str = f"₹{price:.2f}"
-                    upi = self._upi_id or "Not configured — contact admin"
-
-                    note_prefix = self._read_db_setting("payment.note_prefix") or self._payment_note_prefix
-                    ref = f"{note_prefix}{datetime.now(timezone.utc).strftime('%y%m%d')}{uuid.uuid4().hex[:6].upper()}"
-
-                    self.set_state(chat_id, STATE_PAYMENT_INSTRUCTIONS, {
-                        "plan_id": plan_id,
-                        "plan_name": plan.name,
-                        "price_amount": plan.price_amount,
-                        "payment_ref": ref,
-                        "upi_id": upi,
-                        "payee_name": self._payee_name,
-                    })
-
-                    upi_link = _make_upi_link(upi, self._payee_name, price, ref)
-
-                    msg = (
-                        f"*Plan:* {plan.name}\n"
-                        f"*Amount:* {price_str}\n"
-                        f"*Validity:* {plan.duration_days} days\n"
-                        f"*Ref:* `{ref}`\n\n"
-                        f"_Click below to pay using UPI._\n\n"
-                        f"📋 *Fallback UPI Details:*\n"
-                        f"• UPI ID: `{upi}`\n"
-                        f"• Amount: {price_str}\n"
-                        f"• Note: `{ref}`\n\n"
-                        f"_After payment, send a *screenshot* of your payment confirmation._"
+                    await context.bot.send_photo(
+                        chat_id=chat_id,
+                        photo=result["qr_bytes"],
+                        caption="📱 Scan this QR to pay via any UPI app",
                     )
-
-                    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-                    pay_keyboard = InlineKeyboardMarkup([
-                        [InlineKeyboardButton("📲 Tap to Pay", url=upi_link)],
-                    ])
-
-                    # Edit the plan selection message to show payment instructions
-                    await query.edit_message_text(msg, parse_mode="Markdown", reply_markup=pay_keyboard)
-
-                    # Send QR code
-                    qr_buf = _generate_qr_bytes(upi_link)
-                    try:
-                        await context.bot.send_photo(
-                            chat_id=chat_id,
-                            photo=qr_buf,
-                            caption="📱 Scan this QR to pay via any UPI app"
-                        )
-                    except Exception as e:
-                        logger.error("qr_photo_failed", extra={"context": {"error": str(e)}})
-                finally:
-                    session.close()
+                except Exception as e:
+                    logger.error("qr_photo_failed", extra={"context": {"error": str(e)}})
 
             async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 """Handle payment screenshot uploads."""

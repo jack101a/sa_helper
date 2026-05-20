@@ -32,6 +32,10 @@
             showPanel:     false,
             lastSolve:     null,  // { questionB64, optionB64s, selectedOption, method, processingMs }
             pendingChecked: false,
+            workflowId:    null,
+            workflowAllowed: false,
+            workflowStarted: false,
+            workflowRecorded: false,
         };
 
         let panelEls = null;
@@ -172,6 +176,39 @@
             return src.startsWith('data:image/') ? src : null;
         }
 
+        function makeWorkflowId() {
+            const rand = Math.random().toString(36).slice(2, 10);
+            return `exam_${Date.now()}_${rand}`;
+        }
+
+        async function startWorkflowQuota() {
+            if (state.workflowStarted) return state.workflowAllowed;
+            state.workflowStarted = true;
+            state.workflowId = state.workflowId || makeWorkflowId();
+            const resp = await window.up_sendMsg('EXAM_WORKFLOW_START', {
+                workflowId: state.workflowId,
+                domain: window.location.hostname,
+            });
+            state.workflowAllowed = !!resp?.ok;
+            if (!state.workflowAllowed) {
+                setStatus('Exam quota reached', 'fail');
+                setResult(resp?.error || 'Exam workflow quota exceeded.');
+            }
+            return state.workflowAllowed;
+        }
+
+        function recordWorkflowComplete() {
+            if (state.workflowRecorded || !state.workflowId) return;
+            state.workflowRecorded = true;
+            window.up_sendMsg('EXAM_WORKFLOW_COMPLETE', {
+                workflowId: state.workflowId,
+                domain: window.location.hostname,
+                questionCount: state.totalSeen,
+            }).then(resp => {
+                if (!resp?.ok) console.warn('[Exam] Workflow quota record failed:', resp?.error || 'no response');
+            }).catch(e => console.warn('[Exam] Workflow quota record failed:', e.message));
+        }
+
         function waitAndSubmit(deadline, isLast) {
             const iv = setInterval(async () => {
                 const btn = document.getElementById('confirmbut');
@@ -205,13 +242,11 @@
 
                     // Precise matching based on user screenshot
                     const pass = /congratulations you have passed|licence generated successfully|your license number is/i.test(text);
-                    if (pass) {
+                    const failed = /you have failed|failed|not passed|better luck|try again/i.test(text);
+                    if (pass || failed) {
                         clearInterval(iv);
-                        setStatus('🎉 PASSED!', 'ok');
-                        setTimeout(() => {
-                            console.log('[Exam] Triggering screenshot');
-                            chrome.runtime.sendMessage({ type: 'CAPTURE_SCREENSHOT' });
-                        }, 2500);
+                        setStatus(pass ? '🎉 PASSED!' : 'Exam Result Recorded', pass ? 'ok' : 'fail');
+                        recordWorkflowComplete();
                     }
                 } catch (_) {}
             }, 1000);
@@ -301,6 +336,8 @@
             if (!state.enabled || state.examComplete) return;
 
             if (!qSrc || qSrc === state.lastQSrc || state.processing) return;
+
+            if (!state.workflowAllowed && !(await startWorkflowQuota())) return;
 
             const questionPayload = imageToPayload(getQImageEl());
             const optImgs = getOptImgEls().map(imageToPayload).filter(Boolean);

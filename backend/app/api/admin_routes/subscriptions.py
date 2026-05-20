@@ -67,6 +67,22 @@ async def update_plan(request: Request, plan_id: int) -> Any:
     return JSONResponse(plan.to_dict())
 
 
+@router.delete("/api/plans/{plan_id}")
+async def delete_plan(request: Request, plan_id: int) -> Any:
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    container = request.app.state.container
+    plan = container.subscription_service.delete_plan(plan_id)
+    if not plan:
+        return JSONResponse({"error": "Plan not found"}, status_code=404)
+    container.audit_service.log(
+        actor_type="admin", action="plan_deleted",
+        target_type="plan", target_id=plan_id,
+    )
+    return JSONResponse(plan.to_dict())
+
+
 # ── User Subscriptions ────────────────────────────────────────────────────
 
 @router.post("/api/users/{user_id}/subscribe")

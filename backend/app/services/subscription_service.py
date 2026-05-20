@@ -103,6 +103,24 @@ class SubscriptionService:
         finally:
             session.close()
 
+    def delete_plan(self, plan_id: int) -> SubscriptionPlan | None:
+        """Deactivate a plan without breaking existing subscriptions/payments."""
+        session = self._session()
+        try:
+            plan = session.query(SubscriptionPlan).filter(SubscriptionPlan.id == plan_id).first()
+            if not plan:
+                return None
+            plan.is_active = False
+            plan.updated_at = datetime.now(timezone.utc)
+            session.commit()
+            session.refresh(plan)
+            return plan
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     # ── User Subscriptions ─────────────────────────────────────────────────
 
     def create_subscription(

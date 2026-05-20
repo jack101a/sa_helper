@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import PropTypes from "prop-types";
-import { Tag, Loader2, Plus, Edit3, Save, X } from "lucide-react";
+import { Tag, Loader2, Plus, Edit3, Save, Trash2, X } from "lucide-react";
 import { useThemeContext } from "../context/ThemeContext";
-import { apiGet, apiPostJson, apiPutJson } from "../../api/client";
+import { apiDelete, apiGet, apiPostJson, apiPutJson } from "../../api/client";
 
 export function PlansPanel({ showToast }) {
   const { t_textHeading, t_textMuted, t_borderLight, glassPanel, glassInput, solidButton, iconBtn, isDark } = useThemeContext();
@@ -65,6 +65,20 @@ export function PlansPanel({ showToast }) {
       fetchPlans();
     } catch (e) {
       showToast(e.message || "Failed to update plan", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (planId) => {
+    if (!window.confirm("Deactivate this plan? Existing subscriptions will remain linked.")) return;
+    setSaving(true);
+    try {
+      await apiDelete(`/admin/api/plans/${planId}`);
+      showToast("Plan deactivated");
+      fetchPlans();
+    } catch (e) {
+      showToast(e.message || "Failed to deactivate plan", "error");
     } finally {
       setSaving(false);
     }
@@ -185,7 +199,14 @@ export function PlansPanel({ showToast }) {
                           </span>
                         </td>
                         <td className="p-3">
-                          <button onClick={() => openEdit(p)} className={iconBtn} title="Edit"><Edit3 size={14} /></button>
+                          <div className="flex items-center justify-end gap-1">
+                            <button onClick={() => openEdit(p)} className={iconBtn} title="Edit"><Edit3 size={14} /></button>
+                            {p.is_active && (
+                              <button onClick={() => handleDelete(p.id)} className={iconBtn} title="Deactivate" disabled={saving}>
+                                <Trash2 size={14} className="text-rose-400" />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </>
                     )}
