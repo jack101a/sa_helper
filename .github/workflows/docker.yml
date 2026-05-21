@@ -27,7 +27,7 @@ jobs:
 
       - name: Validate Docker Compose config
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.prod.yml config -q
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml config >/dev/null
 
       - name: Log in to the Container registry
         uses: docker/login-action@v3
