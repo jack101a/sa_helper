@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import PropTypes from "prop-types";
-import { Tag, Loader2, Plus, Edit3, Save, Trash2, X } from "lucide-react";
+import { Tag, Loader2, Plus, Edit3, Save, Trash2, X, Upload } from "lucide-react";
 import { useThemeContext } from "../context/ThemeContext";
-import { apiDelete, apiGet, apiPostJson, apiPutJson } from "../../api/client";
+import { apiDelete, apiGet, apiPostForm, apiPostJson, apiPutJson } from "../../api/client";
 
 export function PlansPanel({ showToast }) {
   const { t_textHeading, t_textMuted, t_borderLight, glassPanel, glassInput, solidButton, iconBtn, isDark } = useThemeContext();
@@ -25,6 +25,7 @@ export function PlansPanel({ showToast }) {
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(defaultForm);
   const [saving, setSaving] = useState(false);
+  const [uploadingQrPlanId, setUploadingQrPlanId] = useState(null);
 
   const fetchPlans = useCallback(async () => {
     setLoading(true);
@@ -84,6 +85,21 @@ export function PlansPanel({ showToast }) {
     }
   };
 
+  const handleQrUpload = async (planId, file) => {
+    if (!file) return;
+    setUploadingQrPlanId(planId);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      await apiPostForm(`/admin/api/settings/plans/${planId}/upload-qr`, fd);
+      showToast("Plan QR uploaded");
+    } catch (e) {
+      showToast(e.message || "Failed to upload QR", "error");
+    } finally {
+      setUploadingQrPlanId(null);
+    }
+  };
+
   const openEdit = (plan) => {
     setEditingId(plan.id);
     setForm({
@@ -134,6 +150,7 @@ export function PlansPanel({ showToast }) {
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>RPM</th>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Burst</th>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Services</th>
+                  <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>QR</th>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Active</th>
                   <th className={`text-right p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Actions</th>
                 </tr>
@@ -170,6 +187,7 @@ export function PlansPanel({ showToast }) {
                           </div>
                         </td>
                         <td className="p-2">—</td>
+                        <td className="p-2">—</td>
                         <td className="p-2">
                           <div className="flex items-center justify-end gap-1">
                             <button onClick={() => handleUpdate(p.id)} className={iconBtn} disabled={saving}><Save size={14} className="text-emerald-400" /></button>
@@ -192,6 +210,18 @@ export function PlansPanel({ showToast }) {
                             .filter(([, enabled]) => !!enabled)
                             .map(([name]) => name)
                             .join(", ") || "none"}
+                        </td>
+                        <td className="p-3">
+                          <label className={`${iconBtn} inline-flex cursor-pointer`} title="Upload plan QR">
+                            {uploadingQrPlanId === p.id ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              disabled={uploadingQrPlanId === p.id}
+                              onChange={(e) => handleQrUpload(p.id, e.target.files?.[0])}
+                            />
+                          </label>
                         </td>
                         <td className="p-3">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${p.is_active ? "bg-emerald-500/20 text-emerald-400" : "bg-slate-500/20 text-slate-400"}`}>

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.models import PaymentRecord
 
@@ -83,7 +83,10 @@ class PaymentService:
     ) -> tuple[list[PaymentRecord], int]:
         session = self._session()
         try:
-            q = session.query(PaymentRecord)
+            q = session.query(PaymentRecord).options(
+                joinedload(PaymentRecord.user),
+                joinedload(PaymentRecord.plan),
+            )
             if status:
                 q = q.filter(PaymentRecord.status == status)
             if user_id:

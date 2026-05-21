@@ -211,11 +211,17 @@ class PaymentRecord(Base):
     plan = relationship("SubscriptionPlan")
 
     def to_dict(self) -> dict:
+        user_obj = self.__dict__.get("user")
+        plan_obj = self.__dict__.get("plan")
         return {
             "id": self.id,
             "user_id": self.user_id,
             "subscription_id": self.subscription_id,
             "plan_id": self.plan_id,
+            "user_full_name": user_obj.full_name if user_obj else None,
+            "user_mobile_number": user_obj.mobile_number if user_obj else None,
+            "plan_name": plan_obj.name if plan_obj else None,
+            "plan_code": plan_obj.code if plan_obj else None,
             "telegram_user_id": self.telegram_user_id,
             "payment_method": self.payment_method,
             "amount": self.amount,

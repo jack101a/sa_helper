@@ -656,3 +656,48 @@ async def get_qr_image(request: Request):
                       "gif": "image/gif", "webp": "image/webp" }
             return FileResponse(fp, media_type=media.get(ext, "image/png"))
     raise HTTPException(404, "No QR image uploaded")
+
+
+@router.post("/api/settings/plans/{plan_id}/upload-qr")
+async def upload_plan_qr_image(request: Request, plan_id: int, file: UploadFile = File(...)):
+    """Upload a QR code image for a specific subscription plan."""
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(400, "Only image files allowed")
+
+    ext = file.filename.rsplit(".", 1)[-1].lower() if file.filename else "png"
+    if ext not in ("png", "jpg", "jpeg", "gif", "webp"):
+        ext = "png"
+
+    for old_ext in ("png", "jpg", "jpeg", "gif", "webp"):
+        old = _QR_DIR / f"qr_plan_{plan_id}.{old_ext}"
+        if old.exists():
+            old.unlink()
+
+    filename = f"qr_plan_{plan_id}.{ext}"
+    filepath = _QR_DIR / filename
+    content = await file.read()
+    filepath.write_bytes(content)
+
+    container = request.app.state.container
+    qr_url = f"/admin/api/settings/plans/{plan_id}/qr-image"
+    container.db.set_setting(f"payment.qr_image_url_plan_{plan_id}", qr_url)
+
+    return {"ok": True, "url": qr_url, "filename": filename}
+
+
+@router.get("/api/settings/plans/{plan_id}/qr-image")
+async def get_plan_qr_image(request: Request, plan_id: int):
+    """Serve the uploaded QR code image for a specific subscription plan."""
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    for ext in ("png", "jpg", "jpeg", "gif", "webp"):
+        fp = _QR_DIR / f"qr_plan_{plan_id}.{ext}"
+        if fp.exists():
+            media = { "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                      "gif": "image/gif", "webp": "image/webp" }
+            return FileResponse(fp, media_type=media.get(ext, "image/png"))
+    raise HTTPException(404, "No plan QR image uploaded")

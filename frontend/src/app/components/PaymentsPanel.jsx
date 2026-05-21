@@ -22,7 +22,7 @@ export function PaymentsPanel({ showToast }) {
   const [payments, setPayments] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState("pending_payment");
+  const [statusFilter, setStatusFilter] = useState("");
   const [pendingCount, setPendingCount] = useState(0);
   const [page, setPage] = useState(0);
   const [rejecting, setRejecting] = useState(null);
@@ -96,7 +96,7 @@ export function PaymentsPanel({ showToast }) {
           </div>
         </div>
         <div className="flex gap-2">
-          {["pending_payment", "ready_for_admin_approval", "approved", "rejected", ""].map((s) => (
+          {["", "pending_payment", "screenshot_submitted", "ready_for_admin_approval", "approved", "rejected"].map((s) => (
             <button key={s} onClick={() => { setStatusFilter(s); setPage(0); }}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                 statusFilter === s ? "bg-indigo-500/20 text-indigo-400 border border-indigo-500/30" : `${t_textMuted} border ${t_borderLight}`
@@ -120,7 +120,7 @@ export function PaymentsPanel({ showToast }) {
                 <tr className={`border-b ${t_borderLight}`}>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>ID</th>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>User</th>
-                  <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>TG ID</th>
+                  <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Mobile</th>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Plan</th>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Amount</th>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Ref</th>
@@ -136,9 +136,12 @@ export function PaymentsPanel({ showToast }) {
                 {payments.map((p) => (
                   <tr key={p.id} className={`border-b ${t_borderLight} ${isDark ? "hover:bg-white/[0.02]" : "hover:bg-black/[0.02]"}`}>
                     <td className={`p-3 font-mono text-xs ${t_textHeading}`}>#{p.id}</td>
-                    <td className={`p-3 ${t_textHeading}`}>{p.payer_name || `User #${p.user_id}`}</td>
-                    <td className={`p-3 font-mono text-xs ${t_textMuted}`}>{p.telegram_user_id || "—"}</td>
-                    <td className={`p-3 text-xs ${t_textMuted}`}>{p.plan_id ? `#${p.plan_id}` : "—"}</td>
+                    <td className={`p-3 ${t_textHeading}`}>
+                      <div>{p.user_full_name || p.payer_name || `User #${p.user_id}`}</div>
+                      <div className={`font-mono text-[10px] ${t_textMuted}`}>{p.telegram_user_id || "—"}</div>
+                    </td>
+                    <td className={`p-3 font-mono text-xs ${t_textMuted}`}>{p.user_mobile_number || "—"}</td>
+                    <td className={`p-3 text-xs ${t_textMuted}`}>{p.plan_name || (p.plan_id ? `#${p.plan_id}` : "—")}</td>
                     <td className={`p-3 font-medium ${t_textHeading}`}>₹{(p.amount / 100).toFixed(2)}</td>
                     <td className={`p-3 font-mono text-xs ${t_textMuted}`}>{p.payment_ref || "—"}</td>
                     <td className={`p-3 font-mono text-xs ${t_textMuted}`}>{p.upi_id_used || "—"}</td>
@@ -184,7 +187,7 @@ export function PaymentsPanel({ showToast }) {
                         {p.status}
                       </span>
                     </td>
-                    <td className={`p-3 ${t_textMuted}`}>{p.created_at ? new Date(p.created_at).toLocaleDateString() : "—"}</td>
+                    <td className={`p-3 ${t_textMuted}`}>{(p.submitted_at || p.created_at) ? new Date(p.submitted_at || p.created_at).toLocaleString() : "—"}</td>
                     <td className="p-3">
                       {(p.status === "pending" || p.status === "pending_payment" || p.status === "screenshot_submitted" || p.status === "ready_for_admin_approval") && (
                         <div className="flex items-center justify-end gap-1">

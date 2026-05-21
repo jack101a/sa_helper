@@ -18,7 +18,7 @@ from pathlib import Path
 import qrcode
 from app.core.models import User, SubscriptionPlan, PaymentRecord, UserSubscription
 from app.core.db import get_session
-from app.core.payment_links import build_upi_link, encode_upi_payload
+from app.core.payment_links import build_upi_link
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,15 @@ def _find_qr_image() -> Path | None:
     """Find the uploaded QR code image file (fallback)."""
     for ext in ("png", "jpg", "jpeg", "gif", "webp"):
         fp = _QR_DIR / f"qr_code.{ext}"
+        if fp.exists():
+            return fp
+    return None
+
+
+def _find_plan_qr_image(plan_id: int) -> Path | None:
+    """Find an uploaded QR code image file for a specific plan."""
+    for ext in ("png", "jpg", "jpeg", "gif", "webp"):
+        fp = _QR_DIR / f"qr_plan_{int(plan_id)}.{ext}"
         if fp.exists():
             return fp
     return None
@@ -264,13 +273,38 @@ class TelegramBotService:
 
         return self.handle_plan_select_by_id(chat_id, plan_id)
 
+    def _resolve_plan_qr_source(self, plan_id: int) -> str:
+        """Resolve fixed QR image source for a plan.
+
+        Priority:
+        1) payment.qr_image_url_plan_<plan_id>
+        2) payment.plan_qr_map (JSON object keyed by plan id)
+        3) payment.qr_image_url
+        """
+        direct_key = self._read_db_setting(f"payment.qr_image_url_plan_{int(plan_id)}")
+        if direct_key:
+            return direct_key.strip()
+
+        raw_map = self._read_db_setting("payment.plan_qr_map")
+        if raw_map:
+            try:
+                parsed = json.loads(raw_map)
+                mapped = (parsed or {}).get(str(plan_id))
+                if isinstance(mapped, str) and mapped.strip():
+                    return mapped.strip()
+            except Exception:
+                pass
+
+        fallback = self._read_db_setting("payment.qr_image_url") or self._qr_image_url
+        return (fallback or "").strip()
+
     def handle_plan_select_by_id(self, chat_id: int, plan_id: int) -> dict:
         """Build payment instructions for an exact plan id from inline callbacks."""
         session = self._session()
         try:
             plan = session.query(SubscriptionPlan).filter(SubscriptionPlan.id == plan_id).first()
             if not plan:
-                return {"text": "Plan not found. Please try again.", "qr_bytes": None, "inline_keyboard": None}
+                return {"text": "Plan not found. Please try again.", "qr_bytes": None, "qr_url": "", "qr_path": None, "inline_keyboard": None}
 
             price = plan.price_amount / 100
             price_str = f"₹{price:.2f}"
@@ -293,23 +327,11 @@ class TelegramBotService:
                 "payee_name": payee_name,
             })
 
-            # Build UPI intent link dynamically
+            # Build UPI intent link for fallback generated QR (when no fixed QR is configured)
             upi_link = build_upi_link(upi, payee_name, price, ref, currency)
-            public_base = self._public_base_url()
-            tap_url = ""
-            if public_base:
-                token = encode_upi_payload(
-                    upi_id=upi,
-                    payee_name=payee_name,
-                    amount=price,
-                    note=ref,
-                    currency=currency,
-                    ttl_seconds=1800,
-                )
-                tap_url = f"{public_base}/pay/upi?t={token}"
-
-            has_tap_to_pay = tap_url.startswith("https://") or tap_url.startswith("http://")
-            pay_line = "_Click below to pay using UPI._" if has_tap_to_pay else "_Use your UPI app with details below._"
+            plan_qr_source = self._resolve_plan_qr_source(plan_id)
+            has_fixed_qr = plan_qr_source.startswith("http://") or plan_qr_source.startswith("https://")
+            pay_line = "_Scan the plan QR below and complete payment._" if has_fixed_qr else "_Scan the QR below or use UPI details manually._"
 
             msg = (
                 f"*Plan:* {plan.name}\n"
@@ -322,20 +344,22 @@ class TelegramBotService:
                 f"• Payee: `{payee_name}`\n"
                 f"• Amount: {price_str}\n"
                 f"• Note: `{ref}`\n\n"
-                f"_After payment, send a *screenshot* of your payment confirmation._"
+                f"_After payment, send a *screenshot* of your payment confirmation._\n"
+                f"_We will verify it within 1-2 hours and activate your account._"
             )
 
             inline_keyboard = None
-            if has_tap_to_pay:
-                # Telegram only accepts http/https URLs in inline keyboard buttons.
-                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-                inline_keyboard = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📲 Tap to Pay", url=tap_url)],
-                ])
-
-            # Generate QR dynamically from UPI URL
-            qr_buf = _generate_qr_bytes(upi_link)
-            return {"text": msg, "qr_bytes": qr_buf, "inline_keyboard": inline_keyboard}
+            qr_buf = None
+            qr_url = ""
+            qr_path = _find_plan_qr_image(plan_id)
+            if qr_path:
+                pass
+            elif has_fixed_qr:
+                qr_url = plan_qr_source
+            else:
+                # Fallback to generated QR if fixed plan QR is not configured yet.
+                qr_buf = _generate_qr_bytes(upi_link)
+            return {"text": msg, "qr_bytes": qr_buf, "qr_url": qr_url, "qr_path": qr_path, "inline_keyboard": inline_keyboard}
         finally:
             session.close()
 
@@ -910,6 +934,8 @@ class TelegramBotService:
 
                 # ── State machine ───────────────────────────────────────────
                 qr_bytes = None
+                qr_url = ""
+                qr_path = None
                 inline_keyboard = None
                 in_registration = state["state"] in (STATE_NAME, STATE_MOBILE,
                     STATE_PLAN_SELECT, STATE_PAYMENT_INSTRUCTIONS)
@@ -925,6 +951,8 @@ class TelegramBotService:
                         result = self.handle_plan_select(chat_id, text)
                         reply = result["text"]
                         qr_bytes = result.get("qr_bytes")
+                        qr_url = result.get("qr_url") or ""
+                        qr_path = result.get("qr_path")
                         inline_keyboard = result.get("inline_keyboard")
                     elif state["state"] == STATE_PAYMENT_INSTRUCTIONS:
                         # User sent text — check if it looks like a UPI reference
@@ -956,7 +984,20 @@ class TelegramBotService:
                 await update.message.reply_text(reply, **kwargs)
 
                 # Send QR photo if available
-                if qr_bytes:
+                if qr_path:
+                    try:
+                        with open(qr_path, "rb") as qr_file:
+                            await update.message.reply_photo(
+                                qr_file, caption="📱 Scan this QR to pay for the selected plan")
+                    except Exception as e:
+                        logger.error("qr_photo_file_failed", extra={"context": {"error": str(e), "path": str(qr_path)}})
+                elif qr_url:
+                    try:
+                        await update.message.reply_photo(
+                            qr_url, caption="📱 Scan this QR to pay for the selected plan")
+                    except Exception as e:
+                        logger.error("qr_photo_url_failed", extra={"context": {"error": str(e), "url": qr_url}})
+                elif qr_bytes:
                     try:
                         await update.message.reply_photo(
                             qr_bytes, caption="📱 Scan this QR to pay via any UPI app")
@@ -1005,7 +1046,7 @@ class TelegramBotService:
                     return
 
                 result = self.handle_plan_select_by_id(chat_id, plan_id)
-                if not result.get("qr_bytes") and not result.get("inline_keyboard"):
+                if not result.get("qr_bytes") and not result.get("qr_url") and not result.get("qr_path") and not result.get("inline_keyboard"):
                     await query.edit_message_text(result["text"], parse_mode="Markdown")
                     return
 
@@ -1019,11 +1060,25 @@ class TelegramBotService:
                     await query.edit_message_text(result["text"], parse_mode="Markdown")
 
                 try:
-                    await context.bot.send_photo(
-                        chat_id=chat_id,
-                        photo=result["qr_bytes"],
-                        caption="📱 Scan this QR to pay via any UPI app",
-                    )
+                    if result.get("qr_path"):
+                        with open(result["qr_path"], "rb") as qr_file:
+                            await context.bot.send_photo(
+                                chat_id=chat_id,
+                                photo=qr_file,
+                                caption="📱 Scan this QR to pay for the selected plan",
+                            )
+                    elif result.get("qr_url"):
+                        await context.bot.send_photo(
+                            chat_id=chat_id,
+                            photo=result["qr_url"],
+                            caption="📱 Scan this QR to pay for the selected plan",
+                        )
+                    elif result.get("qr_bytes"):
+                        await context.bot.send_photo(
+                            chat_id=chat_id,
+                            photo=result["qr_bytes"],
+                            caption="📱 Scan this QR to pay via any UPI app",
+                        )
                 except Exception as e:
                     logger.error("qr_photo_failed", extra={"context": {"error": str(e)}})
 
@@ -1082,72 +1137,85 @@ class TelegramBotService:
                         User.telegram_user_id == uid
                     ).first()
                     if user:
-                        # Try to find existing payment record by payment_ref
-                        existing_payment = None
-                        if expected_ref:
-                            existing_payment = session.query(PaymentRecord).filter(
-                                PaymentRecord.payment_ref == expected_ref,
-                                PaymentRecord.user_id == user.id,
-                            ).first()
-
-                        if existing_payment:
-                            # Update existing payment with screenshot + OCR data
-                            existing_payment.payment_screenshot_path = str(filepath)
-                            existing_payment.ocr_matched = ocr_matched
-                            existing_payment.ocr_extracted_ref = extracted_ref
-                            existing_payment.ocr_extracted_amount = ocr_data.get("amount")
-                            existing_payment.ocr_extracted_date = ocr_data.get("date")
-                            existing_payment.ocr_extracted_payer = ocr_data.get("payer")
-                            existing_payment.upi_reference = extracted_ref or existing_payment.upi_reference
-                            existing_payment.status = new_status
-                            existing_payment.updated_at = datetime.now(timezone.utc)
-                            session.commit()
-                            payment = existing_payment
-                        else:
-                            # No existing payment — create new record
-                            payment = PaymentRecord(
-                                user_id=user.id,
-                                plan_id=state["data"].get("plan_id"),
-                                telegram_user_id=uid,
-                                payment_method="upi",
-                                amount=state["data"].get("price_amount", 0),
-                                payment_ref=expected_ref,
-                                upi_id_used=state["data"].get("upi_id", self._upi_id),
-                                payee_name_used=state["data"].get("payee_name", self._payee_name),
-                                upi_reference=extracted_ref or "screenshot_submitted",
-                                payer_name=state["data"].get("full_name", user.full_name),
-                                payment_screenshot_path=str(filepath),
-                                ocr_matched=ocr_matched,
-                                ocr_extracted_ref=extracted_ref,
-                                ocr_extracted_amount=ocr_data.get("amount"),
-                                ocr_extracted_date=ocr_data.get("date"),
-                                ocr_extracted_payer=ocr_data.get("payer"),
-                                status=new_status,
-                                submitted_at=datetime.now(timezone.utc),
-                            )
-                            session.add(payment)
-                            session.commit()
-
-                        ref = expected_ref or "N/A"
-                        if ocr_matched:
-                            reply = (
-                                f"📸 *Screenshot received & verified!*\n\n"
-                                f"• Ref: `{ref}`\n"
-                                f"• Detected UPI Ref: `{extracted_ref}`\n"
-                                f"• ✅ *Match confirmed*\n\n"
-                                f"_Payment submitted for approval. Please wait 1-2 hours._"
-                            )
-                        else:
-                            reply = (
-                                f"📸 *Screenshot received!*\n\n"
-                                f"• Ref: `{ref}`\n"
-                                f"• Detected UPI Ref: `{extracted_ref or 'not detected'}`\n"
-                                f"• ⚠️ *Could not verify match automatically*\n"
-                                f"  _Admin will manually verify._\n\n"
-                                f"_Payment submitted for approval. Please wait 1-2 hours._"
-                            )
+                        user.full_name = state["data"].get("full_name", user.full_name)
+                        user.mobile_number = state["data"].get("mobile_number", user.mobile_number)
+                        user.telegram_chat_id = str(chat_id)
+                        user.status = "pending_payment"
                     else:
-                        reply = "Account not found. Use /register first."
+                        user = User(
+                            full_name=state["data"].get("full_name", ""),
+                            mobile_number=state["data"].get("mobile_number"),
+                            telegram_user_id=uid,
+                            telegram_chat_id=str(chat_id),
+                            status="pending_payment",
+                        )
+                        session.add(user)
+                        session.flush()
+
+                    # Try to find existing payment record by payment_ref
+                    existing_payment = None
+                    if expected_ref:
+                        existing_payment = session.query(PaymentRecord).filter(
+                            PaymentRecord.payment_ref == expected_ref,
+                            PaymentRecord.user_id == user.id,
+                        ).first()
+
+                    if existing_payment:
+                        # Update existing payment with screenshot + OCR data
+                        existing_payment.payment_screenshot_path = str(filepath)
+                        existing_payment.ocr_matched = ocr_matched
+                        existing_payment.ocr_extracted_ref = extracted_ref
+                        existing_payment.ocr_extracted_amount = ocr_data.get("amount")
+                        existing_payment.ocr_extracted_date = ocr_data.get("date")
+                        existing_payment.ocr_extracted_payer = ocr_data.get("payer")
+                        existing_payment.upi_reference = extracted_ref or existing_payment.upi_reference
+                        existing_payment.status = new_status
+                        existing_payment.updated_at = datetime.now(timezone.utc)
+                        session.commit()
+                        payment = existing_payment
+                    else:
+                        # No existing payment — create new record
+                        payment = PaymentRecord(
+                            user_id=user.id,
+                            plan_id=state["data"].get("plan_id"),
+                            telegram_user_id=uid,
+                            payment_method="upi",
+                            amount=state["data"].get("price_amount", 0),
+                            payment_ref=expected_ref,
+                            upi_id_used=state["data"].get("upi_id", self._upi_id),
+                            payee_name_used=state["data"].get("payee_name", self._payee_name),
+                            upi_reference=extracted_ref or "screenshot_submitted",
+                            payer_name=state["data"].get("full_name", user.full_name),
+                            payment_screenshot_path=str(filepath),
+                            ocr_matched=ocr_matched,
+                            ocr_extracted_ref=extracted_ref,
+                            ocr_extracted_amount=ocr_data.get("amount"),
+                            ocr_extracted_date=ocr_data.get("date"),
+                            ocr_extracted_payer=ocr_data.get("payer"),
+                            status=new_status,
+                            submitted_at=datetime.now(timezone.utc),
+                        )
+                        session.add(payment)
+                        session.commit()
+
+                    ref = expected_ref or "N/A"
+                    if ocr_matched:
+                        reply = (
+                            f"📸 *Screenshot received & verified!*\n\n"
+                            f"• Ref: `{ref}`\n"
+                            f"• Detected UPI Ref: `{extracted_ref}`\n"
+                            f"• ✅ *Match confirmed*\n\n"
+                            f"_Payment submitted for approval. Please wait 1-2 hours._"
+                        )
+                    else:
+                        reply = (
+                            f"📸 *Screenshot received!*\n\n"
+                            f"• Ref: `{ref}`\n"
+                            f"• Detected UPI Ref: `{extracted_ref or 'not detected'}`\n"
+                            f"• ⚠️ *Could not verify match automatically*\n"
+                            f"  _Admin will manually verify._\n\n"
+                            f"_Payment submitted for approval. Please wait 1-2 hours._"
+                        )
                 except Exception as e:
                     session.rollback()
                     logger.error("screenshot_submit_failed", extra={"context": {"error": str(e)}})

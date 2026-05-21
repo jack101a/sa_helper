@@ -1,29 +1,38 @@
-# STATE.md - Telegram Domain Inline Pay Button
+# STATE.md - Telegram Fixed QR Payment Flow
 
 ## Status
 COMPLETE
 
 ## Active Task
-Implemented domain-based Telegram inline pay flow: bot now emits an HTTPS link to backend `/pay/upi`, which validates signed token and opens UPI deep link with fallback instructions.
+Implemented fixed QR payment flow for Telegram registration: admin can upload QR per plan, plan selection sends that plan QR, screenshot submission creates/updates the pending user/payment record, and admin review shows the key verification fields.
 
 ## Last Files Modified
-- `backend/app/core/payment_links.py` (new)
 - `backend/app/services/telegram_bot.py`
-- `backend/app/main.py`
+- `backend/app/core/models.py`
+- `backend/app/api/admin_routes/settings.py`
+- `backend/app/services/payment_service.py`
+- `frontend/src/app/components/PaymentsPanel.jsx`
+- `frontend/src/app/components/PlansPanel.jsx`
 - `TASK.md`
 - `STATE.md`
 
 ## Last Command Run
-`cd backend && DEBUG=false RUN_BACKGROUND_TASKS=false AUTH_HASH_SALT=test-salt ADMIN_TOKEN=test-token ADMIN_USERNAME=admin ADMIN_PASSWORD=123456 PUBLIC_BASE_URL=https://example.com SQLITE_PATH=/tmp/sa-helper-paylink.db ../.venv/bin/python -c "from app.main import app; print('OK')"`
+`git diff --check && git diff --stat`
 
 ## Last Output/Error
-- `py_compile` passed for all touched files.
-- Token encode/decode smoke check passed: `token_ok True zero.one@ybl 99.00`.
-- App import passed: `OK`.
+- Backend py_compile passed for `telegram_bot.py`, `models.py`, `payment_service.py`, `payments.py`, and `settings.py`.
+- Backend app import passed with `OK`.
+- Frontend build passed with `vite build`.
+- `git diff --check` passed.
 
-## Runtime Requirement
-- Set `PUBLIC_BASE_URL` env var OR platform setting `server.public_base_url` to your public HTTPS domain.
-- Without it, bot falls back to QR/manual instructions and no inline tap button.
+## Runtime Configuration
+Telegram bot now resolves fixed QR in this order:
+1. Uploaded local plan QR file: `data/uploads/qr_plan_<plan_id>.*`
+2. `payment.qr_image_url_plan_<plan_id>`
+3. `payment.plan_qr_map` (JSON, e.g. `{"1":"https://.../basic.png","2":"https://.../pro.png"}`)
+4. `payment.qr_image_url` (global fallback)
+
+If none is configured, bot falls back to generated UPI QR.
 
 ## Immediate Next Step
-Deploy this patch and set the public base URL so Telegram plan selection shows clickable HTTPS payment button.
+Configure fixed QR URLs per plan and test Telegram registration against the deployed bot image.
