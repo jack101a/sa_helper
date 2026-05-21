@@ -4,7 +4,7 @@
 Clean the repository for production, remove personal/generated artifacts from the committed tree, verify extension/backend health checks, then commit and push a clean `master` branch.
 
 ## Status
-IN_PROGRESS
+BLOCKED
 
 ## Scope Included
 - Inspect current git status, branch, remotes, tracked large files, and secret-like strings.
@@ -26,7 +26,7 @@ IN_PROGRESS
 - [x] Run verification commands.
 - [x] Update STATE.md.
 - [ ] Commit sanitized working tree.
-- [ ] Push clean `master` branch.
+- [ ] Push clean `master` branch. Blocked: no GitHub credentials available in this environment.
 
 ## Verification
 - `node --check extension/background.js`
