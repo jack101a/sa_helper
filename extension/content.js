@@ -19,7 +19,7 @@
 })();
 
 
-// content.js — Unified Platform Extension (V2.2)
+// content.js - ta-ta Extension (V2.2)
 // Slim bootloader for modularized content script.
 // Modules: shared_utils.js, sarathi_harden.js, captcha.js, exam.js, autofill.js, stall_automation.js
 
@@ -34,7 +34,7 @@
         console.log('[Content] Initializing modules...');
 
         // Use the shared utility for storage
-        const data = await window.up_getStorage(['solverEnabled', 'autofillEnabled', 'captchaEnabled']);
+        const data = await window.up_getStorage(['solverEnabled', 'autofillEnabled', 'captchaEnabled', 'isMaster']);
 
         // 1. Initialize Sarathi Hardening & Image Detector (Runs immediately)
         if (window.SarathiHarden) window.SarathiHarden.init();
@@ -46,7 +46,7 @@
 
         // 2. Activate solver modules based on settings
         if (window.ExamModule && data.solverEnabled !== false) window.ExamModule.activate();
-        if (window.MockTrainerModule && data.solverEnabled !== false) window.MockTrainerModule.activate();
+        if (window.MockTrainerModule && data.isMaster === true && data.solverEnabled !== false) window.MockTrainerModule.activate();
         if (window.CaptchaModule && data.captchaEnabled !== false) window.CaptchaModule.activate();
         if (window.AutofillModule && data.autofillEnabled !== false) window.AutofillModule.activate();
 

@@ -1,40 +1,32 @@
-# STATE.md - Extension Fixed Server Distribution
+# STATE.md - VCAM Stall URL Gate
 
 ## Status
 COMPLETE
 
 ## Active Task
-Extension user distribution now uses the hardcoded production backend URL, asks only for API key, shows popup connection status as a colored light only, and downloads are packaged from a temporary minified copy.
+Restricted Sarathi VCAM/image-capture automation to STALL-related URLs only.
+
+## Findings
+- Repeated `[Automation] Captured SP_DOM_IMAGE...` and `User photo detected...` logs were coming from `sarathi_harden.js` watchers.
+- Added strict `isStallRelatedUrl()` gate in `sarathi_harden.js`.
+- `SarathiHarden.init()`, `SarathiImageDetector.init()`, and message listener now no-op on non-STALL pages (including `envaction.do`).
 
 ## Last Files Modified
-- `backend/app/services/extension_service.py`
-- `backend/requirements.txt`
-- `frontend/src/app/components/DashboardPanel.jsx`
-- `extension/background.js`
-- `extension/popup/popup.html`
-- `extension/popup/popup.js`
-- `extension/options/options.html`
-- `extension/options/options.js`
-- `backend/app/static/extension.zip`
-- `backend/app/static/extensions/mcq_solver_extension.zip`
-- `backend/app/static/extensions/mcq_solver_extension.crx`
-- `backend/app/static/extensions/mcq_solver_extension.xpi`
-- `TASK.md`
+- `extension/modules/sarathi_harden.js`
 - `STATE.md`
 
 ## Last Command Run
-`git diff --check && git status --short`
+`node --check extension/modules/sarathi_harden.js`
 
 ## Last Output/Error
-- JS syntax checks passed for `background.js`, `popup.js`, and `options.js`.
-- Backend py_compile passed for `extension_service.py`.
-- Package regeneration passed: `package_ok True`, ZIP size `94891`.
-- Artifact inspection passed: manifest present, 22 JS files included, production URL present, localhost absent, popup/options URL fields absent.
-- Frontend build passed with `vite build`.
-- `git diff --check` passed.
+- Syntax check passed with no errors.
 
-## Runtime Configuration
-Extension source remains in `/app/extension`; downloadable artifacts are created under `/app/backend/app/static/extensions` from a minified temporary copy.
+## Verification Output Summary
+- `grep` confirms stall URL gating present at:
+  - `SarathiHarden.init()`
+  - global message listener
+  - `SarathiImageDetector.init()`
+- `node --check` passed.
 
 ## Immediate Next Step
-Load the regenerated ZIP in Chrome locally once to confirm runtime behavior before distributing.
+Reload extension in browser and verify on `.../envaction.do` that VCAM capture logs stop, while STALL URLs still activate automation.

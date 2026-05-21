@@ -17,7 +17,7 @@ class SettingsRepository(BaseRepository):
         # MCQ self-learning safety
         "exam.learning_mode":      "train_only",
         "exam.learn_min_confidence": "0.95",
-        "exam.learn_min_confirmations": "10",
+        "exam.learn_min_confirmations": "5",
         "exam.learn_phash_max_distance": "3",
         "exam.learn_option_phash_max_distance": "3",
         # WhatsApp alerts

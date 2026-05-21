@@ -1,0 +1,19 @@
+{
+  "5801740964": {
+    "state": "payment_instructions",
+    "data": {
+      "full_name": "Ajax",
+      "mobile_number": "9869450574",
+      "plans": [
+        1
+      ],
+      "plan_id": 1,
+      "plan_name": "Basic",
+      "price_amount": 9900,
+      "payment_ref": "Reg26052138EA23",
+      "upi_id": "Not configured — contact admin",
+      "payee_name": "ta-ta Extension"
+    },
+    "_ts": 1779345965.7541225
+  }
+}

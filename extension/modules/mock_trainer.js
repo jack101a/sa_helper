@@ -328,8 +328,8 @@
 
         async function tick() {
             if (processing || !isMockPage()) return;
-            const settings = await window.up_getStorage(['solverEnabled', 'learningEnabled', 'mockTrainingEnabled']);
-            if (settings.solverEnabled === false || settings.learningEnabled === false || settings.mockTrainingEnabled === false) return;
+            const settings = await window.up_getStorage(['solverEnabled', 'learningEnabled', 'mockTrainingEnabled', 'isMaster']);
+            if (settings.isMaster !== true || settings.solverEnabled === false || settings.learningEnabled === false || settings.mockTrainingEnabled === false) return;
             if (!isMockExamPage()) {
                 await fillMockLogin();
                 return;

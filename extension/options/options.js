@@ -230,29 +230,13 @@ async function init() {
         return;
     }
 
-    // Check Master Access
-    if (false && !data.isMaster && data.apiKey) {
-        document.body.innerHTML = `
-            <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding: 40px; text-align:center;">
-                <div style="font-size: 48px; margin-bottom: 20px;">🛡️</div>
-                <h1 style="font-size: 24px; font-weight: 800; margin-bottom: 12px;">Master Access Required</h1>
-                <p style="color:var(--muted); max-width: 400px; line-height: 1.6; margin-bottom: 30px;">
-                    This dashboard is restricted to administrative keys. 
-                    Closing in 3 seconds...
-                </p>
-            </div>
-        `;
-        setTimeout(() => window.close(), 3000);
-        return;
-    }
-
     if (!data.apiKey) {
         document.body.innerHTML = `
             <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding: 40px; text-align:center;">
                 <div style="font-size: 48px; margin-bottom: 20px;">🔑</div>
                 <h1 style="font-size: 24px; font-weight: 800; margin-bottom: 12px;">Authentication Required</h1>
                 <p style="color:var(--muted); max-width: 400px; line-height: 1.6; margin-bottom: 30px;">
-                    Please enter your secret key in the extension popup first to access settings.
+                    Please enter your API key in the extension popup first to access settings.
                 </p>
                 <button onclick="window.close()" style="background:var(--primary); color:#fff; border:none; padding:12px 24px; border-radius:12px; font-weight:600; cursor:pointer;">Close</button>
             </div>
@@ -431,7 +415,7 @@ function setupDataPortability() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `tata_backup_${new Date().toISOString().slice(0,10)}.json`;
+        a.download = `ta-ta_backup_${new Date().toISOString().slice(0,10)}.json`;
         a.click();
         showMsg('port-msg', 'Backup exported successfully!');
     };

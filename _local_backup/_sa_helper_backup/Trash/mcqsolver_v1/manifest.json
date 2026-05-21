@@ -1,0 +1,55 @@
+{
+  "manifest_version": 3,
+  "name": "Sarathi STALL Solver",
+  "version": "1.1.0",
+  "description": "Autonomous MCQ solver for Sarathi Parivahan STALL exam portal.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "*://sarathi.parivahan.gov.in/*",
+    "*://sarathi.nic.in/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://sarathi.parivahan.gov.in/*",
+        "*://sarathi.nic.in/*"
+      ],
+      "js": [
+        "database.js",
+        "assets/tesseract.min.js",
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "assets/*"
+      ],
+      "matches": [
+        "*://sarathi.parivahan.gov.in/*",
+        "*://sarathi.nic.in/*"
+      ]
+    }
+  ],
+  "icons": {
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

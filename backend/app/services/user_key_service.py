@@ -154,8 +154,12 @@ class UserKeyService:
                 return None
 
             # Check expiry
-            if key.expires_at and key.expires_at < datetime.now(timezone.utc):
-                return None
+            if key.expires_at:
+                expires_at = key.expires_at
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
+                if expires_at < datetime.now(timezone.utc):
+                    return None
 
             # Check user status
             user = session.query(User).filter(User.id == key.user_id).first()
@@ -171,6 +175,9 @@ class UserKeyService:
                 "id": key.id,
                 "user_id": key.user_id,
                 "key_hash": key.key_hash,
+                "name": user.full_name or f"User {user.id}",
+                "key_type": "user_linked",
+                "expires_at": key.expires_at.isoformat() if key.expires_at else None,
                 "status": key.status,
                 "key_version": key.key_version,
                 "user_status": user.status if user else "unknown",

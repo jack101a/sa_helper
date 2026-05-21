@@ -6,7 +6,7 @@
     window.confirm = function() { return true; };
     window.prompt = function(msg, defaultVal) { return defaultVal || ''; };
     window.close = function() {
-        console.log('[Unified Platform] Suppressed window.close');
+        console.log('[ta-ta] Suppressed window.close');
     };
     window.onbeforeunload = null;
     try {
@@ -69,5 +69,5 @@
         originalXHR.apply(this, arguments);
     };
 
-    console.log('[Unified Platform] Interceptor Active');
+    console.log('[ta-ta] Interceptor Active');
 })();

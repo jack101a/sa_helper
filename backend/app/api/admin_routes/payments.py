@@ -76,6 +76,7 @@ async def approve_payment(request: Request, payment_id: int) -> Any:
         # Auto-activate: create subscription + activate user + create key
         user = session.query(User).filter(User.id == payment.user_id).first()
         plan = None
+        plain_key_for_user = None
         if user:
             if payment.plan_id:
                 plan = session.query(SubscriptionPlan).filter(
@@ -140,7 +141,9 @@ async def approve_payment(request: Request, payment_id: int) -> Any:
                     session_factory=lambda: session,
                     settings=get_settings(),
                 )
-                svc.create_key(user_id=user.id)
+                created_key, created_plain = svc.create_key(user_id=user.id)
+                plain_key_for_user = created_plain
+                existing_key = created_key
 
             # Copy plan entitlements to API key
             if plan:
@@ -178,9 +181,18 @@ async def approve_payment(request: Request, payment_id: int) -> Any:
                     f"📦 Plan: *{plan_name}*\n"
                     f"📅 Expires: {expiry_date}\n"
                     f"📊 Limit: {plan.monthly_limit} solves/month\n\n"
-                    f"🔑 Your API key is now active.\n"
-                    f"Use /my_key to view your key prefix.\n"
-                    f"Use /my_status for full account info."
+                )
+                if plain_key_for_user:
+                    notify_msg += (
+                        f"🔑 *Your API key (save now):*\n"
+                        f"`{plain_key_for_user}`\n\n"
+                    )
+                else:
+                    notify_msg += (
+                        f"🔑 Your API key is active. Open the bot keyboard and tap *My Key*.\n\n"
+                    )
+                notify_msg += (
+                    f"Use the bot keyboard buttons for account status and key info."
                 )
                 await _try_notify_user(user.telegram_user_id, notify_msg, container)
             except Exception as e:

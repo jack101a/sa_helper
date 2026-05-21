@@ -15,13 +15,22 @@ _PROJECT_ROOT = get_project_root()
 _USERSCRIPTS_DIR = (_PROJECT_ROOT / "data" / "mappings").resolve()
 
 
-def _extension_filename_for_format(fmt: str) -> str:
+def _extension_filename_for_format(fmt: str, variant: str = "admin") -> str:
     normalized = str(fmt or "").strip().lower()
-    mapping = {
+    normalized_variant = str(variant or "admin").strip().lower()
+    if normalized_variant not in {"admin", "user"}:
+        raise HTTPException(400, "Unsupported extension variant. Use admin or user.")
+    admin_mapping = {
         "zip": "mcq_solver_extension.zip",
         "crx": "mcq_solver_extension.crx",
         "xpi": "mcq_solver_extension.xpi",
     }
+    user_mapping = {
+        "zip": "mcq_solver_extension_user.zip",
+        "crx": "mcq_solver_extension_user.crx",
+        "xpi": "mcq_solver_extension_user.xpi",
+    }
+    mapping = user_mapping if normalized_variant == "user" else admin_mapping
     if normalized not in mapping:
         raise HTTPException(400, "Unsupported extension format. Use zip, crx, or xpi.")
     return mapping[normalized]
@@ -383,14 +392,14 @@ async def repack_extension(request: Request):
 
 
 @router.get("/api/extension/download")
-async def download_extension(request: Request, format: str = "zip"):
+async def download_extension(request: Request, format: str = "zip", variant: str = "admin"):
     """Package and download a fresh extension artifact in the requested format."""
     denied = _admin_guard(request)
     if denied:
         return denied
 
     container = request.app.state.container
-    filename = _extension_filename_for_format(format)  # validate format before packaging
+    filename = _extension_filename_for_format(format, variant)  # validate format/variant before packaging
 
     success = container.extension_service.package_extension()
     if not success:

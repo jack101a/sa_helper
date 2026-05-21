@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>STALL Solver</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            width: 280px;
+            background: #0f0f19;
+            color: #c8d6e5;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            font-size: 13px;
+            user-select: none;
+        }
+
+        /* ── Header ─────────────────── */
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 16px 12px;
+            border-bottom: 1px solid rgba(100,220,255,0.12);
+            background: rgba(100,220,255,0.04);
+        }
+        .dot {
+            width: 9px; height: 9px;
+            border-radius: 50%;
+            background: #64dcff;
+            box-shadow: 0 0 8px rgba(100,220,255,0.7);
+            flex-shrink: 0;
+        }
+        .dot.off { background: #4a5568; box-shadow: none; }
+        .header-text { flex: 1; }
+        .title { font-size: 13px; font-weight: 700; letter-spacing: 1px; color: #64dcff; text-transform: uppercase; }
+        .subtitle { font-size: 10px; color: #4a5568; margin-top: 1px; }
+
+        /* ── Body ───────────────────── */
+        .body { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+
+        /* ── Toggle row ─────────────── */
+        .row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 8px;
+        }
+        .row-label { font-size: 12px; color: #a0aec0; }
+        .row-label strong { color: #e2e8f0; font-weight: 600; display: block; font-size: 13px; }
+
+        /* Toggle switch */
+        .switch { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute; inset: 0;
+            cursor: pointer;
+            background: #2d3748;
+            border-radius: 24px;
+            transition: background 0.25s;
+        }
+        .slider::before {
+            content: '';
+            position: absolute;
+            width: 18px; height: 18px;
+            left: 3px; top: 3px;
+            background: #718096;
+            border-radius: 50%;
+            transition: transform 0.25s, background 0.25s;
+        }
+        input:checked + .slider { background: #0e9f6e; }
+        input:checked + .slider::before { transform: translateX(20px); background: #fff; }
+
+        /* ── Status bar ─────────────── */
+        .status-bar {
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 11px;
+            text-align: center;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        .status-bar.enabled  { background: rgba(14,159,110,0.15); color: #0e9f6e; border: 1px solid rgba(14,159,110,0.3); }
+        .status-bar.disabled { background: rgba(74,85,104,0.2);   color: #718096; border: 1px solid rgba(74,85,104,0.3); }
+        .status-bar.paused   { background: rgba(254,202,87,0.12); color: #feca57; border: 1px solid rgba(254,202,87,0.3); }
+
+        /* ── Footer ─────────────────── */
+        .footer {
+            padding: 10px 16px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+            font-size: 10px;
+            color: #2d3748;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="dot" id="hdrDot"></div>
+        <div class="header-text">
+            <div class="title">STALL Solver</div>
+            <div class="subtitle">Sarathi Parivahan · MV3</div>
+        </div>
+    </div>
+
+    <div class="body">
+        <!-- Master enable/disable -->
+        <div class="row">
+            <div class="row-label">
+                <strong>Solver</strong>
+                Enable auto-solve &amp; submit
+            </div>
+            <label class="switch">
+                <input type="checkbox" id="toggleSolver">
+                <span class="slider"></span>
+            </label>
+        </div>
+
+        <!-- Auto-refresh -->
+        <div class="row">
+            <div class="row-label">
+                <strong>Auto-Refresh</strong>
+                Reload if submit gets stuck
+            </div>
+            <label class="switch">
+                <input type="checkbox" id="toggleRefresh">
+                <span class="slider"></span>
+            </label>
+        </div>
+
+        <!-- Status display -->
+        <div class="status-bar disabled" id="statusBar">● SOLVER DISABLED</div>
+    </div>
+
+    <div class="footer">v1.1 · Hash → OCR → AI fallback</div>
+
+    <script src="popup.js"></script>
+</body>
+</html>

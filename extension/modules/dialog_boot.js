@@ -11,7 +11,7 @@
             const enabled = data.suppressDialogs === true;
             document.documentElement.setAttribute('data-suppress-dialogs', enabled ? 'true' : 'false');
         } catch (e) {
-            console.error('[Unified Platform] Boot error:', e);
+            console.error('[ta-ta] Boot error:', e);
         }
     }
 

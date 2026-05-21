@@ -1,4 +1,4 @@
-// modules/userscript_engine.js — Unified Platform Extension
+// modules/userscript_engine.js - ta-ta Extension
 // Lightweight Userscript Engine (Content Script)
 
 (async function() {
@@ -289,7 +289,7 @@
                 excludes: meta.exclude || [],
                 resources: meta.resources || []
             },
-            scriptHandler: 'Unified Platform',
+            scriptHandler: 'ta-ta',
             version: '2.2.0'
         };
         const resourceMap = {};

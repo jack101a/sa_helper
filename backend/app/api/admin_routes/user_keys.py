@@ -156,7 +156,7 @@ async def get_user_devices(request: Request, user_id: int) -> Any:
 @router.get("/api/user-keys")
 async def list_all_user_keys(
     request: Request,
-    status: str | None = Query(None),
+    status: str | None = Query("active"),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
 ) -> Any:

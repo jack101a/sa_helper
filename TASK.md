@@ -1,34 +1,33 @@
-# TASK.md - Extension Fixed Server Distribution
+# TASK.md - Mock Trainer Access and Learning Stats Analysis
 
 ## Goal
-Recheck the extension distribution flow, hardcode the production backend URL for user builds, remove user-facing server URL entry, and show popup ping status as a light only.
+Analyze extension script execution, restrict mock trainer to admin/master mode only, and explain why the learning dashboard can show `High Confidence = 0`.
 
 ## Status
 COMPLETE
 
 ## Scope Included
-- Keep source extension files readable.
-- Keep download artifacts packaged from minified temporary copy.
-- Hardcode `https://tata-ocs.duckdns.org` in extension runtime paths.
-- Popup auth asks only for API key.
-- Popup connection/ping status renders only red/yellow/green light, no status text or ms.
-- Regenerate distributable extension artifacts.
+- Inspect extension manifest/content-script boot order.
+- Inspect mock trainer activation and runtime gates.
+- Add master/admin gate for mock trainer.
+- Inspect backend learning stats formula.
+- Rebuild and verify extension packages.
 
 ## Scope Excluded
-- Changing backend auth behavior.
-- Renaming manifest-referenced extension files.
-- Aggressive obfuscation that risks Chrome extension CSP/runtime breakage.
+- Changing real live exam solver behavior.
+- Changing learning thresholds without explicit request.
+- Removing manifest-loaded files or bundling content scripts.
 
 ## Plan
-- [x] Re-read extension packaging and popup/options/background flow.
-- [x] Hardcode extension backend URL and remove editable URL fields.
-- [x] Convert popup connection status to light-only display.
-- [x] Regenerate obfuscated user distribution package.
-- [x] Verify package contents and frontend/backend checks.
+- [x] Read current extension bootloader and mock trainer code.
+- [x] Read backend training stats repository code.
+- [x] Restrict mock trainer activation to `isMaster === true`.
+- [x] Repackage extension.
+- [x] Verify generated user package includes the mock trainer gates.
 - [x] Update STATE.md.
 
 ## Verification
-- `./.venv/bin/python -m py_compile backend/app/services/extension_service.py`
-- Package smoke test through `ExtensionService.package_extension()`.
-- Inspect generated ZIP for hardcoded URL and minified JS.
-- `cd frontend && npm run build`
+- `node --check` on extension JS files.
+- `ExtensionService.package_extension()` smoke test.
+- Static ZIP reference validation.
+- Live `8780` user extension download check.

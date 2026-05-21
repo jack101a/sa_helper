@@ -9,7 +9,7 @@
         
         if (!shouldSuppress) return;
 
-        console.log('[Unified Platform] JS Dialog Suppression Active');
+        console.log('[ta-ta] JS Dialog Suppression Active');
 
         // Override alert
         window.alert = function(msg) {

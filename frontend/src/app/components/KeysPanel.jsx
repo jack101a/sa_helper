@@ -239,7 +239,7 @@ function UserKeysSection() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    apiGet("/admin/api/user-keys?limit=100")
+    apiGet("/admin/api/user-keys?status=active&limit=100")
       .then(data => { setUserKeys(data.keys || []); setTotal(data.total || 0); })
       .catch(() => {})
       .finally(() => setLoading(false));

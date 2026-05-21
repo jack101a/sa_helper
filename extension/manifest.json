@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "Unified Platform",
+  "name": "ta-ta",
   "version": "2.2.0",
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   },
-  "description": "Text Captcha \u00b7 MCQ Exam Solver \u00b7 Autofill V26 \u2014 All-in-one browser assistant",
+  "description": "Browser assistant for captcha, exam, and autofill workflows",
   "permissions": [
     "activeTab",
     "storage",

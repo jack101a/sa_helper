@@ -51,9 +51,9 @@ function showView(viewId) {
     
     // Update header subtitle
     const sub = el('sub-header');
-    if (viewId === 'view-auth') sub.textContent = 'Setup Required';
-    else if (viewId === 'view-user') sub.textContent = 'User Mode';
-    else if (viewId === 'view-master') sub.textContent = 'Master Control';
+    if (viewId === 'view-auth') sub.textContent = 'Setup';
+    else if (viewId === 'view-user') sub.textContent = 'Connected';
+    else if (viewId === 'view-master') sub.textContent = 'Advanced';
 }
 
 // --- Status & UI Helpers ---
@@ -198,7 +198,7 @@ async function initApp() {
 
     if (data.isMaster) {
         showView('view-master');
-        el('master-tag').style.display = 'block';
+        el('master-tag').style.display = 'none';
         el('btn-dashboard').style.display = 'flex';
         setupMasterUI(data);
         initProfiles('master', data);
@@ -325,13 +325,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         el('user-tog-userscripts').addEventListener('change', e => { if (!e.target.disabled) chrome.storage.local.set({ userscriptsEnabled: e.target.checked }); });
     }
 
-    // Toggles - Master
+    // Toggles - Advanced
     el('tog-autofill').addEventListener('change', e => chrome.storage.local.set({ autofillEnabled: e.target.checked }));
     el('tog-captcha').addEventListener('change', e => chrome.storage.local.set({ captchaEnabled: e.target.checked }));
     el('tog-exam').addEventListener('change', e => chrome.storage.local.set({ solverEnabled: e.target.checked }));
     el('tog-userscripts').addEventListener('change', e => chrome.storage.local.set({ userscriptsEnabled: e.target.checked }));
 
-    // Master Actions
+    // Advanced actions
     el('btn-record').addEventListener('click', async () => {
         const s = await chrome.storage.local.get('isRecording');
         const newState = !s.isRecording;
@@ -365,7 +365,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (resp?.ok) {
                 window.close();
             } else {
-                alert(resp?.error || 'Failed to start session.');
+                alert('failed');
             }
         });
     };

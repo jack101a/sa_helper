@@ -386,9 +386,9 @@ class ExamService:
 
     def _learn_min_confirmations(self) -> int:
         try:
-            return max(1, int(self._db.get_setting("exam.learn_min_confirmations", "10")))
+            return max(1, int(self._db.get_setting("exam.learn_min_confirmations", "5")))
         except ValueError:
-            return 10
+            return 5
 
     def _learn_phash_max_distance(self) -> int:
         try:

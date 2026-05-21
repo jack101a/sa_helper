@@ -29,23 +29,27 @@ export function DashboardPanel({
             </div>
             <div>
               <h3 className={`text-lg font-bold ${t_textHeading}`}>Browser Extension</h3>
-              <p className={`text-xs ${t_textMuted}`}>Download the obfuscated user distribution package.</p>
+              <p className={`text-xs ${t_textMuted}`}>Download original admin source or protected user distribution packages.</p>
             </div>
           </div>
           
           <div className="flex flex-wrap items-center gap-3">
             <div className={`flex items-center gap-2 px-4 py-2 rounded-xl border ${isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
-              <span className={`text-xs font-semibold mr-2 ${t_textMuted}`}>USER CHROME:</span>
-              <a href="/admin/api/extension/download?format=zip" className="text-xs font-bold text-indigo-500 hover:underline">ZIP</a>
+              <span className={`text-xs font-semibold mr-2 ${t_textMuted}`}>ADMIN SOURCE:</span>
+              <a href="/admin/api/extension/download?format=zip&variant=admin" className="text-xs font-bold text-indigo-500 hover:underline">ZIP</a>
               <span className="text-white/20">|</span>
-              <a href="/admin/api/extension/download?format=crx" className="text-xs font-bold text-emerald-500 hover:underline">CRX</a>
+              <a href="/admin/api/extension/download?format=crx&variant=admin" className="text-xs font-bold text-emerald-500 hover:underline">CRX</a>
+              <span className="text-white/20">|</span>
+              <a href="/admin/api/extension/download?format=xpi&variant=admin" className="text-xs font-bold text-orange-500 hover:underline">XPI</a>
             </div>
             
             <div className={`flex items-center gap-2 px-4 py-2 rounded-xl border ${isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
-              <span className={`text-xs font-semibold mr-2 ${t_textMuted}`}>USER FIREFOX:</span>
-              <a href="/admin/api/extension/download?format=zip" className="text-xs font-bold text-indigo-500 hover:underline">ZIP</a>
+              <span className={`text-xs font-semibold mr-2 ${t_textMuted}`}>USER PACKAGE:</span>
+              <a href="/admin/api/extension/download?format=zip&variant=user" className="text-xs font-bold text-indigo-500 hover:underline">ZIP</a>
               <span className="text-white/20">|</span>
-              <a href="/admin/api/extension/download?format=xpi" className="text-xs font-bold text-orange-500 hover:underline">XPI</a>
+              <a href="/admin/api/extension/download?format=crx&variant=user" className="text-xs font-bold text-emerald-500 hover:underline">CRX</a>
+              <span className="text-white/20">|</span>
+              <a href="/admin/api/extension/download?format=xpi&variant=user" className="text-xs font-bold text-orange-500 hover:underline">XPI</a>
             </div>
           </div>
         </div>

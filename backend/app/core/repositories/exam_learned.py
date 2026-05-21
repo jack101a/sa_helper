@@ -10,7 +10,14 @@ class ExamLearnedRepository(BaseRepository):
     """Self-learning question bank populated from confirmed exam feedback."""
 
     DEFAULT_MIN_CONFIDENCE = 0.95
-    DEFAULT_MIN_VERIFIED = 10
+    DEFAULT_MIN_VERIFIED = 5
+
+    def _min_verified(self) -> int:
+        """Runtime confirmation threshold from settings, with safe fallback."""
+        try:
+            return max(1, int(self.db.settings.get_setting("exam.learn_min_confirmations", str(self.DEFAULT_MIN_VERIFIED))))
+        except Exception:
+            return self.DEFAULT_MIN_VERIFIED
 
     @staticmethod
     def _hex_hamming(a: str, b: str) -> int:
@@ -72,7 +79,7 @@ class ExamLearnedRepository(BaseRepository):
                     new_status = (
                         "verified"
                         if new_confidence >= self.DEFAULT_MIN_CONFIDENCE
-                        and new_verified >= self.DEFAULT_MIN_VERIFIED
+                        and new_verified >= self._min_verified()
                         and new_wrong == 0
                         else "training"
                     )
@@ -282,6 +289,7 @@ class ExamLearnedRepository(BaseRepository):
             return [dict(row) for row in rows]
 
     def get_stats(self) -> dict[str, Any]:
+        min_verified = self._min_verified()
         with self.connect() as conn:
             total = conn.execute("SELECT COUNT(*) AS n FROM exam_learned").fetchone()
             high_conf = conn.execute(
@@ -289,7 +297,7 @@ class ExamLearnedRepository(BaseRepository):
                 SELECT COUNT(*) AS n FROM exam_learned
                 WHERE confidence >= ? AND verified_count >= ? AND status = 'verified'
                 """,
-                (self.DEFAULT_MIN_CONFIDENCE, self.DEFAULT_MIN_VERIFIED),
+                (self.DEFAULT_MIN_CONFIDENCE, min_verified),
             ).fetchone()
             avg_conf = conn.execute("SELECT AVG(confidence) AS avg FROM exam_learned").fetchone()
             total_seen = conn.execute("SELECT SUM(seen_count) AS total FROM exam_learned").fetchone()
@@ -302,9 +310,10 @@ class ExamLearnedRepository(BaseRepository):
 
     def export_to_json(self) -> list[dict[str, Any]]:
         """Export only verified learned questions in the same format as questions.json."""
+        min_verified = self._min_verified()
         rows = [
             row for row in self.get_all_learned(min_confidence=self.DEFAULT_MIN_CONFIDENCE)
-            if self._is_verified(row, self.DEFAULT_MIN_CONFIDENCE, self.DEFAULT_MIN_VERIFIED)
+            if self._is_verified(row, self.DEFAULT_MIN_CONFIDENCE, min_verified)
         ]
         return [
             {

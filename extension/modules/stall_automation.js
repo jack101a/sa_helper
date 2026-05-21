@@ -197,7 +197,7 @@
             const status = document.getElementById('stall-start-now-status');
             if (!status) return;
             status.textContent = text || '';
-            status.style.color = tone === 'error' ? '#fecaca' : tone === 'ok' ? '#bbf7d0' : '#e0f2fe';
+            status.style.color = tone === 'error' ? '#b91c1c' : '#334155';
         },
 
         ensureStartNowButton() {
@@ -221,32 +221,34 @@
             const btn = document.createElement('button');
             btn.id = 'stall-start-now-btn';
             btn.type = 'button';
-            btn.textContent = 'Start Now';
+            btn.textContent = 'Start STALL';
             btn.style.cssText = [
                 'border:0',
-                'border-radius:8px',
-                'padding:10px 16px',
-                'font-size:14px',
-                'font-weight:700',
+                'border-radius:999px',
+                'padding:11px 18px',
+                'font-size:13px',
+                'font-weight:800',
                 'cursor:pointer',
                 'color:#fff',
-                'background:#2563eb',
-                'box-shadow:0 6px 18px rgba(0,0,0,.25)'
+                'letter-spacing:.02em',
+                'background:linear-gradient(135deg,#0f766e,#2563eb)',
+                'box-shadow:0 10px 24px rgba(15,23,42,.28)'
             ].join(';');
 
             const status = document.createElement('div');
             status.id = 'stall-start-now-status';
             status.style.cssText = [
                 'max-width:220px',
-                'padding:6px 8px',
+                'min-height:18px',
+                'padding:0 4px',
                 'border-radius:6px',
-                'font-size:11px',
+                'font-size:12px',
+                'font-weight:800',
                 'line-height:1.3',
-                'color:#e0f2fe',
-                'background:rgba(15,23,42,.92)',
-                'box-shadow:0 4px 14px rgba(0,0,0,.2)'
+                'text-align:center',
+                'color:#334155'
             ].join(';');
-            status.textContent = 'Fill details, then click Start Now.';
+            status.textContent = '';
 
             btn.addEventListener('click', () => this.runManualStartNow());
             wrap.appendChild(btn);
@@ -261,14 +263,14 @@
             try {
                 const resp = await sendMessage({ type: 'GET_STALL_STATE' });
                 if (!resp?.ok || !resp.state?.active) {
-                    this.setStartNowStatus('STALL session is not active.', 'error');
+                    this.setStartNowStatus('failed', 'error');
                     return;
                 }
 
                 const fields = this.readManualFields();
                 const error = this.validateManualFields(fields);
                 if (error) {
-                    this.setStartNowStatus(error, 'error');
+                    this.setStartNowStatus('failed', 'error');
                     return;
                 }
 
@@ -280,31 +282,31 @@
 
                 if (btn) {
                     btn.disabled = true;
-                    btn.textContent = 'Running...';
+                    btn.textContent = 'wait';
                     btn.style.opacity = '0.8';
                     btn.style.cursor = 'wait';
                 }
-                this.setStartNowStatus('Running STALL flow...', 'ok');
+                this.setStartNowStatus('wait', 'ok');
                 await sendMessage({ type: 'UPDATE_STALL_STEP', step: 3 });
                 const flowResp = await this.executePayload('stall-flow');
                 if (flowResp?.ok === false) {
                     throw new Error(flowResp.error || 'STALL flow failed');
                 }
 
-                this.setStartNowStatus('Face auth complete. Continuing...', 'ok');
+                this.setStartNowStatus('wait', 'ok');
                 await chrome.storage.local.set({
                     [STALL_FLOW_DONE_KEY]: Date.now(),
                     [STEP4_DONE_KEY]: Date.now()
                 });
                 await sendMessage({ type: 'UPDATE_STALL_STEP', step: 5 });
             } catch (e) {
-                console.error('[Automation] Start Now error:', e);
-                this.setStartNowStatus('Start Now failed. Check console.', 'error');
+                console.error('[Automation] Start STALL error:', e);
+                this.setStartNowStatus('failed', 'error');
             } finally {
                 this._manualBusy = false;
                 if (btn) {
                     btn.disabled = false;
-                    btn.textContent = 'Start Now';
+                    btn.textContent = 'Start STALL';
                     btn.style.opacity = '1';
                     btn.style.cursor = 'pointer';
                 }

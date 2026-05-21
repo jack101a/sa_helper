@@ -369,9 +369,9 @@ class APIKeyRepository(BaseRepository):
     def ensure_master_key(self) -> dict:
         """Idempotently create the master API key.
 
-        If already created (found in platform_settings), returns the existing
-        info without touching api_keys. On first run, creates a real api_key
-        row (no expiry) and saves the plaintext in platform_settings.
+        If already created (found in platform_settings), repairs the api_keys
+        row if needed. On first run, creates a real api_key row (no expiry)
+        and saves the plaintext in platform_settings.
         Returns: { id, key, name }
         """
         with self.connect() as conn:
@@ -382,8 +382,67 @@ class APIKeyRepository(BaseRepository):
                 "SELECT value FROM platform_settings WHERE key = 'master_api_key_id'"
             ).fetchone()
 
-        if row_plain and row_id:
-            return {"id": int(row_id["value"]), "key": row_plain["value"], "name": "Master Key"}
+        if row_plain:
+            raw = str(row_plain["value"])
+            key_hash = hash_api_key(raw, get_settings().auth.hash_salt)
+            with self._lock:
+                with self.connect() as conn:
+                    now = datetime.now(timezone.utc).isoformat()
+                    key_id = int(row_id["value"]) if row_id else 0
+                    existing = None
+                    if key_id:
+                        existing = conn.execute(
+                            "SELECT id, key_hash, key_type, enabled FROM api_keys WHERE id = ?",
+                            (key_id,),
+                        ).fetchone()
+
+                    if existing and existing["key_hash"] == key_hash and existing["key_type"] == "master" and int(existing["enabled"]) == 1:
+                        return {"id": int(existing["id"]), "key": raw, "name": "Master Key"}
+
+                    by_hash = conn.execute(
+                        "SELECT id FROM api_keys WHERE key_hash = ?",
+                        (key_hash,),
+                    ).fetchone()
+                    if by_hash:
+                        key_id = int(by_hash["id"])
+                        conn.execute(
+                            """
+                            UPDATE api_keys
+                            SET name = ?, key_type = 'master', enabled = 1, expires_at = NULL, revoked_at = NULL
+                            WHERE id = ?
+                            """,
+                            ("Master Key", key_id),
+                        )
+                    elif existing:
+                        key_id = int(existing["id"])
+                        conn.execute(
+                            """
+                            UPDATE api_keys
+                            SET name = ?, key_hash = ?, key_type = 'master', enabled = 1, expires_at = NULL, revoked_at = NULL
+                            WHERE id = ?
+                            """,
+                            ("Master Key", key_hash, key_id),
+                        )
+                    else:
+                        cursor = conn.execute(
+                            """
+                            INSERT INTO api_keys (name, key_hash, key_type, enabled, created_at, expires_at, revoked_at)
+                            VALUES (?, ?, 'master', 1, ?, NULL, NULL)
+                            """,
+                            ("Master Key", key_hash, now),
+                        )
+                        key_id = int(cursor.lastrowid)
+
+                    conn.execute(
+                        """
+                        INSERT INTO platform_settings (key, value, description, updated_at)
+                        VALUES (?, ?, ?, ?)
+                        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+                        """,
+                        ("master_api_key_id", str(key_id), "Auto-managed — do not edit manually", now),
+                    )
+                    conn.commit()
+                    return {"id": key_id, "key": raw, "name": "Master Key"}
 
         # Generate a new master key
         import secrets
@@ -392,7 +451,6 @@ class APIKeyRepository(BaseRepository):
 
         with self._lock:
             with self.connect() as conn:
-                from datetime import datetime, timezone
                 now = datetime.now(timezone.utc).isoformat()
                 cursor = conn.execute(
                     """

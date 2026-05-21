@@ -212,6 +212,20 @@ export function PlansPanel({ showToast }) {
                             .join(", ") || "none"}
                         </td>
                         <td className="p-3">
+                          <div className="flex items-center gap-2">
+                            {p.has_qr ? (
+                              <a
+                                href={p.qr_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className={`text-xs underline ${t_textMuted}`}
+                                title="Preview plan QR"
+                              >
+                                Preview
+                              </a>
+                            ) : (
+                              <span className={`text-xs ${t_textMuted}`}>No QR</span>
+                            )}
                           <label className={`${iconBtn} inline-flex cursor-pointer`} title="Upload plan QR">
                             {uploadingQrPlanId === p.id ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
                             <input
@@ -222,6 +236,7 @@ export function PlansPanel({ showToast }) {
                               onChange={(e) => handleQrUpload(p.id, e.target.files?.[0])}
                             />
                           </label>
+                          </div>
                         </td>
                         <td className="p-3">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${p.is_active ? "bg-emerald-500/20 text-emerald-400" : "bg-slate-500/20 text-slate-400"}`}>

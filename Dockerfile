@@ -5,6 +5,7 @@ COPY frontend/package*.json ./
 RUN npm install
 COPY frontend/ .
 RUN npm run build
+RUN cp "$(readlink -f node_modules/.bin/esbuild)" /tmp/esbuild
 
 # Stage 2: Final Image
 FROM python:3.11-bookworm
@@ -33,12 +34,14 @@ COPY data/ /opt/sa-helper-seed/data/
 COPY backend/config/ /opt/sa-helper-seed/backend/config/
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY --from=frontend-builder /frontend/dist /app/frontend/dist
+COPY --from=frontend-builder /tmp/esbuild /usr/local/bin/esbuild
 
 # Link the built dashboard to the template folder
 RUN mkdir -p /app/backend/app/templates && \
     cp /app/frontend/dist/index.html /app/backend/app/templates/admin.html && \
     cp -a /opt/sa-helper-seed/data /app/data && \
     mkdir -p /app/backend/logs && \
+    chmod +x /usr/local/bin/esbuild && \
     chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Environment variables

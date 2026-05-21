@@ -56,7 +56,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         device_id = self._get_device_id(request)
 
         # ── Try user-linked key first (new scalable system) ───────────────
-        user_result = await self._try_user_key(request, api_key, device_id, path)
+        user_result = await self._try_user_key(request, api_key, device_id, path, call_next)
         if user_result is not None:
             return user_result  # None means "try legacy", otherwise a response
 
@@ -77,7 +77,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         request.state.device_id = device_id
         return await call_next(request)
 
-    async def _try_user_key(self, request: Request, api_key: str, device_id: str, path: str):
+    async def _try_user_key(self, request: Request, api_key: str, device_id: str, path: str, call_next):
         """Try user-linked key validation. Returns None to fall through to legacy."""
         try:
             from app.services.user_key_service import UserKeyService

@@ -1,4 +1,4 @@
-// background.js — Unified Platform Extension (V2.2)
+// background.js - ta-ta Extension (V2.2)
 // Lightweight API relay + auto-sync engine.
 // Routes/locators are synced from backend every 5 min automatically — no manual refresh needed.
 

@@ -155,7 +155,7 @@ body {
 .switch input:checked + .slider { background: var(--success); }
 .switch input:checked + .slider:before { transform: translateX(18px); }
 
-/* MASTER VIEW specific styles */
+/* Advanced view status badge */
 .master-badge {
   position: absolute; top: 0; right: 0;
   padding: 2px 8px; font-size: 9px; font-weight: 800;

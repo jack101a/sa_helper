@@ -331,27 +331,31 @@ class TelegramBotService:
             upi_link = build_upi_link(upi, payee_name, price, ref, currency)
             plan_qr_source = self._resolve_plan_qr_source(plan_id)
             has_fixed_qr = plan_qr_source.startswith("http://") or plan_qr_source.startswith("https://")
-            pay_line = "_Scan the plan QR below and complete payment._" if has_fixed_qr else "_Scan the QR below or use UPI details manually._"
-
+            inline_keyboard = None
+            qr_buf = None
+            qr_url = ""
+            qr_path = _find_plan_qr_image(plan_id)
+            has_qr = bool(qr_path) or has_fixed_qr
+            pay_line = "_Scan the plan QR below and complete payment._" if has_qr else "_Scan the QR below or use UPI details manually._"
             msg = (
                 f"*Plan:* {plan.name}\n"
                 f"*Amount:* {price_str}\n"
                 f"*Validity:* {plan.duration_days} days\n"
                 f"*Ref:* `{ref}`\n\n"
                 f"{pay_line}\n\n"
-                f"📋 *Fallback UPI Details:*\n"
-                f"• UPI ID: `{upi}`\n"
-                f"• Payee: `{payee_name}`\n"
-                f"• Amount: {price_str}\n"
-                f"• Note: `{ref}`\n\n"
+            )
+            if not has_qr:
+                msg += (
+                    f"📋 *Fallback UPI Details:*\n"
+                    f"• UPI ID: `{upi}`\n"
+                    f"• Payee: `{payee_name}`\n"
+                    f"• Amount: {price_str}\n"
+                    f"• Note: `{ref}`\n\n"
+                )
+            msg += (
                 f"_After payment, send a *screenshot* of your payment confirmation._\n"
                 f"_We will verify it within 1-2 hours and activate your account._"
             )
-
-            inline_keyboard = None
-            qr_buf = None
-            qr_url = ""
-            qr_path = _find_plan_qr_image(plan_id)
             if qr_path:
                 pass
             elif has_fixed_qr:
@@ -440,10 +444,7 @@ class TelegramBotService:
                 f"• UPI Ref: `{upi_ref}`\n"
                 f"• Amount: ₹{data.get('price_amount', 0) / 100:.2f}\n"
                 f"• Plan: {data.get('plan_name', 'N/A')}\n\n"
-                f"_Pending admin approval. You'll be notified._\n\n"
-                f"📋 Commands:\n"
-                f"/payment_status — Check status\n"
-                f"/my_status — Account info"
+                f"_Pending admin approval. You'll be notified._"
             )
         except Exception as e:
             session.rollback()
@@ -725,6 +726,46 @@ class TelegramBotService:
             }})
             return False
 
+    def _ocr_screenshot_full(self, filepath: Path) -> dict:
+        """Try OCR on screenshot to extract UPI reference ID, amount, date, payer."""
+        result = {"ref": None, "amount": None, "date": None, "payer": None}
+        try:
+            from PIL import Image
+            img = Image.open(filepath)
+            try:
+                import pytesseract
+                import re
+                text = pytesseract.image_to_string(img)
+                # UPI ref patterns
+                ref_patterns = [
+                    r'(?:Ref|UTR|Reference|Transaction\s*ID)[:\s]*([A-Z0-9]{8,20})',
+                    r'\b(\d{12})\b',
+                ]
+                for pat in ref_patterns:
+                    m = re.search(pat, text, re.IGNORECASE)
+                    if m:
+                        result["ref"] = m.group(1)
+                        break
+                # Amount pattern (₹ or INR)
+                amt_match = re.search(r'(?:₹|INR|Rs\.?)\s*([\d,]+\.?\d{0,2})', text, re.IGNORECASE)
+                if amt_match:
+                    result["amount"] = amt_match.group(0).strip()
+                # Date/time patterns
+                date_match = re.search(r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})', text, re.IGNORECASE)
+                if not date_match:
+                    date_match = re.search(r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})', text)
+                if date_match:
+                    result["date"] = date_match.group(1)
+                # Payer name (near "Paid to" or "From")
+                payer_match = re.search(r'(?:Paid\s*(?:to|by)|From|Sender)[:\s]*([A-Za-z\s]{3,30})', text, re.IGNORECASE)
+                if payer_match:
+                    result["payer"] = payer_match.group(1).strip()
+            except ImportError:
+                pass
+        except Exception as e:
+            logger.error("ocr_failed", extra={"context": {"error": str(e)}})
+        return result
+
     def run(self):
         """Start the bot using long-polling."""
         try:
@@ -924,10 +965,8 @@ class TelegramBotService:
                         "📋 *Commands:*\n"
                         "/start — Welcome & info\n"
                         "/register — Start registration\n"
-                        "/my_status — Your account status\n"
                         "/renew — Renew subscription\n"
                         "/payment_status — Payment history\n"
-                        "/my_key — API key info\n"
                         "/help — This help",
                         parse_mode="Markdown", reply_markup=_main_keyboard())
                     return
@@ -1010,10 +1049,8 @@ class TelegramBotService:
                     "📋 *Commands:*\n"
                     "/start — Welcome & info\n"
                     "/register — Start registration\n"
-                    "/my_status — Your account status\n"
                     "/renew — Renew subscription\n"
                     "/payment_status — Payment history\n"
-                    "/my_key — API key info\n"
                     "/help — This help",
                     parse_mode="Markdown",
                     reply_markup=_main_keyboard()
@@ -1227,51 +1264,13 @@ class TelegramBotService:
                 await update.message.reply_text(reply, parse_mode="Markdown",
                     reply_markup=_main_keyboard())
 
-            def _ocr_screenshot_full(self, filepath: Path) -> dict:
-                """Try OCR on screenshot to extract UPI reference ID, amount, date, payer."""
-                result = {"ref": None, "amount": None, "date": None, "payer": None}
-                try:
-                    from PIL import Image
-                    img = Image.open(filepath)
-                    try:
-                        import pytesseract
-                        import re
-                        text = pytesseract.image_to_string(img)
-                        # UPI ref patterns
-                        ref_patterns = [
-                            r'(?:Ref|UTR|Reference|Transaction\s*ID)[:\s]*([A-Z0-9]{8,20})',
-                            r'\b(\d{12})\b',
-                        ]
-                        for pat in ref_patterns:
-                            m = re.search(pat, text, re.IGNORECASE)
-                            if m:
-                                result["ref"] = m.group(1)
-                                break
-                        # Amount pattern (₹ or INR)
-                        amt_match = re.search(r'(?:₹|INR|Rs\.?)\s*([\d,]+\.?\d{0,2})', text, re.IGNORECASE)
-                        if amt_match:
-                            result["amount"] = amt_match.group(0).strip()
-                        # Date/time patterns
-                        date_match = re.search(r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})', text, re.IGNORECASE)
-                        if not date_match:
-                            date_match = re.search(r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})', text)
-                        if date_match:
-                            result["date"] = date_match.group(1)
-                        # Payer name (near "Paid to" or "From")
-                        payer_match = re.search(r'(?:Paid\s*(?:to|by)|From|Sender)[:\s]*([A-Za-z\s]{3,30})', text, re.IGNORECASE)
-                        if payer_match:
-                            result["payer"] = payer_match.group(1).strip()
-                    except ImportError:
-                        pass
-                except Exception as e:
-                    logger.error("ocr_failed", extra={"context": {"error": str(e)}})
-                return result
-
             app.add_handler(CommandHandler("start", start_cmd))
             app.add_handler(CommandHandler("register", register_cmd))
             app.add_handler(CommandHandler("renew", renew_cmd))
             app.add_handler(CommandHandler("my_status", status_cmd))
+            app.add_handler(CommandHandler("mystatus", status_cmd))
             app.add_handler(CommandHandler("my_key", key_cmd))
+            app.add_handler(CommandHandler("mykey", key_cmd))
             app.add_handler(CommandHandler("regenerate_key", regenerate_cmd))
             app.add_handler(CommandHandler("payment_status", payment_cmd))
             app.add_handler(CommandHandler("help", help_cmd))

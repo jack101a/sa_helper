@@ -21,7 +21,18 @@ async def list_plans(request: Request) -> Any:
         return denied
     container = request.app.state.container
     plans = container.subscription_service.list_plans(active_only=False)
-    return JSONResponse({"plans": [p.to_dict() for p in plans]})
+    rows = []
+    for p in plans:
+        d = p.to_dict()
+        qr_url = ""
+        try:
+            qr_url = (container.db.get_setting(f"payment.qr_image_url_plan_{p.id}") or "").strip()
+        except Exception:
+            qr_url = ""
+        d["qr_url"] = qr_url
+        d["has_qr"] = bool(qr_url)
+        rows.append(d)
+    return JSONResponse({"plans": rows})
 
 
 @router.post("/api/plans")

@@ -2,9 +2,30 @@
 (function () {
     'use strict';
 
+    function isStallRelatedUrl(href) {
+        try {
+            const url = new URL(href || location.href, location.origin);
+            if (!url.hostname.includes('sarathi.parivahan.gov.in')) return false;
+            const path = (url.pathname || '').toLowerCase();
+            if (path === '/sarathiservice/authenticationaction.do') {
+                const authtype = (url.searchParams.get('authtype') || '').toLowerCase();
+                return authtype === 'anugnya' || authtype === 'anugyna';
+            }
+            return (
+                path === '/sarathiservice/instruction.do' ||
+                path === '/sarathiservice/examselectaction.do' ||
+                path === '/sarathiservice/stallexam.do' ||
+                path === '/sarathiservice/stallloginsubmit.do'
+            );
+        } catch {
+            return false;
+        }
+    }
+
     window.SarathiHarden = {
         init() {
             if (!location.hostname.includes('sarathi.parivahan.gov.in')) return;
+            if (!isStallRelatedUrl(location.href)) return;
             if (typeof chrome === "undefined" || !chrome.runtime?.id) return;
             this.early403Guard();
             this.hardenPage();
@@ -83,6 +104,7 @@
 
     // Global listener for Network/DOM images discovered by MAIN world
     window.addEventListener('message', (ev) => {
+        if (!isStallRelatedUrl(location.href)) return;
         const d = ev.data;
         if (!d) return;
         if (d.type === 'SP_NETWORK_IMAGE' || d.type === 'SP_DOM_IMAGE') {
@@ -99,6 +121,7 @@
 
         init() {
             if (!location.hostname.includes('sarathi.parivahan.gov.in')) return;
+            if (!isStallRelatedUrl(location.href)) return;
             if (typeof chrome === "undefined" || !chrome.runtime?.id) return;
             this.scanOnce();
             this.startObserver();

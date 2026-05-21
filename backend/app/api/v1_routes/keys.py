@@ -17,12 +17,45 @@ async def verify(request: Request) -> VerifyResponse:
     key_record = request.state.api_key_record
     container = request.app.state.container
     key_hash = key_record.get("key_hash", "")
-    is_master = container.db.is_master_key_hash(key_hash)
-    entitlements = container.db.get_api_key_entitlements(int(key_record["id"]))
+    is_user_key = bool(getattr(request.state, "is_user_key", False))
+    is_master = False if is_user_key else container.db.is_master_key_hash(key_hash)
+    entitlements = {} if is_user_key else container.db.get_api_key_entitlements(int(key_record["id"]))
+    key_name = str(key_record.get("name") or "User Key")
+    expires_at = key_record.get("expires_at")
+    if is_user_key:
+        from app.core.models import User, UserSubscription, SubscriptionPlan
+        from app.core.db import get_session
+        session = get_session()
+        try:
+            user = session.query(User).filter(User.id == int(key_record["user_id"])).first()
+            sub = (
+                session.query(UserSubscription)
+                .filter(UserSubscription.user_id == int(key_record["user_id"]), UserSubscription.status == "active")
+                .order_by(UserSubscription.created_at.desc())
+                .first()
+            )
+            plan = session.query(SubscriptionPlan).filter(SubscriptionPlan.id == sub.plan_id).first() if sub else None
+            services = (plan.allowed_services or {}) if plan else {}
+            return VerifyResponse(
+                valid=True,
+                key_name=key_name,
+                expires_at=expires_at,
+                is_master=False,
+                plan_name=plan.name if plan else "Standard",
+                mobile=user.mobile_number if user and user.mobile_number else "",
+                telegram_id=user.telegram_user_id if user and user.telegram_user_id else "",
+                enabled_services=services,
+                rate_limit={
+                    "requests_per_minute": int(plan.rate_limit_rpm or 60),
+                    "burst": int(getattr(plan, "rate_limit_burst", 10) or 10),
+                } if plan else None,
+            )
+        finally:
+            session.close()
     return VerifyResponse(
         valid=True,
-        key_name=str(key_record["name"]),
-        expires_at=key_record["expires_at"],
+        key_name=key_name,
+        expires_at=expires_at,
         is_master=is_master,
         plan_name=str(entitlements.get("plan_name") or "Standard"),
         mobile=str(entitlements.get("mobile") or ""),

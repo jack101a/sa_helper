@@ -1,7 +1,7 @@
 """Auto-merge verified learned questions into the main question bank.
 
 When exam_learned entries reach 'verified' status (confidence >= 0.95,
-verified_count >= 10, wrong_count == 0), this service merges them into
+verified_count >= 5, wrong_count == 0), this service merges them into
 questions.json so they become part of the permanent question bank.
 
 The merge is idempotent — duplicate question_hashes are skipped.
