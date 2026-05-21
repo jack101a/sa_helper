@@ -259,7 +259,8 @@ async def reject_payment(request: Request, payment_id: int) -> Any:
 from pathlib import Path
 
 # Configured base directory for payment screenshots
-_SCREENSHOTS_DIR = Path(__file__).resolve().parents[3] / "data" / "payment_screenshots"
+# Keep this aligned with telegram_bot.py upload path (project_root/data/payment_screenshots).
+_SCREENSHOTS_DIR = Path(__file__).resolve().parents[4] / "data" / "payment_screenshots"
 
 
 async def _try_notify_user(telegram_user_id: str, message: str, container) -> bool:

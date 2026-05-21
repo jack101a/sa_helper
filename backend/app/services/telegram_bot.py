@@ -234,13 +234,30 @@ class TelegramBotService:
         self.set_state(chat_id, STATE_MOBILE, {"full_name": name})
         return f"Thanks, *{name}*! Now share your mobile number (e.g., `+919876543210`)."
 
-    def handle_mobile(self, chat_id: int, mobile: str) -> dict:
+    def handle_mobile(self, chat_id: int, mobile: str, telegram_user_id: str | None = None) -> dict:
         """Returns {"text": ..., "inline_keyboard": InlineKeyboardMarkup|None}."""
         mobile = mobile.strip().replace(" ", "")
-        self.set_state(chat_id, STATE_PLAN_SELECT, {"mobile_number": mobile})
 
         session = self._session()
         try:
+            existing_mobile_user = (
+                session.query(User)
+                .filter(User.mobile_number == mobile)
+                .first()
+            )
+            if existing_mobile_user and (
+                not telegram_user_id
+                or str(existing_mobile_user.telegram_user_id or "") != str(telegram_user_id)
+            ):
+                return {
+                    "text": (
+                        "❌ This mobile number is already registered.\n"
+                        "Use your existing account or contact admin support."
+                    ),
+                    "inline_keyboard": None,
+                }
+
+            self.set_state(chat_id, STATE_PLAN_SELECT, {"mobile_number": mobile})
             plans = (
                 session.query(SubscriptionPlan)
                 .filter(SubscriptionPlan.is_active == True)
@@ -853,23 +870,11 @@ class TelegramBotService:
                         User.telegram_user_id == uid
                     ).first()
                     if existing:
-                        # Existing user — skip name/mobile, go directly to plans
-                        self.set_state(chat_id, STATE_PLAN_SELECT, {
-                            "full_name": existing.full_name,
-                            "mobile_number": existing.mobile_number,
-                        })
-                        if existing.status == "active":
-                            msg = (
-                                f"👋 *Welcome back, {existing.full_name}!*\n\n"
-                                f"Your account is active. Select a plan to upgrade or renew:\n\n"
-                            ) + self._get_plans_message()
-                        else:
-                            msg = self._get_plans_message()
-                        keyboard = self._build_plan_keyboard(chat_id)
-                        kwargs = {"parse_mode": "Markdown"}
-                        if keyboard:
-                            kwargs["reply_markup"] = keyboard
-                        await update.message.reply_text(msg, **kwargs)
+                        await update.message.reply_text(
+                            "✅ You are already registered.\n\n"
+                            "Use /renew to buy/renew a plan, or /my_status to check your account.",
+                            reply_markup=_main_keyboard(),
+                        )
                         return
                 finally:
                     session.close()
@@ -939,6 +944,20 @@ class TelegramBotService:
                             f"Use /payment_status to check updates.",
                             parse_mode="Markdown", reply_markup=_main_keyboard())
                         return
+                    session = self._session()
+                    try:
+                        existing = session.query(User).filter(
+                            User.telegram_user_id == uid
+                        ).first()
+                    finally:
+                        session.close()
+                    if existing:
+                        await update.message.reply_text(
+                            "✅ You are already registered.\n\n"
+                            "Use /renew to buy/renew a plan, or /my_status to check your account.",
+                            reply_markup=_main_keyboard(),
+                        )
+                        return
                     self.set_state(chat_id, STATE_NAME)
                     await update.message.reply_text(
                         "Let's register! What's your full name?", parse_mode="Markdown")
@@ -983,7 +1002,7 @@ class TelegramBotService:
                     if state["state"] == STATE_NAME:
                         reply = self.handle_name(chat_id, text)
                     elif state["state"] == STATE_MOBILE:
-                        result = self.handle_mobile(chat_id, text)
+                        result = self.handle_mobile(chat_id, text, uid)
                         reply = result["text"]
                         inline_keyboard = result.get("inline_keyboard")
                     elif state["state"] == STATE_PLAN_SELECT:
@@ -1236,23 +1255,12 @@ class TelegramBotService:
                         session.commit()
 
                     ref = expected_ref or "N/A"
-                    if ocr_matched:
-                        reply = (
-                            f"📸 *Screenshot received & verified!*\n\n"
-                            f"• Ref: `{ref}`\n"
-                            f"• Detected UPI Ref: `{extracted_ref}`\n"
-                            f"• ✅ *Match confirmed*\n\n"
-                            f"_Payment submitted for approval. Please wait 1-2 hours._"
-                        )
-                    else:
-                        reply = (
-                            f"📸 *Screenshot received!*\n\n"
-                            f"• Ref: `{ref}`\n"
-                            f"• Detected UPI Ref: `{extracted_ref or 'not detected'}`\n"
-                            f"• ⚠️ *Could not verify match automatically*\n"
-                            f"  _Admin will manually verify._\n\n"
-                            f"_Payment submitted for approval. Please wait 1-2 hours._"
-                        )
+                    reply = (
+                        f"📸 *Screenshot received!*\n\n"
+                        f"• Ref: `{ref}`\n"
+                        f"• Detected UPI Ref: `{extracted_ref or 'not detected'}`\n\n"
+                        f"Payment submitted for approval. Please wait 1-2 hours."
+                    )
                 except Exception as e:
                     session.rollback()
                     logger.error("screenshot_submit_failed", extra={"context": {"error": str(e)}})

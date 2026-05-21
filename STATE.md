@@ -1,32 +1,35 @@
-# STATE.md - VCAM Stall URL Gate
+# STATE.md - Telegram Registration Duplicate Guard
 
 ## Status
 COMPLETE
 
 ## Active Task
-Restricted Sarathi VCAM/image-capture automation to STALL-related URLs only.
+Blocked duplicate Telegram account registration and duplicate mobile-based new account creation.
 
 ## Findings
-- Repeated `[Automation] Captured SP_DOM_IMAGE...` and `User photo detected...` logs were coming from `sarathi_harden.js` watchers.
-- Added strict `isStallRelatedUrl()` gate in `sarathi_harden.js`.
-- `SarathiHarden.init()`, `SarathiImageDetector.init()`, and message listener now no-op on non-STALL pages (including `envaction.do`).
+- `/register` now blocks if `telegram_user_id` already exists in `users`.
+- `📝 Register` button flow now also blocks existing `telegram_user_id`.
+- Mobile entry step now checks `users.mobile_number` and blocks when already owned by another Telegram user.
+- Existing users are directed to `/renew` or `/my_status` instead of re-registering.
 
 ## Last Files Modified
-- `extension/modules/sarathi_harden.js`
+- `backend/app/services/telegram_bot.py`
 - `STATE.md`
 
 ## Last Command Run
-`node --check extension/modules/sarathi_harden.js`
+`./.venv/bin/python -m py_compile backend/app/services/telegram_bot.py`
 
 ## Last Output/Error
 - Syntax check passed with no errors.
 
 ## Verification Output Summary
-- `grep` confirms stall URL gating present at:
-  - `SarathiHarden.init()`
-  - global message listener
-  - `SarathiImageDetector.init()`
-- `node --check` passed.
+- `py_compile` passed for `telegram_bot.py`.
+- `grep` confirms:
+  - duplicate-registration user message appears in both `/register` and keyboard register branches
+  - `handle_mobile(..., telegram_user_id=...)` now enforces mobile uniqueness against other TG users
 
 ## Immediate Next Step
-Reload extension in browser and verify on `.../envaction.do` that VCAM capture logs stop, while STALL URLs still activate automation.
+Restart Telegram bot and verify:
+1. Existing user running `/register` gets blocked message.
+2. Existing user tapping `📝 Register` gets blocked message.
+3. New TG user entering an already-registered mobile gets rejection.
