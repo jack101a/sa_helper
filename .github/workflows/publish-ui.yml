@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+      IMAGE_NAME: ghcr.io/jack101a/sa-helper-ui
     permissions:
       contents: read
       packages: write
@@ -35,10 +36,10 @@ jobs:
           set -eu
           if [ "${{ github.server_url }}" = "https://github.com" ]; then
             REGISTRY_HOST="ghcr.io"
-            IMAGE_REF="ghcr.io/${{ github.repository }}-ui"
+            IMAGE_REF="${IMAGE_NAME}"
           else
             REGISTRY_HOST="$(echo "${{ github.server_url }}" | sed -E 's#^https?://##; s#/$##')"
-            IMAGE_REF="${REGISTRY_HOST}/${{ github.repository }}-ui"
+            IMAGE_REF="${REGISTRY_HOST}/jack101a/sa-helper-ui"
           fi
           echo "registry_host=${REGISTRY_HOST}" >> "$GITHUB_OUTPUT"
           echo "image_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
