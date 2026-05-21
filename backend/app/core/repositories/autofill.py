@@ -1,10 +1,40 @@
 from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
+import json as _json
 import hashlib as _hashlib
 from .base import BaseRepository
 
 class AutofillRepository(BaseRepository):
+    @staticmethod
+    def _rule_signature(rule_json: str) -> str:
+        try:
+            rule = _json.loads(rule_json or "{}")
+        except Exception:
+            return _hashlib.sha1(str(rule_json or "").encode()).hexdigest()
+        steps = []
+        for step in rule.get("steps", []) or []:
+            selector = step.get("selector", {}) or {}
+            steps.append({
+                "action": step.get("action", ""),
+                "value": str(step.get("value", "")),
+                "selector": {
+                    "strategy": selector.get("strategy", ""),
+                    "id": selector.get("id", ""),
+                    "name": selector.get("name", ""),
+                    "css": selector.get("css", ""),
+                },
+            })
+        canonical = {
+            "profile": rule.get("profile_scope", "default"),
+            "site": {
+                "match_mode": (rule.get("site") or {}).get("match_mode", ""),
+                "pattern": (rule.get("site") or {}).get("pattern", ""),
+            },
+            "steps": steps,
+        }
+        return _hashlib.sha1(_json.dumps(canonical, sort_keys=True).encode()).hexdigest()
+
     def submit_autofill_proposal(
         self,
         idempotency_key: str,
@@ -15,8 +45,20 @@ class AutofillRepository(BaseRepository):
     ) -> dict[str, Any]:
         """Insert a new rule proposal (idempotent). Returns the row as dict."""
         now = datetime.now(timezone.utc).isoformat()
+        incoming_sig = self._rule_signature(rule_json)
         with self._lock:
             with self.connect() as conn:
+                existing_rows = conn.execute(
+                    """
+                    SELECT * FROM autofill_rule_proposals
+                    WHERE status IN ('pending', 'approved')
+                    ORDER BY created_at DESC
+                    """
+                ).fetchall()
+                for row in existing_rows:
+                    if self._rule_signature(row["rule_json"]) == incoming_sig:
+                        return dict(row)
+
                 conn.execute(
                     """
                     INSERT OR IGNORE INTO autofill_rule_proposals
@@ -134,7 +176,16 @@ class AutofillRepository(BaseRepository):
                 ORDER BY reviewed_at DESC
                 """
             ).fetchall()
-            return [dict(r) for r in rows]
+            deduped: list[dict] = []
+            seen: set[str] = set()
+            for row in rows:
+                item = dict(row)
+                sig = self._rule_signature(item.get("rule_json", ""))
+                if sig in seen:
+                    continue
+                seen.add(sig)
+                deduped.append(item)
+            return deduped
 
     def propose_locator(self, domain: str, img: str, inp: str) -> None:
         clean_domain = self._normalize_domain(domain)

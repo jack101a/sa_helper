@@ -1,0 +1,85 @@
+[
+  {
+    "local_rule_id": "bundled_sarathi_form_one_page",
+    "name": "Sarathi Form One Page Defaults",
+    "priority": 100,
+    "profile_scope": "default",
+    "site": {
+      "match_mode": "domainPath",
+      "pattern": "sarathi.parivahan.gov.in/sarathiservice/formOnePage.do"
+    },
+    "steps": [
+      { "order": 1, "action": "radio", "value": "N", "selector": { "strategy": "name", "name": "scopea" } },
+      { "order": 2, "action": "radio", "value": "Y", "selector": { "strategy": "name", "name": "scopeb" } },
+      { "order": 3, "action": "radio", "value": "N", "selector": { "strategy": "name", "name": "scopec" } },
+      { "order": 4, "action": "radio", "value": "N", "selector": { "strategy": "name", "name": "scopee" } },
+      { "order": 5, "action": "radio", "value": "N", "selector": { "strategy": "name", "name": "scopef" } },
+      { "order": 6, "action": "radio", "value": "N", "selector": { "strategy": "name", "name": "scopeg" } },
+      { "order": 7, "action": "radio", "value": "on", "selector": { "strategy": "name", "name": "optradio" } },
+      { "order": 8, "action": "click", "value": "1", "selector": { "strategy": "name", "name": "declaringcheck" } }
+    ],
+    "meta": { "source": "bundled_legacy_autofill" }
+  },
+  {
+    "local_rule_id": "bundled_sarathi_trsaction",
+    "name": "Sarathi Transaction Defaults",
+    "priority": 100,
+    "profile_scope": "default",
+    "site": {
+      "match_mode": "domainPath",
+      "pattern": "sarathi.parivahan.gov.in/sarathiservice/trsaction.do"
+    },
+    "steps": [
+      { "order": 1, "action": "click", "value": "1", "selector": { "strategy": "name", "name": "Declaration1" } },
+      { "order": 2, "action": "click", "value": "1", "selector": { "strategy": "name", "name": "Declaration2" } },
+      { "order": 3, "action": "click", "value": "1", "selector": { "strategy": "name", "name": "Declaration3" } },
+      { "order": 4, "action": "click", "value": "1", "selector": { "strategy": "name", "name": "disclaimer" } },
+      { "order": 5, "action": "radio", "value": "NO", "selector": { "strategy": "name", "name": "orgDonor" } },
+      { "order": 6, "action": "radio", "value": "on", "selector": { "strategy": "name", "name": "optradio" } }
+    ],
+    "meta": { "source": "bundled_legacy_autofill" }
+  },
+  {
+    "local_rule_id": "bundled_sarathi_state_selection",
+    "name": "Sarathi State Selection Defaults",
+    "priority": 100,
+    "profile_scope": "default",
+    "site": {
+      "match_mode": "domainPath",
+      "pattern": "sarathi.parivahan.gov.in/sarathiservice/stateSelection.do"
+    },
+    "steps": [
+      { "order": 1, "action": "select", "value": "MH", "selector": { "strategy": "name", "name": "stName" } }
+    ],
+    "meta": { "source": "bundled_legacy_autofill" }
+  },
+  {
+    "local_rule_id": "bundled_sarathi_state_select_close",
+    "name": "Sarathi State Popup Close",
+    "priority": 100,
+    "profile_scope": "default",
+    "site": {
+      "match_mode": "domainPath",
+      "pattern": "sarathi.parivahan.gov.in/sarathiservice/stateSelectBean.do"
+    },
+    "steps": [
+      { "order": 1, "action": "click", "value": "", "selector": { "strategy": "css", "css": "button.close.popupclose" } }
+    ],
+    "meta": { "source": "bundled_legacy_autofill" }
+  },
+  {
+    "local_rule_id": "bundled_sarathi_envaction",
+    "name": "Sarathi Environment Action Defaults",
+    "priority": 100,
+    "profile_scope": "default",
+    "site": {
+      "match_mode": "domainPath",
+      "pattern": "sarathi.parivahan.gov.in/sarathiservice/envaction.do"
+    },
+    "steps": [
+      { "order": 1, "action": "select", "value": "YES", "selector": { "strategy": "name", "name": "dispDLDet" } },
+      { "order": 2, "action": "select", "value": "REGIONAL TRANSPORT OFFICE BORIVALI -- MH47 ", "selector": { "strategy": "name", "name": "rtoCodeDLTr" } }
+    ],
+    "meta": { "source": "bundled_legacy_autofill" }
+  }
+]

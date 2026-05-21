@@ -1,38 +1,43 @@
-# STATE.md - Plan Delete Migration Flow
+# STATE.md - System Default Import Bundle
 
 ## Status
 COMPLETE
 
 ## Active Task
-Implemented plan deactivation with optional linked-user subscription migration to a selected target plan.
+Created a clean system default import bundle for restoring captcha mappings, smart autofill rules, user scripts, question data, hashes, and one ONNX model on a new system.
 
 ## Findings
-- Plan delete now accepts optional `target_plan_id`.
-- If target is provided, linked active/pending subscriptions on source plan are migrated in the same transaction.
-- Source plan is then set inactive (soft-delete preserved).
-- Admin UI now opens a deactivation modal where target plan can be selected.
-- Deactivation result now reports migrated count to admin toast.
+- Output bundle: `sa-helper-system-default-bundle.zip`.
+- Included one model payload only: `files/data/models/217k_mixeed.onnx`.
+- Normalized model registry, model routes, and field mappings to `217k_mixeed.onnx`.
+- Captcha mappings were de-duplicated to 10 valid CSS mappings across 4 domains.
+- Omitted the bare Vahan JSF selector alias `j_idt46:ref_captcha` because `document.querySelector()` requires the escaped CSS form; retained `#j_idt46\\:ref_captcha`.
+- Autofill bundle uses the existing consolidated smart default rules from `extension/autofill_rules.json`, not the older repeated one-step spam rules.
+- Included data files for mappings/userscripts, automation scripts, hashes, and questions.
 
 ## Last Files Modified
-- `backend/app/services/subscription_service.py`
-- `backend/app/api/admin_routes/subscriptions.py`
-- `frontend/src/app/components/PlansPanel.jsx`
-- `extension/options/options.html`
-- `extension/options/options.js`
+- `sa-helper-system-default-bundle.zip`
 - `TASK.md`
 - `STATE.md`
 
 ## Last Command Run
-`backend/.venv/bin/python -m py_compile backend/app/services/subscription_service.py backend/app/api/admin_routes/subscriptions.py`
+`python3` zip validation for `sa-helper-system-default-bundle.zip`
 
 ## Last Output/Error
-- Backend compile checks passed.
-- Frontend build passed (`vite build`).
+- `checksum_ok True`
+- `mismatches 0`
+- `onnx_files ['files/data/models/217k_mixeed.onnx']`
+- `all_model_refs ['217k_mixeed.onnx']`
+- `autofill_rules 5`
+- `field_mappings 10 {'echallan.parivahan.gov.in': 1, 'myaadhaar.uidai.gov.in': 1, 'sarathi.parivahan.gov.in': 6, 'vahan.parivahan.gov.in': 2}`
+- `file_count_manifest 14`
+- `files_entries 14`
 
 ## Verification Output Summary
-- Delete API supports `target_plan_id` body and returns `migrated_count`.
-- Plans panel deactivation is now selection-based and no longer plain confirm.
-- Existing local unrelated dirty path remains unchanged: `_local_backup/_sa_helper_backup/sa_helpers`.
+- Manifest checksums match all bundle entries.
+- Exactly one `.onnx` file is present in the bundle.
+- Every model reference in `system-data.json` points to `217k_mixeed.onnx`.
+- Bundle content includes system-data plus mappings/userscripts, automation scripts, hashes, questions, and the single model file.
 
 ## Immediate Next Step
-Optional: enforce target-plan selection as mandatory (currently optional), if you want every deactivation to always migrate linked subscriptions.
+Import `sa-helper-system-default-bundle.zip` using the system bundle import flow on the new system.

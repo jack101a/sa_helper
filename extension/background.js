@@ -554,6 +554,70 @@ function storageRemove(keys) {
     return new Promise(resolve => chrome.storage.local.remove(keys, resolve));
 }
 
+function normalizeRuleStep(step = {}) {
+    const selector = step.selector || {};
+    return {
+        action: step.action || '',
+        value: String(step.value ?? ''),
+        selector: {
+            strategy: selector.strategy || '',
+            id: selector.id || '',
+            name: selector.name || '',
+            css: selector.css || ''
+        }
+    };
+}
+
+function ruleSignature(rule = {}) {
+    const steps = Array.isArray(rule.steps) ? rule.steps : [];
+    return JSON.stringify({
+        profile: rule.profile_scope || 'default',
+        site: {
+            match_mode: rule.site?.match_mode || '',
+            pattern: rule.site?.pattern || ''
+        },
+        steps: steps.map(normalizeRuleStep)
+    });
+}
+
+function dedupeRules(rules = []) {
+    const byKey = new Map();
+    for (const rule of rules) {
+        if (!rule || !rule.site || !Array.isArray(rule.steps)) continue;
+        const key = rule.server_rule_id ? `server:${rule.server_rule_id}` : `sig:${ruleSignature(rule)}`;
+        const sigKey = `sig:${ruleSignature(rule)}`;
+        const existing = byKey.get(key) || byKey.get(sigKey);
+        if (!existing || (!existing.server_rule_id && rule.server_rule_id)) {
+            byKey.set(key, rule);
+            byKey.set(sigKey, rule);
+        }
+    }
+    return Array.from(new Set(byKey.values()));
+}
+
+async function loadBundledAutofillRules() {
+    try {
+        const url = chrome.runtime.getURL('autofill_rules.json');
+        const resp = await fetch(url);
+        if (!resp.ok) return [];
+        const rules = await resp.json();
+        return Array.isArray(rules) ? rules : [];
+    } catch (e) {
+        console.warn('[Autofill] Bundled rules load failed:', e.message);
+        return [];
+    }
+}
+
+async function ensureBundledAutofillRules() {
+    const bundled = await loadBundledAutofillRules();
+    if (!bundled.length) return { ok: true, added: 0 };
+    const data = await storageGet(['rules']);
+    const before = dedupeRules(data.rules || []);
+    const merged = dedupeRules([...before, ...bundled]);
+    await storageSet({ rules: merged });
+    return { ok: true, added: Math.max(0, merged.length - before.length) };
+}
+
 async function wipeSyncedExtensionData(options = {}) {
     const preserveAuth = !!options.preserveAuth;
     const allData = await storageGet(null);
@@ -979,7 +1043,7 @@ async function syncHeavyData(source, options = {}) {
         if (data.rules) {
             const localData = await storageGet(['rules']);
             const localRules = (localData.rules || []).filter(r => !r.server_rule_id);
-            const merged = [...localRules, ...data.rules];
+            const merged = dedupeRules([...localRules, ...data.rules]);
             await chrome.storage.local.set({ rules: merged });
             results.rules = data.rules.length;
             console.log(`[Sync:${source}] Rules synced — ${results.rules} rules`);
@@ -1025,9 +1089,10 @@ async function syncHeavyData(source, options = {}) {
 // ─────────────────────────────────────────────────────────────────
 
 async function syncAll(source, options = {}) {
+    const bundled = await ensureBundledAutofillRules();
     const auth = await syncAuthState(source);
     const heavy = await syncHeavyData(source, { force: options.forceHeavy === true });
-    return { ok: !!(auth.ok || heavy.ok), auth, ...heavy };
+    return { ok: !!(bundled.ok || auth.ok || heavy.ok), bundled, auth, ...heavy };
 }
 
 chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MIN });
@@ -1426,21 +1491,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // ── Interaction Recorder ────────────────────────────────────
     if (msg.type === 'RECORD_STEP') {
         chrome.storage.local.get(['rules', 'activeProfileId', 'isMaster', 'apiKey'], data => {
-            const rules = data.rules || [];
+            let rules = dedupeRules(data.rules || []);
             const rule  = msg.rule;
             rule.profile_scope = data.activeProfileId || 'default';
             rule.local_rule_id = rule.local_rule_id || `local_${Date.now()}`;
-            const last = rules[rules.length - 1];
-            const lastStep = last?.steps?.[0];
             const nextStep = rule?.steps?.[0];
-            const sameLast = last
-                && last.site?.pattern === rule.site?.pattern
-                && JSON.stringify(lastStep?.selector || {}) === JSON.stringify(nextStep?.selector || {})
-                && lastStep?.action === nextStep?.action
-                && String(lastStep?.value) === String(nextStep?.value);
+            const nextSignature = ruleSignature(rule);
+            const alreadyRecorded = rules.some(existing => ruleSignature(existing) === nextSignature);
             
-            if (!sameLast) {
+            if (!alreadyRecorded) {
                 rules.push(rule);
+                rules = dedupeRules(rules);
                 // Auto-propose to server if Master key is active
                 if (data.isMaster && data.apiKey) {
                     getDeviceId().then(devId => {
@@ -1469,7 +1530,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             }
 
             chrome.storage.local.set({ rules }, () => {
-                if (!sameLast) {
+                if (!alreadyRecorded) {
                     let host = '';
                     try {
                         host = sender?.tab?.url ? new URL(sender.tab.url).hostname : '';

@@ -69,11 +69,4 @@
         await new Promise(r => setTimeout(r, window.up_rndInt(30, 90)));
     };
 
-    window.up_flashElement = function(el, color) {
-        if (!el) return;
-        const old = el.style.outline;
-        el.style.outline = `3px solid ${color}`;
-        setTimeout(() => el.style.outline = old, 400);
-    };
-
 })();

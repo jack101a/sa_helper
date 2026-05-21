@@ -1,30 +1,33 @@
-# TASK.md - Plan Delete Migration Flow
+# TASK.md - System Default Import Bundle
 
 ## Goal
-Allow admin to deactivate a plan by selecting a target plan and auto-migrating linked subscriptions.
+Create a portable system default import bundle from the provided backup data for restoring a new system.
 
 ## Status
 COMPLETE
 
 ## Scope Included
-- Backend: support `target_plan_id` on `DELETE /admin/api/plans/{plan_id}`.
-- Backend: migrate linked `user_subscriptions` before deactivating source plan.
-- Frontend: replace plain confirm with deactivation modal that lets admin choose target plan.
-- Frontend: show migrated subscription count toast.
+- Preserve captcha domain field mappings from the provided backup/global routes.
+- De-duplicate captcha field mappings by domain/source/target/model/task.
+- Include bundled autofill rules as smart, single-pass defaults for checkbox/radio/select/click fields.
+- Include user scripts, question data, hashes, mappings, and automation scripts from existing data files.
+- Include only one ONNX model payload named `217k_mixeed.onnx`.
+- Normalize model registry/routes/field mappings to reference `217k_mixeed.onnx`.
 
 ## Scope Excluded
-- No schema changes.
-- No hard-delete of plan rows.
-- No changes to old/historical expired/cancelled subscription records.
+- No autofill runner code changes.
+- No user/account/API-key backup data.
+- No extra duplicate ONNX model aliases.
 
 ## Plan
-- [x] Read subscription models, service, admin routes, and plans panel.
-- [x] Add migration-aware delete in `SubscriptionService.delete_plan`.
-- [x] Update admin delete endpoint to accept JSON body with `target_plan_id`.
-- [x] Add plans-panel deactivation modal with target plan selector.
-- [x] Run backend syntax checks and frontend build.
-- [x] Update STATE.md.
+- [x] Inspect current bundle/import format.
+- [x] Confirm available source files and existing default autofill rules.
+- [x] Generate cleaned system-data and zip bundle.
+- [x] Verify zip manifest checksums and contents.
+- [x] Update STATE.md with output and verification.
 
 ## Verification
-- `backend/.venv/bin/python -m py_compile backend/app/services/subscription_service.py backend/app/api/admin_routes/subscriptions.py`
-- `cd frontend && npm run build`
+- `python3` zip validation confirmed all manifest checksums match.
+- Bundle contains exactly one ONNX file: `files/data/models/217k_mixeed.onnx`.
+- All model registry/routes/field mappings reference `217k_mixeed.onnx`.
+- Counts: 5 autofill rules, 10 captcha field mappings, 4 allowed domains, 14 files entries.

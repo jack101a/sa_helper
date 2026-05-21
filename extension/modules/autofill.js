@@ -7,6 +7,12 @@
         let _recording = false;
         let _filledElements = new WeakSet();
         let _mutationObs = null;
+        let _lastRecordedSignature = '';
+        let _lastRecordedAt = 0;
+        let _running = false;
+        let _pageKey = '';
+        let _completedStepKeys = new Set();
+        let _cooldownUntil = 0;
 
         const SCHEMA_VERSION = 2;
         const DEFAULT_SETTINGS = {
@@ -55,6 +61,14 @@
             return null;
         }
 
+        function findRadioByNameValue(name, value) {
+            if (!name) return null;
+            const radios = Array.from(document.querySelectorAll(`input[type="radio"][name="${CSS.escape(name)}"]`));
+            if (!radios.length) return null;
+            const target = String(value ?? '');
+            return radios.find(radio => String(radio.value) === target) || radios[0];
+        }
+
         function setNativeValue(el, value) {
             if (el instanceof HTMLSelectElement) {
                 // Fuzzy Selection Logic (Legacy port)
@@ -94,62 +108,145 @@
             return false;
         }
 
-        async function executeRule(rule, profileData, settings) {
-            if (!rule.steps?.length) return;
-            for (const step of rule.steps) {
-                const el = findBestElement(step.selector);
-                if (!el || _filledElements.has(el)) continue;
+        function currentPageKey() {
+            return `${window.location.hostname}${window.location.pathname}${window.location.search}`;
+        }
 
-                // Guards
-                if (settings.skipHidden && el.offsetParent === null) continue;
-                if (settings.skipLocked && (el.disabled || el.readOnly)) continue;
-                if (settings.skipPassword && el.type === 'password') continue;
+        function resetPageStateIfNeeded() {
+            const key = currentPageKey();
+            if (_pageKey === key) return;
+            _pageKey = key;
+            _completedStepKeys = new Set();
+            _cooldownUntil = 0;
+            _filledElements = new WeakSet();
+        }
 
-                // Resolve Value (Profile Tokens)
-                let fillValue = step.value ?? '';
-                if (typeof fillValue === 'string' && fillValue.startsWith('{{') && fillValue.endsWith('}}')) {
-                    const key = fillValue.slice(2, -2);
-                    fillValue = profileData[key] || '';
+        function executionStepKey(rule, step) {
+            const selector = step.selector || {};
+            return [
+                rule.local_rule_id || rule.server_rule_id || rule.name || '',
+                rule.site?.pattern || '',
+                step.order || '',
+                step.action || '',
+                String(step.value ?? ''),
+                selector.strategy || '',
+                selector.id || '',
+                selector.name || '',
+                selector.css || ''
+            ].join('|');
+        }
+
+        function resolveFillValue(step, profileData) {
+            let fillValue = step.value ?? '';
+            if (typeof fillValue === 'string' && fillValue.startsWith('{{') && fillValue.endsWith('}}')) {
+                const key = fillValue.slice(2, -2);
+                fillValue = profileData[key] || '';
+            }
+            return fillValue;
+        }
+
+        async function executeStep(rule, step, profileData, settings) {
+            const stepKey = executionStepKey(rule, step);
+            if (_completedStepKeys.has(stepKey)) return 'complete';
+
+            let el = findBestElement(step.selector);
+            if (step.action === 'radio') {
+                el = findRadioByNameValue(step.selector?.name, resolveFillValue(step, profileData)) || el;
+            }
+            if (!el || _filledElements.has(el)) return 'pending';
+
+            // Guards
+            if (settings.skipHidden && el.offsetParent === null) return 'pending';
+            if (settings.skipLocked && (el.disabled || el.readOnly)) return 'pending';
+            if (settings.skipPassword && el.type === 'password') return 'complete';
+
+            const fillValue = resolveFillValue(step, profileData);
+            if (!fillValue && step.action !== 'click') return 'complete';
+
+            try {
+                await window.up_humanMouse(el);
+                if (step.action === 'text') {
+                    setNativeValue(el, fillValue);
+                } else if (step.action === 'select') {
+                    setNativeValue(el, fillValue);
+                } else if (step.action === 'checkbox') {
+                    el.checked = (fillValue === 'true' || fillValue === true || fillValue === '1');
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                } else if (step.action === 'radio') {
+                    el.checked = true;
+                    el.click();
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                } else if (step.action === 'click') {
+                    el.click();
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
                 }
-
-                if (!fillValue && step.action !== 'click') continue;
-
-                try {
-                    await window.up_humanMouse(el);
-                    if (step.action === 'text') {
-                        setNativeValue(el, fillValue);
-                    } else if (step.action === 'select') {
-                        setNativeValue(el, fillValue);
-                    } else if (step.action === 'checkbox' || step.action === 'radio') {
-                        el.checked = (fillValue === 'true' || fillValue === true || fillValue === '1');
-                        el.dispatchEvent(new Event('change', { bubbles: true }));
-                    } else if (step.action === 'click') {
-                        el.click();
-                    }
-                    _filledElements.add(el);
-                    window.up_flashElement(el, '#10b981'); // Green flash
-                    window.up_sendMsg('INCREMENT_STAT', { key: 'statFill' });
-                } catch (e) {
-                    console.error('[Autofill] Step failed:', e);
-                }
+                _filledElements.add(el);
+                _completedStepKeys.add(stepKey);
+                window.up_sendMsg('INCREMENT_STAT', { key: 'statFill' });
+                return 'filled';
+            } catch (e) {
+                console.error('[Autofill] Step failed:', e);
+                return 'pending';
             }
         }
 
+        async function executeRule(rule, profileData, settings) {
+            if (!rule.steps?.length) return { filled: 0, pending: 0 };
+            let filled = 0;
+            let pending = 0;
+            const steps = [...rule.steps].sort((a, b) => (a.order || 0) - (b.order || 0));
+            for (const step of steps) {
+                if (_completedStepKeys.has(executionStepKey(rule, step))) continue;
+                const el = findBestElement(step.selector);
+                if (!el && step.action !== 'radio') {
+                    pending++;
+                    continue;
+                }
+                const result = await executeStep(rule, step, profileData, settings);
+                if (result === 'filled') filled++;
+                if (result === 'pending') pending++;
+            }
+            return { filled, pending };
+        }
+
         async function runEngine() {
-            if (!_active || _recording || typeof chrome === 'undefined' || !chrome.runtime?.id) return;
-            const data = await window.up_getStorage(['rules', 'profiles', 'activeProfileId', 'autofillSettings']);
-            const settings = { ...DEFAULT_SETTINGS, ...data.autofillSettings };
-            const profiles = data.profiles || [];
-            const activeId = data.activeProfileId || 'default';
-            const profile = profiles.find(p => p.id === activeId) || profiles[0] || { data: {} };
-            const profileData = profile?.data || {};
-            const rules = data.rules || [];
+            if (!_active || _recording || _running || typeof chrome === 'undefined' || !chrome.runtime?.id) return;
+            resetPageStateIfNeeded();
+            if (Date.now() < _cooldownUntil) return;
+            _running = true;
+            try {
+                const data = await window.up_getStorage(['rules', 'profiles', 'activeProfileId', 'autofillSettings']);
+                const settings = { ...DEFAULT_SETTINGS, ...data.autofillSettings };
+                const profiles = data.profiles || [];
+                const activeId = data.activeProfileId || 'default';
+                const profile = profiles.find(p => p.id === activeId) || profiles[0] || { data: {} };
+                const profileData = profile?.data || {};
+                const rules = data.rules || [];
 
-            const matchedRules = rules.filter(matchRule).sort((a,b) => (b.priority || 100) - (a.priority || 100));
-            if (!matchedRules.length) return;
+                const matchedRules = rules.filter(matchRule).sort((a,b) => (b.priority || 100) - (a.priority || 100));
+                if (!matchedRules.length) return;
 
-            for (const rule of matchedRules) {
-                await executeRule(rule, profileData, settings);
+                const maxRetries = Math.max(1, Number(settings.maxRetries || DEFAULT_SETTINGS.maxRetries));
+                const retryInterval = Math.max(150, Number(settings.retryInterval || DEFAULT_SETTINGS.retryInterval));
+                for (let attempt = 0; attempt < maxRetries; attempt++) {
+                    let totalFilled = 0;
+                    let totalPending = 0;
+                    for (const rule of matchedRules) {
+                        const result = await executeRule(rule, profileData, settings);
+                        totalFilled += result.filled;
+                        totalPending += result.pending;
+                    }
+                    if (totalPending === 0) {
+                        _cooldownUntil = Date.now() + 30000;
+                        return;
+                    }
+                    await new Promise(resolve => setTimeout(resolve, retryInterval));
+                }
+                _cooldownUntil = Date.now() + 5000;
+            } finally {
+                _running = false;
             }
         }
 
@@ -194,8 +291,24 @@
             return { strategy: 'css', css: cssPath(el) };
         }
 
+        function stepSignature(rule) {
+            const step = rule?.steps?.[0] || {};
+            const selector = step.selector || {};
+            return [
+                rule?.site?.match_mode || '',
+                rule?.site?.pattern || '',
+                step.action || '',
+                String(step.value ?? ''),
+                selector.strategy || '',
+                selector.id || '',
+                selector.name || '',
+                selector.css || ''
+            ].join('|');
+        }
+
         function handleInteraction(e) {
             if (!_recording) return;
+            if (e.isTrusted === false) return;
             const el = e.target.closest('input, select, textarea, button, a');
             if (!el || el.type === 'password') return;
             if (e.type === 'click' && el.tagName === 'INPUT' && ['text', 'email', 'number', 'tel'].includes(el.type)) return;
@@ -234,8 +347,13 @@
                 }
             };
 
+            const signature = stepSignature(rule);
+            const now = Date.now();
+            if (signature === _lastRecordedSignature && (now - _lastRecordedAt) < 1500) return;
+            _lastRecordedSignature = signature;
+            _lastRecordedAt = now;
+
             console.log('[Autofill] Recorded interaction:', rule);
-            window.up_flashElement(el, '#f43f5e'); // Red flash
             window.up_sendMsg('RECORD_STEP', { rule });
         }
 
