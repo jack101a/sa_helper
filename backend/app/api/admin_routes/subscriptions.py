@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -84,14 +85,37 @@ async def delete_plan(request: Request, plan_id: int) -> Any:
     if denied:
         return denied
     container = request.app.state.container
-    plan = container.subscription_service.delete_plan(plan_id)
-    if not plan:
+    body = {}
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            body = {}
+    except Exception:
+        body = {}
+    target_plan_id = body.get("target_plan_id")
+    try:
+        result = container.subscription_service.delete_plan(
+            plan_id,
+            target_plan_id=int(target_plan_id) if target_plan_id is not None else None,
+        )
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+    if not result:
         return JSONResponse({"error": "Plan not found"}, status_code=404)
     container.audit_service.log(
         actor_type="admin", action="plan_deleted",
         target_type="plan", target_id=plan_id,
+        after_json=json.dumps({
+            "target_plan_id": result.get("target_plan_id"),
+            "migrated_count": result.get("migrated_count", 0),
+        }),
     )
-    return JSONResponse(plan.to_dict())
+    return JSONResponse({
+        **result["plan"].to_dict(),
+        "migrated_count": result.get("migrated_count", 0),
+        "target_plan_id": result.get("target_plan_id"),
+    })
 
 
 # ── User Subscriptions ────────────────────────────────────────────────────

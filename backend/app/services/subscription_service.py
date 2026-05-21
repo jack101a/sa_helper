@@ -6,6 +6,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from app.core.models import SubscriptionPlan, UserSubscription, User
 
@@ -103,18 +104,55 @@ class SubscriptionService:
         finally:
             session.close()
 
-    def delete_plan(self, plan_id: int) -> SubscriptionPlan | None:
-        """Deactivate a plan without breaking existing subscriptions/payments."""
+    def delete_plan(self, plan_id: int, target_plan_id: int | None = None) -> dict | None:
+        """Deactivate a plan and optionally migrate linked subscriptions to another plan."""
         session = self._session()
         try:
             plan = session.query(SubscriptionPlan).filter(SubscriptionPlan.id == plan_id).first()
             if not plan:
                 return None
+            target_plan = None
+            if target_plan_id is not None:
+                if int(target_plan_id) == int(plan_id):
+                    raise ValueError("target_plan_id must be different from plan_id")
+                target_plan = (
+                    session.query(SubscriptionPlan)
+                    .filter(SubscriptionPlan.id == int(target_plan_id))
+                    .first()
+                )
+                if not target_plan:
+                    raise ValueError(f"Target plan {target_plan_id} not found")
+                if not target_plan.is_active:
+                    raise ValueError("Target plan must be active")
+
+            migrated_count = 0
+            if target_plan is not None:
+                subs = (
+                    session.query(UserSubscription)
+                    .filter(
+                        UserSubscription.plan_id == plan_id,
+                        or_(
+                            UserSubscription.status == "active",
+                            UserSubscription.status == "pending",
+                        ),
+                    )
+                    .all()
+                )
+                for sub in subs:
+                    sub.plan_id = int(target_plan.id)
+                    sub.monthly_limit_snapshot = int(target_plan.monthly_limit)
+                    sub.updated_at = datetime.now(timezone.utc)
+                migrated_count = len(subs)
+
             plan.is_active = False
             plan.updated_at = datetime.now(timezone.utc)
             session.commit()
             session.refresh(plan)
-            return plan
+            return {
+                "plan": plan,
+                "migrated_count": migrated_count,
+                "target_plan_id": int(target_plan.id) if target_plan is not None else None,
+            }
         except Exception:
             session.rollback()
             raise

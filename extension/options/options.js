@@ -211,8 +211,8 @@ function renderUserOptions(data) {
 async function init() {
     const data = await storageGet([
         'apiKey', 'serverUrl', 'isMaster', 'rules', 'autofillSettings',
-        'captchaEnabled', 'solverEnabled', 'autofillEnabled', 'autoRefresh',
-        'autoScreenshot', 'theme', 'normalized_userscripts', 'userscriptsEnabled',
+        'captchaEnabled', 'solverEnabled', 'autofillEnabled',
+        'theme', 'normalized_userscripts', 'userscriptsEnabled',
         'globalFieldRoutes', 'globalLocators', 'domainFieldRoutes', 'activeOptionsTab',
         'keyName', 'expiresAt', 'lastVerify', 'userName', 'name', 'planName',
         'plan', 'subscriptionPlan', 'subscription_status', 'mobile', 'phone',
@@ -271,10 +271,6 @@ async function init() {
     if (el('set-skip-locked')) el('set-skip-locked').checked = settings.skipLocked !== false;
     if (el('set-skip-password')) el('set-skip-password').checked = settings.skipPassword !== false;
 
-    // Exam
-    el('tog-refresh').checked    = data.autoRefresh    !== false;
-    el('tog-screenshot').checked = data.autoScreenshot !== false;
-    
     if (data.apiKey) {
         verifyKey(data.apiKey, SERVER_URL);
         syncRulesFromServer(data.apiKey, SERVER_URL);
@@ -882,18 +878,6 @@ if (el('userscripts-sync-btn')) {
         });
     });
 }
-
-// ── Exam Tab ──────────────────────────────────────────────────────────────────
-el('btn-save-exam').addEventListener('click', () => {
-    setLoading('btn-save-exam', true);
-    chrome.storage.local.set({
-        autoRefresh:    el('tog-refresh').checked,
-        autoScreenshot: el('tog-screenshot').checked,
-    }, () => {
-        setLoading('btn-save-exam', false);
-        showMsg('exam-msg', '✓ Exam settings saved');
-    });
-});
 
 // ── Theme Management ─────────────────────────────────────────────────────────
 function applyTheme(theme) {

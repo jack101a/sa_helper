@@ -26,6 +26,8 @@ export function PlansPanel({ showToast }) {
   const [form, setForm] = useState(defaultForm);
   const [saving, setSaving] = useState(false);
   const [uploadingQrPlanId, setUploadingQrPlanId] = useState(null);
+  const [deletePlanId, setDeletePlanId] = useState(null);
+  const [deleteTargetPlanId, setDeleteTargetPlanId] = useState("");
 
   const fetchPlans = useCallback(async () => {
     setLoading(true);
@@ -71,12 +73,34 @@ export function PlansPanel({ showToast }) {
     }
   };
 
-  const handleDelete = async (planId) => {
-    if (!window.confirm("Deactivate this plan? Existing subscriptions will remain linked.")) return;
+  const openDeleteModal = (planId) => {
+    const fallbackTarget = plans.find((p) => p.is_active && p.id !== planId);
+    setDeletePlanId(planId);
+    setDeleteTargetPlanId(fallbackTarget ? String(fallbackTarget.id) : "");
+  };
+
+  const closeDeleteModal = () => {
+    setDeletePlanId(null);
+    setDeleteTargetPlanId("");
+  };
+
+  const handleDelete = async () => {
+    if (!deletePlanId) return;
     setSaving(true);
     try {
-      await apiDelete(`/admin/api/plans/${planId}`);
-      showToast("Plan deactivated");
+      const body = {};
+      if (deleteTargetPlanId) body.target_plan_id = Number(deleteTargetPlanId);
+      const result = await apiDelete(`/admin/api/plans/${deletePlanId}`, {
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const moved = Number(result?.migrated_count || 0);
+      if (moved > 0) {
+        showToast(`Plan deactivated. Migrated ${moved} linked subscription(s).`);
+      } else {
+        showToast("Plan deactivated");
+      }
+      closeDeleteModal();
       fetchPlans();
     } catch (e) {
       showToast(e.message || "Failed to deactivate plan", "error");
@@ -247,7 +271,7 @@ export function PlansPanel({ showToast }) {
                           <div className="flex items-center justify-end gap-1">
                             <button onClick={() => openEdit(p)} className={iconBtn} title="Edit"><Edit3 size={14} /></button>
                             {p.is_active && (
-                              <button onClick={() => handleDelete(p.id)} className={iconBtn} title="Deactivate" disabled={saving}>
+                              <button onClick={() => openDeleteModal(p.id)} className={iconBtn} title="Deactivate" disabled={saving}>
                                 <Trash2 size={14} className="text-rose-400" />
                               </button>
                             )}
@@ -335,6 +359,42 @@ export function PlansPanel({ showToast }) {
                 <button type="button" onClick={() => setShowCreate(false)} className={`px-4 py-2 rounded-xl text-sm ${t_textMuted} border ${t_borderLight}`}>Cancel</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {deletePlanId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={closeDeleteModal}>
+          <div className={`${glassPanel} rounded-2xl p-6 w-full max-w-md border ${t_borderLight}`} onClick={(e) => e.stopPropagation()}>
+            <h3 className={`text-lg font-semibold mb-3 ${t_textHeading}`}>Deactivate Plan</h3>
+            <p className={`text-sm mb-4 ${t_textMuted}`}>
+              Move linked users to another active plan before deactivation.
+            </p>
+            <div className="space-y-2">
+              <label className={`text-xs block ${t_textMuted}`}>Target Plan (optional)</label>
+              <select
+                className={glassInput}
+                value={deleteTargetPlanId}
+                onChange={(e) => setDeleteTargetPlanId(e.target.value)}
+              >
+                <option value="">Do not migrate linked users</option>
+                {plans
+                  .filter((p) => p.is_active && p.id !== deletePlanId)
+                  .map((p) => (
+                    <option key={p.id} value={String(p.id)}>
+                      {p.name} ({p.code})
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div className="flex gap-2 pt-4">
+              <button type="button" onClick={handleDelete} className={solidButton} disabled={saving}>
+                {saving ? <Loader2 size={16} className="animate-spin" /> : "Deactivate"}
+              </button>
+              <button type="button" onClick={closeDeleteModal} className={`px-4 py-2 rounded-xl text-sm ${t_textMuted} border ${t_borderLight}`}>
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

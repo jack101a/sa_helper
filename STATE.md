@@ -1,51 +1,38 @@
-# STATE.md - Extension Runtime Scope Gating
+# STATE.md - Plan Delete Migration Flow
 
 ## Status
 COMPLETE
 
 ## Active Task
-Implemented runtime gates and restricted dialog suppression/auto-accept behavior to STALL/exam-related pages.
+Implemented plan deactivation with optional linked-user subscription migration to a selected target plan.
 
 ## Findings
-- WhatsApp Web and `*.bank.in` are now runtime-excluded from the main content bootloader and userscript engine.
-- Broad alert/confirm/onbeforeunload suppression was removed from `content.js`.
-- Dedicated native dialog suppression now only enables on STALL/exam-related Sarathi URLs.
-- `main_inject.js` native dialog overrides now no-op outside STALL/exam-related Sarathi URLs.
-- `sarathi_panel.js` hardening alert override now only runs on STALL/exam-related Sarathi URLs.
-- STALL `handlePopups()` still auto-clicks visible `ok/close/agree/accept` buttons, but only from the STALL automation tick after STALL starts.
-- STALL automation only starts on Sarathi STALL-related URLs.
-- Captcha polling starts only on Sarathi, configured captcha domains, or pages with a visible captcha target.
-- Autofill observer/listeners start only when a matching rule exists or master recording is active.
-- Userscript SPA watcher is no longer installed when no scripts are configured.
+- Plan delete now accepts optional `target_plan_id`.
+- If target is provided, linked active/pending subscriptions on source plan are migrated in the same transaction.
+- Source plan is then set inactive (soft-delete preserved).
+- Admin UI now opens a deactivation modal where target plan can be selected.
+- Deactivation result now reports migrated count to admin toast.
 
 ## Last Files Modified
-- `extension/content.js`
-- `extension/modules/captcha.js`
-- `extension/modules/autofill.js`
-- `extension/modules/stall_automation.js`
-- `extension/modules/userscript_engine.js`
-- `extension/modules/dialog_boot.js`
-- `extension/modules/dialog_handler.js`
-- `extension/modules/main_inject.js`
-- `extension/modules/sarathi_panel.js`
+- `backend/app/services/subscription_service.py`
+- `backend/app/api/admin_routes/subscriptions.py`
+- `frontend/src/app/components/PlansPanel.jsx`
+- `extension/options/options.html`
+- `extension/options/options.js`
 - `TASK.md`
 - `STATE.md`
 
 ## Last Command Run
-`find extension -name '*.js' -print0 | xargs -0 -n1 node --check`
+`backend/.venv/bin/python -m py_compile backend/app/services/subscription_service.py backend/app/api/admin_routes/subscriptions.py`
 
 ## Last Output/Error
-- JS syntax verification completed with no errors.
+- Backend compile checks passed.
+- Frontend build passed (`vite build`).
 
 ## Verification Output Summary
-- `node --check` passed for all extension JS files.
-- `grep` confirmed remaining native dialog overrides are in gated modules only.
-- Manifest permissions were not changed.
-- Changes are runtime-only gates, preserving existing package structure and module loading order.
+- Delete API supports `target_plan_id` body and returns `migrated_count`.
+- Plans panel deactivation is now selection-based and no longer plain confirm.
+- Existing local unrelated dirty path remains unchanged: `_local_backup/_sa_helper_backup/sa_helpers`.
 
 ## Immediate Next Step
-Reload the unpacked extension and test:
-1. WhatsApp Web has no active helper boot logs/timers.
-2. A `*.bank.in` page has no active helper boot logs/timers.
-3. Sarathi normal non-STALL pages show native dialogs normally.
-4. Sarathi STALL/exam pages still run current flows.
+Optional: enforce target-plan selection as mandatory (currently optional), if you want every deactivation to always migrate linked subscriptions.

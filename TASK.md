@@ -1,34 +1,30 @@
-# TASK.md - Extension Runtime Scope Gating
+# TASK.md - Plan Delete Migration Flow
 
 ## Goal
-Reduce extension background work on unrelated websites while preserving current Sarathi, STALL, exam, captcha, autofill, and userscript behavior.
+Allow admin to deactivate a plan by selecting a target plan and auto-migrating linked subscriptions.
 
 ## Status
 COMPLETE
 
 ## Scope Included
-- Add runtime excluded-site gate for WhatsApp Web and `*.bank.in`.
-- Gate main module activation in `content.js`.
-- Add internal guard to `StallAutomation.start()`.
-- Avoid starting captcha interval when current page/domain has no captcha target.
-- Avoid installing autofill observer when no matching rule exists and recording is off.
-- Avoid userscript SPA watcher on excluded sites.
-- Remove broad dialog suppression.
-- Limit native dialog auto-accept/suppression to STALL/exam-related Sarathi pages.
+- Backend: support `target_plan_id` on `DELETE /admin/api/plans/{plan_id}`.
+- Backend: migrate linked `user_subscriptions` before deactivating source plan.
+- Frontend: replace plain confirm with deactivation modal that lets admin choose target plan.
+- Frontend: show migrated subscription count toast.
 
 ## Scope Excluded
-- Narrowing manifest host permissions.
-- Removing existing modules.
-- Changing Sarathi/STall/exam solving behavior.
+- No schema changes.
+- No hard-delete of plan rows.
+- No changes to old/historical expired/cancelled subscription records.
 
 ## Plan
-- [x] Read current extension activation files.
-- [x] Patch runtime excluded-site guards.
-- [x] Patch module start guards.
-- [x] Remove broad dialog suppressor.
-- [x] Gate remaining dialog handlers to STALL/exam URLs.
-- [x] Run JS syntax verification.
+- [x] Read subscription models, service, admin routes, and plans panel.
+- [x] Add migration-aware delete in `SubscriptionService.delete_plan`.
+- [x] Update admin delete endpoint to accept JSON body with `target_plan_id`.
+- [x] Add plans-panel deactivation modal with target plan selector.
+- [x] Run backend syntax checks and frontend build.
 - [x] Update STATE.md.
 
 ## Verification
-- `node --check` on modified extension JS files.
+- `backend/.venv/bin/python -m py_compile backend/app/services/subscription_service.py backend/app/api/admin_routes/subscriptions.py`
+- `cd frontend && npm run build`
