@@ -17,6 +17,21 @@
     const STEP4_FALLBACK_DELAY_MS = 5000;
     const STEP4_LOCK_TTL_MS = 20000;
 
+    function isStallRelatedUrl() {
+        try {
+            const url = new URL(location.href);
+            if (url.hostname !== 'sarathi.parivahan.gov.in') return false;
+            const path = url.pathname.toLowerCase();
+            return path === '/sarathiservice/authenticationaction.do'
+                || path === '/sarathiservice/instruction.do'
+                || path === '/sarathiservice/examselectaction.do'
+                || path === '/sarathiservice/stallexam.do'
+                || path === '/sarathiservice/stallloginsubmit.do';
+        } catch (_) {
+            return false;
+        }
+    }
+
     window.StallAutomation = {
         _timerId: null,
         _busy: false,
@@ -26,6 +41,7 @@
         _lastActionAt: {},
         _loadStartedAt: 0,
         _pageWatcherTimer: null,
+        _inputListenerInstalled: false,
 
         async sleep(ms) {
             return new Promise(resolve => setTimeout(resolve, ms));
@@ -511,20 +527,24 @@
             }
         },
 
-        start() {
+        async start() {
             if (this._timerId) return;
+            if (!isStallRelatedUrl()) return;
             this._loadStartedAt = Date.now();
             
             // Real-time listener to capture Application No and Captcha as user types
-            document.addEventListener('input', (e) => {
-                const id = e.target.id;
-                const name = e.target.name;
-                if (id === 'llappln' || name === 'llappln') {
-                    chrome.storage.local.set({ _stall_appNo: e.target.value });
-                } else if (id === 'txtCaptcha' || id === 'entcaptxt' || name === 'entcaptxt') {
-                    chrome.storage.local.set({ _stall_captcha: e.target.value });
-                }
-            });
+            if (!this._inputListenerInstalled) {
+                document.addEventListener('input', (e) => {
+                    const id = e.target.id;
+                    const name = e.target.name;
+                    if (id === 'llappln' || name === 'llappln') {
+                        chrome.storage.local.set({ _stall_appNo: e.target.value });
+                    } else if (id === 'txtCaptcha' || id === 'entcaptxt' || name === 'entcaptxt') {
+                        chrome.storage.local.set({ _stall_captcha: e.target.value });
+                    }
+                });
+                this._inputListenerInstalled = true;
+            }
 
             this.tick();
             this._timerId = setInterval(() => this.tick(), 1000);

@@ -52,6 +52,22 @@ class APIKeyRepository(BaseRepository):
             row = cursor.fetchone()
             return dict(row) if row else None
 
+    def touch_usage(self, key_id: int) -> None:
+        """Increment usage_count and update last_used_at for a legacy API key."""
+        with self._lock:
+            with self.connect() as conn:
+                now = datetime.now(timezone.utc).isoformat()
+                conn.execute(
+                    """
+                    UPDATE api_keys
+                    SET usage_count = COALESCE(usage_count, 0) + 1,
+                        last_used_at = ?
+                    WHERE id = ?
+                    """,
+                    (now, key_id),
+                )
+                conn.commit()
+
     def revoke_api_key(self, key_hash: str) -> bool:
         """Disable API key hash."""
         with self._lock:

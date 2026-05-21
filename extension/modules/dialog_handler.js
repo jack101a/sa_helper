@@ -3,11 +3,27 @@
 
     // This script runs in the MAIN world to override native dialogs.
     // We check a data attribute on the document element to see if suppression is enabled.
+
+    function isStallExamRelatedUrl() {
+        try {
+            const url = new URL(location.href);
+            if (url.hostname !== 'sarathi.parivahan.gov.in') return false;
+            const path = url.pathname.toLowerCase();
+            return path === '/sarathiservice/authenticationaction.do'
+                || path === '/sarathiservice/instruction.do'
+                || path === '/sarathiservice/examselectaction.do'
+                || path === '/sarathiservice/stallexam.do'
+                || path === '/sarathiservice/stallexamaction.do'
+                || path === '/sarathiservice/stallloginsubmit.do';
+        } catch (_) {
+            return false;
+        }
+    }
     
     function init() {
         const shouldSuppress = document.documentElement.getAttribute('data-suppress-dialogs') === 'true';
         
-        if (!shouldSuppress) return;
+        if (!shouldSuppress || !isStallExamRelatedUrl()) return;
 
         console.log('[ta-ta] JS Dialog Suppression Active');
 

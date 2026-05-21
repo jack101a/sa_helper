@@ -1,33 +1,34 @@
-# TASK.md - Mock Trainer Access and Learning Stats Analysis
+# TASK.md - Extension Runtime Scope Gating
 
 ## Goal
-Analyze extension script execution, restrict mock trainer to admin/master mode only, and explain why the learning dashboard can show `High Confidence = 0`.
+Reduce extension background work on unrelated websites while preserving current Sarathi, STALL, exam, captcha, autofill, and userscript behavior.
 
 ## Status
 COMPLETE
 
 ## Scope Included
-- Inspect extension manifest/content-script boot order.
-- Inspect mock trainer activation and runtime gates.
-- Add master/admin gate for mock trainer.
-- Inspect backend learning stats formula.
-- Rebuild and verify extension packages.
+- Add runtime excluded-site gate for WhatsApp Web and `*.bank.in`.
+- Gate main module activation in `content.js`.
+- Add internal guard to `StallAutomation.start()`.
+- Avoid starting captcha interval when current page/domain has no captcha target.
+- Avoid installing autofill observer when no matching rule exists and recording is off.
+- Avoid userscript SPA watcher on excluded sites.
+- Remove broad dialog suppression.
+- Limit native dialog auto-accept/suppression to STALL/exam-related Sarathi pages.
 
 ## Scope Excluded
-- Changing real live exam solver behavior.
-- Changing learning thresholds without explicit request.
-- Removing manifest-loaded files or bundling content scripts.
+- Narrowing manifest host permissions.
+- Removing existing modules.
+- Changing Sarathi/STall/exam solving behavior.
 
 ## Plan
-- [x] Read current extension bootloader and mock trainer code.
-- [x] Read backend training stats repository code.
-- [x] Restrict mock trainer activation to `isMaster === true`.
-- [x] Repackage extension.
-- [x] Verify generated user package includes the mock trainer gates.
+- [x] Read current extension activation files.
+- [x] Patch runtime excluded-site guards.
+- [x] Patch module start guards.
+- [x] Remove broad dialog suppressor.
+- [x] Gate remaining dialog handlers to STALL/exam URLs.
+- [x] Run JS syntax verification.
 - [x] Update STATE.md.
 
 ## Verification
-- `node --check` on extension JS files.
-- `ExtensionService.package_extension()` smoke test.
-- Static ZIP reference validation.
-- Live `8780` user extension download check.
+- `node --check` on modified extension JS files.

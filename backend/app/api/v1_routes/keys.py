@@ -16,6 +16,19 @@ router = APIRouter(tags=["v1"])
 async def verify(request: Request) -> VerifyResponse:
     key_record = request.state.api_key_record
     container = request.app.state.container
+    client_ip = request.client.host if request.client else None
+    try:
+        container.usage_service.record(
+            key_id=int(key_record["id"]),
+            task_type="auth:verify",
+            status="ok",
+            processing_ms=0,
+            model_used="auth",
+            domain=Database._normalize_domain(request.headers.get("origin", "")) or None,
+            ip=client_ip,
+        )
+    except Exception:
+        pass
     key_hash = key_record.get("key_hash", "")
     is_user_key = bool(getattr(request.state, "is_user_key", False))
     is_master = False if is_user_key else container.db.is_master_key_hash(key_hash)

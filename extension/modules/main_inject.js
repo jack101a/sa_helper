@@ -1,6 +1,24 @@
 (function() {
     'use strict';
 
+    function isStallExamRelatedUrl() {
+        try {
+            const url = new URL(location.href);
+            if (url.hostname !== 'sarathi.parivahan.gov.in') return false;
+            const path = url.pathname.toLowerCase();
+            return path === '/sarathiservice/authenticationaction.do'
+                || path === '/sarathiservice/instruction.do'
+                || path === '/sarathiservice/examselectaction.do'
+                || path === '/sarathiservice/stallexam.do'
+                || path === '/sarathiservice/stallexamaction.do'
+                || path === '/sarathiservice/stallloginsubmit.do';
+        } catch (_) {
+            return false;
+        }
+    }
+
+    if (!isStallExamRelatedUrl()) return;
+
     // ── Stealth & Anti-Debugger ──────────────────────────────────
     window.alert = function() {};
     window.confirm = function() { return true; };

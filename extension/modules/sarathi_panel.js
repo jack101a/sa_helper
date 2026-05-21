@@ -23,6 +23,22 @@ const STALL_VCAM_ACTIVE_KEY = "stallVcamActive";
 // Image defaults key
 const SP_IMG_DEFAULTS_KEY = "sp_img_defaults"; // {bri,con,sat,hue,fmt,qual}
 
+function isStallExamRelatedUrl(){
+  try {
+    const url = new URL(location.href);
+    if (url.hostname !== 'sarathi.parivahan.gov.in') return false;
+    const path = url.pathname.toLowerCase();
+    return path === '/sarathiservice/authenticationaction.do'
+      || path === '/sarathiservice/instruction.do'
+      || path === '/sarathiservice/examselectaction.do'
+      || path === '/sarathiservice/stallexam.do'
+      || path === '/sarathiservice/stallexamaction.do'
+      || path === '/sarathiservice/stallloginsubmit.do';
+  } catch {
+    return false;
+  }
+}
+
 function showPanelToast(msg, variant='info', duration=1600){
   try{ console.debug('[SarathiPanel]', variant, msg); }catch{}
 }
@@ -95,6 +111,7 @@ async function applyDefaultsToDataUrl(inputDu){
 // ========== PAGE HARDEN ==========
 (function harden() {
   if (location.hostname !== "sarathi.parivahan.gov.in") return;
+  if (!isStallExamRelatedUrl()) return;
   try {
     document.querySelectorAll('script').forEach(s=>{ if (s.textContent.includes('debugger')) s.textContent = s.textContent.replace(/debugger;/g,''); });
     window.alert = function(){};

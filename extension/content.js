@@ -1,24 +1,3 @@
-
-// ===== NON-BREAKING PATCH: popup suppression =====
-(function(){
-  try {
-    // Suppress blocking dialogs
-    window.alert = function(){};
-    window.confirm = function(){ return true; };
-    window.onbeforeunload = null;
-
-    // ESC fallback (close modals/alerts on some sites)
-    if (location.hostname.includes('sarathi.parivahan.gov.in')) {
-        var _escInterval = setInterval(function(){
-          try {
-            document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape'}));
-          } catch(e) {}
-        }, 2000);
-    }
-  } catch(e) { console.error('non-breaking patch error', e); }
-})();
-
-
 // content.js - ta-ta Extension (V2.2)
 // Slim bootloader for modularized content script.
 // Modules: shared_utils.js, sarathi_harden.js, captcha.js, exam.js, autofill.js, stall_automation.js
@@ -26,33 +5,54 @@
 (function () {
     'use strict';
 
+    function normalizedHost() {
+        return String(location.hostname || '').replace(/^www\./, '').toLowerCase();
+    }
+
+    function isExcludedSite() {
+        const host = normalizedHost();
+        return host === 'web.whatsapp.com' || host.endsWith('.bank.in');
+    }
+
+    function isSarathiHost() {
+        return normalizedHost() === 'sarathi.parivahan.gov.in';
+    }
+
+    function isStallRelatedUrl() {
+        if (!isSarathiHost()) return false;
+        const href = location.href;
+        return /authenticationaction\.do|instruction\.do|examselectaction\.do|stallexam\.do|stallLoginSubmit\.do/i.test(href);
+    }
+
     // Prevent double injection
     if (window.__UNIFIED_PLATFORM_INJECTED__) return;
     window.__UNIFIED_PLATFORM_INJECTED__ = true;
 
     async function boot() {
+        if (isExcludedSite()) return;
         console.log('[Content] Initializing modules...');
 
         // Use the shared utility for storage
-        const data = await window.up_getStorage(['solverEnabled', 'autofillEnabled', 'captchaEnabled', 'isMaster']);
+        const data = await window.up_getStorage(['solverEnabled', 'autofillEnabled', 'captchaEnabled', 'isMaster', 'stallVcamActive', '_automationState']);
+        const sarathiHost = isSarathiHost();
+        const stallRelated = isStallRelatedUrl();
 
         // 1. Initialize Sarathi Hardening & Image Detector (Runs immediately)
         if (window.SarathiHarden) window.SarathiHarden.init();
         if (window.SarathiImageDetector) window.SarathiImageDetector.init();
-        if (window.VcamController) {
-            const stallData = await window.up_getStorage(['stallVcamActive']);
-            if (stallData.stallVcamActive === true) window.VcamController.init();
-        }
+        if (window.VcamController && data.stallVcamActive === true) window.VcamController.init();
 
         // 2. Activate solver modules based on settings
         if (window.ExamModule && data.solverEnabled !== false) window.ExamModule.activate();
-        if (window.MockTrainerModule && data.isMaster === true && data.solverEnabled !== false) window.MockTrainerModule.activate();
+        if (window.MockTrainerModule && sarathiHost && data.isMaster === true && data.solverEnabled !== false) window.MockTrainerModule.activate();
         if (window.CaptchaModule && data.captchaEnabled !== false) window.CaptchaModule.activate();
         if (window.AutofillModule && data.autofillEnabled !== false) window.AutofillModule.activate();
 
         // 3. Start automation monitor
-        if (window.StallAutomation && typeof window.StallAutomation.start === 'function') window.StallAutomation.start();
-        else if (window.StallAutomation) window.StallAutomation.run();
+        if (window.StallAutomation && stallRelated) {
+            if (typeof window.StallAutomation.start === 'function') window.StallAutomation.start();
+            else window.StallAutomation.run();
+        }
 
         // 4. Listen for control messages
         chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

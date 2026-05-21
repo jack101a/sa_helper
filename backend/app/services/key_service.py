@@ -49,6 +49,11 @@ class KeyService:
             return None
         if is_expired(record.get("expires_at")):
             return None
+        # Legacy-key usage tracking for admin visibility.
+        try:
+            self._db.api_keys.touch_usage(int(record["id"]))
+        except Exception:
+            pass
         return record
 
     def validate_or_bind_device(self, key_id: int, device_id: str, user_agent: str | None = None) -> bool:

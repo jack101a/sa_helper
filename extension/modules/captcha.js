@@ -22,6 +22,26 @@
             return String(h || '').replace(/^www\./, '').toLowerCase();
         }
 
+        function isSarathiHost() {
+            return normHost(window.location.hostname) === 'sarathi.parivahan.gov.in';
+        }
+
+        function hasConfiguredTarget(data) {
+            const host = normHost(window.location.hostname);
+            const globalRoutes = data.globalFieldRoutes?.[host]
+                              || data.globalFieldRoutes?.['www.' + host]
+                              || [];
+            const localRoutes = (data.domainFieldRoutes || []).filter(route => {
+                const routeDomain = normHost(route.domain);
+                return routeDomain === host || routeDomain === `www.${host}`;
+            });
+            const locators = { ...(data.globalLocators || {}), ...(data.customLocators || {}) };
+            return globalRoutes.length > 0
+                || localRoutes.length > 0
+                || !!locators?.[host]
+                || !!locators?.['www.' + host];
+        }
+
         // Set value via native setter (React/Angular/Vue safe)
         function setNativeVal(el, value) {
             try {
@@ -262,7 +282,13 @@
         }
 
         return {
-            activate() {
+            async activate() {
+                const data = await window.up_getStorage(['globalFieldRoutes', 'domainFieldRoutes', 'globalLocators', 'customLocators', 'captchaEnabled']);
+                if (data.captchaEnabled === false) return;
+                if (!isSarathiHost() && !hasConfiguredTarget(data) && !findPairHeuristic()) {
+                    console.debug('[Captcha] Module skipped (no route or visible captcha target)');
+                    return;
+                }
                 _active = true;
                 tick(); // immediate first try
                 if (_tickInterval) clearInterval(_tickInterval);

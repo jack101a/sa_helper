@@ -266,11 +266,15 @@
         }
 
         return {
-            activate() {
+            async activate() {
+                const gate = await window.up_getStorage(['isRecording', 'isMaster', 'rules']);
+                _recording = !!gate.isRecording && !!gate.isMaster;
+                const hasMatchedRule = (gate.rules || []).some(matchRule);
+                if (!_recording && !hasMatchedRule) {
+                    console.debug('[Autofill] Module skipped (no matching rule and recording off)');
+                    return;
+                }
                 _active = true;
-                window.up_getStorage(['isRecording', 'isMaster']).then(d => {
-                    _recording = !!d.isRecording && !!d.isMaster;
-                });
                 // Debounce: avoid flooding runEngine() on rapid DOM mutations (SPA routing)
                 let _mutationTimer = null;
                 _mutationObs = new MutationObserver(() => {

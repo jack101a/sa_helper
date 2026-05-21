@@ -7,6 +7,13 @@
     if (window.__USERSCRIPT_ENGINE_INITIALIZED__) return;
     window.__USERSCRIPT_ENGINE_INITIALIZED__ = true;
 
+    function isExcludedHost() {
+        const host = String(location.hostname || '').replace(/^www\./, '').toLowerCase();
+        return host === 'web.whatsapp.com' || host.endsWith('.bank.in');
+    }
+
+    if (isExcludedHost()) return;
+
     console.log('[Userscript Engine] Booting...');
 
     const GM_SHIM = `
@@ -405,6 +412,10 @@ ${scriptData.rawCode || ''}
             } catch (e) {
                 console.debug('[Userscript Engine] On-demand sync failed:', e);
             }
+        }
+        if (!scripts.length) {
+            console.log('[Userscript Engine] No scripts configured.');
+            return;
         }
         const stallFlowActive = await isStallFlowActive();
         scripts = scripts.filter(script => {
