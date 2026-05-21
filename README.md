@@ -1,36 +1,58 @@
-# Unified MCQ Solver — Modernized Monorepo
+# SA Helper
 
-Standardized monorepo with clear separation of concerns, inspired by the high-quality `refactor` architecture.
+Production-focused monorepo for:
+- FastAPI backend (`backend/`)
+- React admin dashboard (`frontend/`)
+- Browser extension (`extension/`)
+- Shared runtime data (`data/`)
 
-## Repository Structure
-- **backend/**: FastAPI application core (Captcha + Exam + Autofill).
-- **frontend/**: React/Vite admin dashboard source.
-- **extension/**: Cross-browser extension source (Manifest V3).
-- **config/**: Runtime configuration (Single source of truth: `.env`, `config.yaml`).
-- **infra/**: Deployment assets (Docker, Nginx, Systemd).
-- **scripts/**: Local tooling and lifecycle scripts.
+## Repository Layout
+- `backend/`: API, services, migrations, scheduler, tests.
+- `frontend/`: Admin UI (Vite + React).
+- `extension/`: MV3 extension source (loaded unpacked for development).
+- `data/`: models, mappings, automation scripts, question/hashing datasets.
+- `config/`: environment templates.
+- `infra/`: deployment assets.
+- `scripts/`: packaging and helper scripts.
 
-## Setup & Running
+## Local Development
 
 ### 1. Backend
-- Go to `backend/` and setup your venv.
-- Copy `config/backend.env` to `config/.env` and fill in secrets.
-- Run `.\scripts\start.bat` to start or `.\scripts\stop.bat` to stop (Windows).
-- Or use `./scripts/start_backend.sh` / `./scripts/stop_backend.sh` (Linux).
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r backend/requirements.txt
+cp config/.env.example config/.env
+PYTHONPATH=backend python -m app.main
+```
 
-### 2. Frontend (Admin Dashboard)
-- Go to `frontend/` and run `npm install && npm run build`.
-- The backend serves the built assets from `frontend/dist`.
+### 2. Frontend
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
 ### 3. Extension
-- Load `extension/` as an unpacked extension in Chrome/Edge.
-- Configure the Server URL and API Key in the options page.
+Load `extension/` as an unpacked extension in Chromium browsers.
 
-## Canonical Paths
-- **Config**: `config/`
-- **Models**: `data/models/`
-- **Data/DB**: `backend/logs/app.db`
-- **Extension Builds**: `scripts/package_extensions.ps1` (planned)
+## Validation
+- Backend tests:
+```bash
+PYTHONPATH=backend .venv/bin/python -m pytest backend/tests
+```
+- Frontend production build:
+```bash
+cd frontend && npm run build
+```
+- Extension syntax checks:
+```bash
+node --check extension/background.js
+node --check extension/modules/autofill.js
+node --check extension/popup/popup.js
+```
 
----
-*Maintained by Antigravity AI.*
+## Deployment Notes
+- Primary runtime compose: `docker-compose.yml`
+- Production overrides: `docker-compose.prod.yml`
+- CI validates compose configuration for both files merged.

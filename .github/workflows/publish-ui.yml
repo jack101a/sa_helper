@@ -2,7 +2,7 @@ name: Build and Push Admin UI Image
 
 on:
   push:
-    branches: ["main", "test", "claude", "refactor"]
+    branches: ["master", "production"]
     tags: ["v*"]
 
 jobs:

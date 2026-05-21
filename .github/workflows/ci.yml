@@ -1,9 +1,9 @@
 name: CI
 on:
   push:
-    branches: [main, develop]
+    branches: [master, production]
   pull_request:
-    branches: [main]
+    branches: [master]
 
 jobs:
   test:
@@ -32,6 +32,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Validate Docker Compose config
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml config -q
       - name: Build Docker image
         run: docker build -t sa-helper:ci .
       - name: Health check
