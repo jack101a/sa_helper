@@ -1,6 +1,9 @@
 import shutil
+import tempfile
 from pathlib import Path
 import logging
+
+from rjsmin import jsmin
 
 logger = logging.getLogger(__name__)
 
@@ -10,9 +13,28 @@ class ExtensionService:
     def __init__(self, root_dir: Path, output_dir: Path):
         self.extension_dir = root_dir / "extension"
         self.output_dir = output_dir
+
+    def _prepare_distribution_dir(self) -> tempfile.TemporaryDirectory:
+        """Copy source extension and minify JS files in the temporary copy only."""
+        tmp = tempfile.TemporaryDirectory(prefix="sa_helper_extension_")
+        dist_dir = Path(tmp.name) / "extension"
+        shutil.copytree(self.extension_dir, dist_dir)
+
+        minified = 0
+        for js_path in dist_dir.rglob("*.js"):
+            original = js_path.read_text(encoding="utf-8")
+            transformed = jsmin(original, keep_bang_comments=False)
+            js_path.write_text(transformed, encoding="utf-8")
+            minified += 1
+
+        logger.info(
+            "Extension distribution prepared",
+            extra={"context": {"dist_dir": str(dist_dir), "js_files_minified": minified}},
+        )
+        return tmp
         
     def package_extension(self):
-        """Packages the extension directory into ZIP, CRX, and XPI formats."""
+        """Packages an obfuscated extension distribution into ZIP, CRX, and XPI formats."""
         try:
             if not self.extension_dir.exists():
                 logger.error(
@@ -45,8 +67,10 @@ class ExtensionService:
                 extra={"context": {"extension_dir": str(self.extension_dir), "zip_path": str(zip_path)}},
             )
             
-            # shutil.make_archive adds the .zip extension automatically
-            shutil.make_archive(str(zip_base), 'zip', self.extension_dir)
+            # Source files stay readable; only the temporary distribution copy is minified.
+            with self._prepare_distribution_dir() as tmp_dir:
+                dist_dir = Path(tmp_dir) / "extension"
+                shutil.make_archive(str(zip_base), 'zip', dist_dir)
             if not zip_path.exists():
                 logger.error("Extension ZIP was not created", extra={"context": {"zip_path": str(zip_path)}})
                 return False

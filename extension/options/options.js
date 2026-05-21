@@ -14,6 +14,7 @@ window.onunhandledrejection = function (ev) {
 
 // ── Globals & Constants ──────────────────────────────────────────────────────
 const PROFILE_FIELDS = [];
+const SERVER_URL = 'https://tata-ocs.duckdns.org';
 
 let state = {
     rules: [],
@@ -138,7 +139,7 @@ function formatAccountExpiry(value) {
 }
 
 function connectionLight(data) {
-    if (!data.apiKey || !data.serverUrl) return 'red';
+    if (!data.apiKey) return 'red';
     const age = Date.now() - Number(data.lastVerify || 0);
     if (age >= 0 && age < 2 * 60 * 1000) return 'green';
     if (age >= 0 && age < 15 * 60 * 1000) return 'yellow';
@@ -218,6 +219,8 @@ async function init() {
         'mobileNo', 'phoneNumber', 'telegramId', 'telegram_id', 'tgId', 'tg_id',
         'enabledServices', 'services', 'subscribedServices'
     ]);
+    if (data.serverUrl !== SERVER_URL) await chrome.storage.local.set({ serverUrl: SERVER_URL });
+    data.serverUrl = SERVER_URL;
     
     state.theme = data.theme || 'dark';
     applyTheme(state.theme);
@@ -263,7 +266,6 @@ async function init() {
     }
     // Connection
     if (data.apiKey)    el('api-key').value    = data.apiKey;
-    if (data.serverUrl) el('server-url').value = data.serverUrl;
     
     // Rules
     state.rules = data.rules || [];
@@ -289,9 +291,9 @@ async function init() {
     el('tog-refresh').checked    = data.autoRefresh    !== false;
     el('tog-screenshot').checked = data.autoScreenshot !== false;
     
-    if (data.apiKey && data.serverUrl) {
-        verifyKey(data.apiKey, data.serverUrl);
-        syncRulesFromServer(data.apiKey, data.serverUrl);
+    if (data.apiKey) {
+        verifyKey(data.apiKey, SERVER_URL);
+        syncRulesFromServer(data.apiKey, SERVER_URL);
     }
 
     setupDataPortability();
@@ -461,7 +463,7 @@ function setupDataPortability() {
 // ── Connection ───────────────────────────────────────────────────────────────
 el('btn-save-conn').addEventListener('click', async () => {
     const apiKey = el('api-key').value.trim();
-    const serverUrl = el('server-url').value.trim().replace(/\/$/, '');
+    const serverUrl = SERVER_URL;
     if (!apiKey) {
         setLoading('btn-save-conn', true);
         await wipeSyncedData();
@@ -471,8 +473,6 @@ el('btn-save-conn').addEventListener('click', async () => {
         showMsg('conn-msg', 'API key removed. Server-synced data wiped.');
         return;
     }
-    if (!serverUrl) return showMsg('conn-msg', 'Server URL required', false);
-    
     setLoading('btn-save-conn', true);
     await wipeSyncedData();
     await chrome.storage.local.set({ apiKey, serverUrl });
@@ -483,7 +483,7 @@ el('btn-save-conn').addEventListener('click', async () => {
 
 el('btn-test').addEventListener('click', () => {
     const apiKey = el('api-key').value.trim();
-    const serverUrl = el('server-url').value.trim().replace(/\/$/, '');
+    const serverUrl = SERVER_URL;
     setLoading('btn-test', true);
     verifyKey(apiKey, serverUrl).finally(() => setLoading('btn-test', false));
 });
@@ -692,8 +692,9 @@ async function syncRulesFromServer(apiKey, serverUrl) {
 }
 
 el('rules-sync-btn').addEventListener('click', async () => {
-    const { apiKey, serverUrl } = await storageGet(['apiKey', 'serverUrl']);
-    if (!apiKey || !serverUrl) return showMsg('rules-msg', 'Set API credentials first', false);
+    const { apiKey } = await storageGet(['apiKey']);
+    const serverUrl = SERVER_URL;
+    if (!apiKey) return showMsg('rules-msg', 'Set API credentials first', false);
 
     showMsg('rules-msg', 'Syncing…');
     setLoading('rules-sync-btn', true);
@@ -705,8 +706,9 @@ el('rules-propose-btn').addEventListener('click', async () => {
     const selectedIdx = Array.from(document.querySelectorAll('.rule-sel:checked')).map(cb => cb.dataset.id);
     if (!selectedIdx.length) return alert('Select rules to propose first.');
 
-    const { apiKey, serverUrl } = await storageGet(['apiKey', 'serverUrl']);
-    if (!apiKey || !serverUrl) return alert('Set API credentials first.');
+    const { apiKey } = await storageGet(['apiKey']);
+    const serverUrl = SERVER_URL;
+    if (!apiKey) return alert('Set API credentials first.');
 
     showMsg('rules-msg', `Proposing ${selectedIdx.length} rules…`);
     let count = 0;

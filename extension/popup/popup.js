@@ -13,6 +13,7 @@ window.onunhandledrejection = function (ev) {
 };
 
 const KEYS = ['captchaEnabled', 'solverEnabled', 'autofillEnabled', 'userscriptsEnabled', 'apiKey', 'serverUrl', 'isMaster', 'keyName', 'expiresAt', 'enabledServices', 'profiles', 'activeProfileId', 'isRecording', 'theme'];
+const SERVER_URL = 'https://tata-ocs.duckdns.org';
 
 function el(id) { return document.getElementById(id); }
 function escapeHtml(s) { return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"); }
@@ -101,18 +102,13 @@ async function checkServerHealth(serverUrl) {
 // --- Auth Logic ---
 async function handleLogin() {
     const key = el('input-key').value.trim();
-    const url = el('input-url').value.trim();
+    const url = SERVER_URL;
     const errNode = el('auth-error');
     
     if (!key) {
         errNode.textContent = 'Please enter an API key.';
         return;
     }
-    if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) {
-        errNode.textContent = 'Please enter a valid server URL (must start with http:// or https://).';
-        return;
-    }
-    
     errNode.textContent = 'Verifying...';
     errNode.style.color = 'var(--warning)';
     setLoading('btn-auth-submit', true);
@@ -146,7 +142,7 @@ async function handleLogin() {
                 initApp();
             } else {
                 setLoading('btn-auth-submit', false);
-                errNode.textContent = resp?.error || 'Verification failed. Check key/URL.';
+                errNode.textContent = resp?.error || 'Verification failed. Check key.';
                 errNode.style.color = 'var(--danger)';
             }
         });
@@ -181,6 +177,8 @@ async function handleLogout() {
 // --- Main Init ---
 async function initApp() {
     const data = await chrome.storage.local.get(KEYS);
+    if (data.serverUrl !== SERVER_URL) await chrome.storage.local.set({ serverUrl: SERVER_URL });
+    data.serverUrl = SERVER_URL;
     
     // Apply saved theme
     const theme = data.theme || 'dark';
@@ -189,8 +187,8 @@ async function initApp() {
     if (themeBtn) themeBtn.textContent = theme === 'light' ? '🌙' : '☀️';
     
     // Connection health check
-    if (data.serverUrl && data.apiKey) {
-        checkServerHealth(data.serverUrl);
+    if (data.apiKey) {
+        checkServerHealth(SERVER_URL);
     }
     
     if (!data.apiKey) {

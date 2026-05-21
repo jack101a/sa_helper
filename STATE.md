@@ -1,38 +1,40 @@
-# STATE.md - Telegram Fixed QR Payment Flow
+# STATE.md - Extension Fixed Server Distribution
 
 ## Status
 COMPLETE
 
 ## Active Task
-Implemented fixed QR payment flow for Telegram registration: admin can upload QR per plan, plan selection sends that plan QR, screenshot submission creates/updates the pending user/payment record, and admin review shows the key verification fields.
+Extension user distribution now uses the hardcoded production backend URL, asks only for API key, shows popup connection status as a colored light only, and downloads are packaged from a temporary minified copy.
 
 ## Last Files Modified
-- `backend/app/services/telegram_bot.py`
-- `backend/app/core/models.py`
-- `backend/app/api/admin_routes/settings.py`
-- `backend/app/services/payment_service.py`
-- `frontend/src/app/components/PaymentsPanel.jsx`
-- `frontend/src/app/components/PlansPanel.jsx`
+- `backend/app/services/extension_service.py`
+- `backend/requirements.txt`
+- `frontend/src/app/components/DashboardPanel.jsx`
+- `extension/background.js`
+- `extension/popup/popup.html`
+- `extension/popup/popup.js`
+- `extension/options/options.html`
+- `extension/options/options.js`
+- `backend/app/static/extension.zip`
+- `backend/app/static/extensions/mcq_solver_extension.zip`
+- `backend/app/static/extensions/mcq_solver_extension.crx`
+- `backend/app/static/extensions/mcq_solver_extension.xpi`
 - `TASK.md`
 - `STATE.md`
 
 ## Last Command Run
-`git diff --check && git diff --stat`
+`git diff --check && git status --short`
 
 ## Last Output/Error
-- Backend py_compile passed for `telegram_bot.py`, `models.py`, `payment_service.py`, `payments.py`, and `settings.py`.
-- Backend app import passed with `OK`.
+- JS syntax checks passed for `background.js`, `popup.js`, and `options.js`.
+- Backend py_compile passed for `extension_service.py`.
+- Package regeneration passed: `package_ok True`, ZIP size `94891`.
+- Artifact inspection passed: manifest present, 22 JS files included, production URL present, localhost absent, popup/options URL fields absent.
 - Frontend build passed with `vite build`.
 - `git diff --check` passed.
 
 ## Runtime Configuration
-Telegram bot now resolves fixed QR in this order:
-1. Uploaded local plan QR file: `data/uploads/qr_plan_<plan_id>.*`
-2. `payment.qr_image_url_plan_<plan_id>`
-3. `payment.plan_qr_map` (JSON, e.g. `{"1":"https://.../basic.png","2":"https://.../pro.png"}`)
-4. `payment.qr_image_url` (global fallback)
-
-If none is configured, bot falls back to generated UPI QR.
+Extension source remains in `/app/extension`; downloadable artifacts are created under `/app/backend/app/static/extensions` from a minified temporary copy.
 
 ## Immediate Next Step
-Configure fixed QR URLs per plan and test Telegram registration against the deployed bot image.
+Load the regenerated ZIP in Chrome locally once to confirm runtime behavior before distributing.

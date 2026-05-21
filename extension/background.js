@@ -293,7 +293,7 @@ async function migrateUserscripts() {
 
 'use strict';
 
-const API_BASE = 'http://localhost:8080'; // Default API endpoint (use HTTPS in production)
+const API_BASE = 'https://tata-ocs.duckdns.org';
 const SYNC_ALARM = 'auto_sync';
 const HEAVY_SYNC_ALARM = 'heavy_auto_sync';
 const STALL_KEEPALIVE_ALARM = 'stall_keepalive';
@@ -501,10 +501,10 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
 function getSettings() {
     return new Promise(resolve => {
-        chrome.storage.local.get(['apiKey', 'serverUrl', 'deviceId'], d => {
+        chrome.storage.local.get(['apiKey', 'deviceId'], d => {
             resolve({
                 apiKey:    d.apiKey    || '',
-                serverUrl: d.serverUrl || API_BASE,
+                serverUrl: API_BASE,
                 deviceId:  d.deviceId  || '',
             });
         });
@@ -1165,7 +1165,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     // ── Verify API Key ──────────────────────────────────────────
     if (msg.type === 'VERIFY_KEY') {
-        const url = msg.serverUrl || null;
+        const url = API_BASE;
         const key = msg.apiKey || null;
         
         let promise;
