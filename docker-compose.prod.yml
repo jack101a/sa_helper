@@ -1,0 +1,82 @@
+# Production overrides — use with: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+services:
+  sa-helper:
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "3.0"
+          memory: 4G
+        reservations:
+          memory: 2G
+    environment:
+      - APP_ENV=production
+      - DEBUG=false
+      - QUEUE_WORKERS=6
+      - EXAM_OCR_CONCURRENCY=4
+      - RUN_BACKGROUND_TASKS=false
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  scheduler:
+    restart: unless-stopped
+    init: true
+    depends_on:
+      sa-helper:
+        condition: service_healthy
+    environment:
+      - APP_ENV=production
+      - DEBUG=false
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 768M
+    healthcheck:
+      test: ["CMD", "python", "-c", "print('scheduler-ok')"]
+      interval: 60s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  telegram-bot:
+    restart: unless-stopped
+    init: true
+    depends_on:
+      sa-helper:
+        condition: service_healthy
+    environment:
+      - APP_ENV=production
+      - DEBUG=false
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "python", "-c", "print('telegram-ok')"]
+      interval: 60s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

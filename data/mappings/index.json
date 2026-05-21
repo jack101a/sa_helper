@@ -1,0 +1,99 @@
+[
+  {
+    "id": "authentication_handler",
+    "file": "authentication_handler.user.js",
+    "name": "Authentication Handler",
+    "version": "1.0",
+    "enabled": true,
+    "matches": [
+      "*://*/*"
+    ],
+    "exclude": [],
+    "runAt": "document-idle",
+    "requires": [
+      "https://cdnjs.cloudflare.com/ajax/libs/js-sha256/0.9.0/sha256.min.js"
+    ],
+    "resources": [],
+    "grants": [
+      "none"
+    ],
+    "connects": [],
+    "noframes": false
+  },
+  {
+    "id": "bypass_sarathi_restrictions_v2",
+    "file": "bypass_sarathi_restrictions_v2.user.js",
+    "name": "Bypass Sarathi Restrictions - V2",
+    "version": "2.0",
+    "enabled": true,
+    "matches": [
+      "*://sarathi.parivahan.gov.in/*"
+    ],
+    "exclude": [],
+    "runAt": "document-start",
+    "requires": [],
+    "resources": [],
+    "grants": [
+      "none"
+    ],
+    "connects": [],
+    "noframes": false
+  },
+  {
+    "id": "copy_paste",
+    "file": "copy_paste.user.js",
+    "name": "COPY PASTE",
+    "version": "2025-07-29",
+    "enabled": true,
+    "matches": [
+      "https://sarathi.parivahan.gov.in/*/*"
+    ],
+    "exclude": [],
+    "runAt": "document-idle",
+    "requires": [],
+    "resources": [],
+    "grants": [
+      "none"
+    ],
+    "connects": [],
+    "noframes": false
+  },
+  {
+    "id": "enable_all_form_fields",
+    "file": "enable_all_form_fields.user.js",
+    "name": "Enable All Form Fields",
+    "version": "1.0",
+    "enabled": true,
+    "matches": [
+      "https://sarathi.parivahan.gov.in/*"
+    ],
+    "exclude": [],
+    "runAt": "document-idle",
+    "requires": [],
+    "resources": [],
+    "grants": [
+      "none"
+    ],
+    "connects": [],
+    "noframes": false
+  },
+  {
+    "id": "enable_all_form_fields_for_stall",
+    "file": "enable_all_form_fields_for_stall.user.js",
+    "name": "Enable All Form Fields",
+    "version": "1.0",
+    "enabled": true,
+    "matches": [
+      "https://sarathi.parivahan.gov.in/*"
+    ],
+    "exclude": [],
+    "runAt": "document-idle",
+    "requires": [],
+    "resources": [],
+    "grants": [
+      "none"
+    ],
+    "connects": [],
+    "noframes": false
+  }
+]
