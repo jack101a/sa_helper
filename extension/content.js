@@ -30,6 +30,7 @@
 
     async function boot() {
         if (isExcludedSite()) return;
+        if (window.up_installErrorReporter) window.up_installErrorReporter('content');
         console.log('[Content] Initializing modules...');
 
         // Use the shared utility for storage
@@ -40,7 +41,7 @@
         // 1. Initialize Sarathi Hardening & Image Detector (Runs immediately)
         if (window.SarathiHarden) window.SarathiHarden.init();
         if (window.SarathiImageDetector) window.SarathiImageDetector.init();
-        if (window.VcamController && data.stallVcamActive === true) window.VcamController.init();
+        if (window.VcamController && sarathiHost) window.VcamController.init();
 
         // 2. Activate solver modules based on settings
         if (window.ExamModule && data.solverEnabled !== false) window.ExamModule.activate();
@@ -75,7 +76,7 @@
                         chrome.runtime.sendMessage({ type: 'UPDATE_STALL_STEP', step: 5 });
                     });
                 runner.catch(err => {
-                    console.error('[Content] Step 4 execution failed:', err);
+                    if (window.up_reportError) window.up_reportError('stall_step4', err);
                 });
             }
             

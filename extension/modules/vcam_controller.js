@@ -10,7 +10,9 @@
             if (url.hostname !== 'sarathi.parivahan.gov.in') return false;
             if (url.pathname !== '/sarathiservice/authenticationaction.do'
                 && url.pathname !== '/sarathiservice/instruction.do'
-                && url.pathname !== '/sarathiservice/examselectaction.do') {
+                && url.pathname !== '/sarathiservice/examselectaction.do'
+                && url.pathname !== '/sarathiservice/stallexam.do'
+                && url.pathname !== '/sarathiservice/stallLoginSubmit.do') {
                 return false;
             }
             if (url.pathname === '/sarathiservice/authenticationaction.do') {
@@ -35,7 +37,9 @@
         },
 
         init() {
+            if (this.state.initialized) return;
             if (!isAllowedStallVcamUrl()) return;
+            this.state.initialized = true;
             this.syncFromStorage();
             // Listen for storage changes
             chrome.storage.onChanged.addListener(async (changes, area) => {

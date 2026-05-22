@@ -2,6 +2,70 @@
 (function () {
     'use strict';
 
+    const reportState = {
+        queue: [],
+        seen: new Map(),
+        timer: null,
+        installed: false
+    };
+
+    function compactError(value) {
+        if (value instanceof Error) {
+            return { message: value.message || String(value), stack: value.stack || '', name: value.name || 'Error' };
+        }
+        if (value && typeof value === 'object') {
+            return { message: value.message || JSON.stringify(value).slice(0, 1000), stack: value.stack || '', name: value.name || '' };
+        }
+        return { message: String(value || ''), stack: '', name: '' };
+    }
+
+    function flushReports() {
+        if (!reportState.queue.length || typeof chrome === 'undefined' || !chrome.runtime?.id) return;
+        const events = reportState.queue.splice(0, 25);
+        try {
+            chrome.runtime.sendMessage({ type: 'REPORT_EXTENSION_ERROR', events }, () => {
+                void chrome.runtime.lastError;
+            });
+        } catch (_) {}
+    }
+
+    window.up_reportError = function(source, error, context = {}) {
+        const clean = compactError(error);
+        const signature = `${source}|${clean.name}|${clean.message}`.slice(0, 500);
+        const now = Date.now();
+        const last = reportState.seen.get(signature) || 0;
+        if (now - last < 60000) return;
+        reportState.seen.set(signature, now);
+        reportState.queue.push({
+            ts: now,
+            level: 'error',
+            source,
+            message: clean.message,
+            stack: clean.stack,
+            url: location.href,
+            context
+        });
+        if (!reportState.timer) {
+            reportState.timer = setInterval(flushReports, 30000);
+        }
+        if (reportState.queue.length >= 10) flushReports();
+    };
+
+    window.up_installErrorReporter = function(source = 'content') {
+        if (reportState.installed) return;
+        reportState.installed = true;
+        window.addEventListener('error', event => {
+            window.up_reportError(source, event.error || event.message, {
+                filename: event.filename || '',
+                line: event.lineno || 0,
+                column: event.colno || 0
+            });
+        });
+        window.addEventListener('unhandledrejection', event => {
+            window.up_reportError(source, event.reason || 'Unhandled promise rejection');
+        });
+    };
+
     window.up_getStorage = function(keys) {
         return new Promise(resolve => {
             if (typeof chrome === 'undefined' || !chrome.runtime?.id) return resolve({});

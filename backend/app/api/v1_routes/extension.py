@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -25,6 +27,58 @@ from .utils import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["v1"])
+
+
+def _extension_reports_dir() -> Path:
+    path = get_project_root() / "data" / "extension_error_reports"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _classify_extension_error(message: str) -> str:
+    text = message.lower()
+    if any(token in text for token in ("failed to fetch", "networkerror", "timeout", "err_internet", "err_connection", "http 502", "http 503", "http 504")):
+        return "connection"
+    if any(token in text for token in ("extension context invalidated", "receiving end does not exist", "message port closed")):
+        return "extension_lifecycle"
+    if any(token in text for token in ("permission", "notallowederror", "notreadableerror", "devicesnotfounderror")):
+        return "browser_permission"
+    if any(token in text for token in ("selector", "not found", "cannot read properties", "undefined", "null")):
+        return "site_dom"
+    return "runtime"
+
+
+def _write_extension_error_summary(events: list[dict]) -> dict:
+    reports_dir = _extension_reports_dir()
+    existing: list[dict] = []
+    log_path = reports_dir / "events.jsonl"
+    if log_path.exists():
+        lines = log_path.read_text(encoding="utf-8").splitlines()[-500:]
+        for line in lines:
+            try:
+                existing.append(json.loads(line))
+            except Exception:
+                continue
+    recent = existing + events
+    categories = Counter(str(item.get("category", "runtime")) for item in recent)
+    sources = Counter(str(item.get("source", "extension")) for item in recent)
+    top_messages = Counter(str(item.get("message", ""))[:160] for item in recent if item.get("message")).most_common(20)
+    summary = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "window_events": len(recent),
+        "categories": dict(categories),
+        "sources": dict(sources),
+        "top_messages": [{"message": message, "count": count} for message, count in top_messages],
+        "interpretation": {
+            "connection": "Usually backend/network availability or timeout noise.",
+            "extension_lifecycle": "Usually expected during extension reloads, tab closes, or content-script navigation.",
+            "browser_permission": "Usually camera/browser permission, device, or site media policy related.",
+            "site_dom": "Usually selectors or page structure changed before automation acted.",
+            "runtime": "Needs inspection if repeated.",
+        },
+    }
+    (reports_dir / "latest_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    return summary
 
 
 @router.get("/userscripts/sync")
@@ -147,6 +201,62 @@ async def sync_userscripts(request: Request) -> dict:
                 logger.exception("Failed to read userscript %s: %s", filepath.name, e)
 
     return {"scripts": scripts_data}
+
+
+@router.post("/extension/error-report")
+async def receive_extension_error_report(request: Request) -> dict:
+    """Receive throttled extension diagnostics and keep an admin-readable report."""
+    key_record = request.state.api_key_record
+    if not key_record:
+        raise HTTPException(401, "API key required")
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "Invalid JSON")
+
+    raw_events = body.get("events")
+    if isinstance(raw_events, dict):
+        raw_events = [raw_events]
+    if not isinstance(raw_events, list):
+        raise HTTPException(400, "events must be a list")
+
+    now = datetime.now(timezone.utc).isoformat()
+    device_id = getattr(request.state, "device_id", "")
+    extension_version = str(body.get("extensionVersion") or "")
+    accepted: list[dict] = []
+    for item in raw_events[:50]:
+        if not isinstance(item, dict):
+            continue
+        message = str(item.get("message") or "").strip()
+        if not message:
+            continue
+        event = {
+            "received_at": now,
+            "api_key_id": key_record.get("id"),
+            "device_id": device_id,
+            "extension_version": extension_version,
+            "ts": item.get("ts"),
+            "level": str(item.get("level") or "error")[:20],
+            "source": str(item.get("source") or "extension")[:80],
+            "message": message[:1000],
+            "url": str(item.get("url") or "")[:500],
+            "stack": str(item.get("stack") or "")[:2000],
+            "context": item.get("context") if isinstance(item.get("context"), dict) else {},
+        }
+        event["category"] = _classify_extension_error(event["message"])
+        accepted.append(event)
+
+    if accepted:
+        reports_dir = _extension_reports_dir()
+        summary = _write_extension_error_summary(accepted)
+        with (reports_dir / "events.jsonl").open("a", encoding="utf-8") as fh:
+            for event in accepted:
+                fh.write(json.dumps(event, ensure_ascii=False) + "\n")
+    else:
+        summary = {}
+
+    return {"ok": True, "accepted": len(accepted), "summary": summary}
 
 
 @router.get("/automation/payload/{step_id}")

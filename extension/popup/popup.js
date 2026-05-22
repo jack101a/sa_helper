@@ -6,10 +6,36 @@ window.onerror = function (msg, src, line, col, err) {
     banner.style.cssText = 'background:var(--danger);color:#fff;text-align:center;padding:8px;font-size:11px;font-weight:600;';
     banner.textContent = 'An unexpected error occurred. Please reload the popup.';
     document.body.prepend(banner);
-    console.error('[Popup Error]', msg, src, line, col, err);
+    try {
+        chrome.runtime.sendMessage({
+            type: 'REPORT_EXTENSION_ERROR',
+            event: {
+                ts: Date.now(),
+                level: 'error',
+                source: 'popup',
+                message: String(msg || err?.message || ''),
+                stack: String(err?.stack || ''),
+                url: location.href,
+                context: { src, line, col }
+            }
+        }, () => void chrome.runtime.lastError);
+    } catch (_) {}
 };
 window.onunhandledrejection = function (ev) {
-    console.error('[Popup Unhandled Rejection]', ev.reason);
+    const reason = ev.reason;
+    try {
+        chrome.runtime.sendMessage({
+            type: 'REPORT_EXTENSION_ERROR',
+            event: {
+                ts: Date.now(),
+                level: 'error',
+                source: 'popup',
+                message: String(reason?.message || reason || ''),
+                stack: String(reason?.stack || ''),
+                url: location.href
+            }
+        }, () => void chrome.runtime.lastError);
+    } catch (_) {}
 };
 
 const KEYS = ['captchaEnabled', 'solverEnabled', 'autofillEnabled', 'userscriptsEnabled', 'apiKey', 'serverUrl', 'isMaster', 'keyName', 'expiresAt', 'enabledServices', 'profiles', 'activeProfileId', 'isRecording', 'theme'];
@@ -99,14 +125,17 @@ async function checkServerHealth(serverUrl) {
             const state = Date.now() - started > 1200 ? 'yellow' : 'green';
             updateStatusDot('user-dot', state);
             updateStatusDot('master-dot', state);
+            await chrome.storage.local.set({ backendHealth: { ok: true, latencyMs: Date.now() - started, checkedAt: Date.now() } });
         } else {
             updateStatusDot('user-dot', 'red');
             updateStatusDot('master-dot', 'red');
+            await chrome.storage.local.set({ backendHealth: { ok: false, status: resp.status, checkedAt: Date.now() } });
         }
     } catch (_) {
         clearTimeout(timeout);
         updateStatusDot('user-dot', 'red');
         updateStatusDot('master-dot', 'red');
+        await chrome.storage.local.set({ backendHealth: { ok: false, checkedAt: Date.now() } });
     }
 }
 
@@ -197,6 +226,9 @@ async function initApp() {
     const themeBtn = el('popup-theme-toggle');
     if (themeBtn) themeBtn.textContent = theme === 'light' ? '🌙' : '☀️';
     
+    updateStatusDot('user-dot', 'warn');
+    updateStatusDot('master-dot', 'warn');
+
     // Connection health check
     if (data.apiKey) {
         checkServerHealth(SERVER_URL);
@@ -273,8 +305,7 @@ function setupUserUI(data) {
     el('user-expiry').textContent = calculateExpiry(data.expiresAt);
     el('user-key-name').textContent = data.keyName || 'Active User';
     
-    // Connectivity check placeholder
-    updateStatusDot('user-dot', 'ok');
+    updateStatusDot('user-dot', 'warn');
 }
 
 function setupMasterUI(data) {
@@ -283,7 +314,7 @@ function setupMasterUI(data) {
     el('tog-exam').checked = data.solverEnabled !== false;
     el('tog-userscripts').checked = data.userscriptsEnabled !== false;
     
-    updateStatusDot('master-dot', 'ok');
+    updateStatusDot('master-dot', 'warn');
     
     // Load stats
     chrome.storage.local.get(['statCaptcha', 'statExam', 'statFill'], s => {

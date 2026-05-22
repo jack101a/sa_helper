@@ -60,6 +60,7 @@ extension.pem
 config/backend.env
 data/payment_screenshots/
 data/telegram_user_states.json
+data/extension_error_reports/
 
 # Internal operator scratch docs (not for production branch)
 AGENTS.md

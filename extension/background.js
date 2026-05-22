@@ -707,6 +707,44 @@ async function apiPost(path, body) {
     return data;
 }
 
+async function reportExtensionErrors(events) {
+    const items = Array.isArray(events) ? events : [events];
+    const cleanEvents = items
+        .filter(Boolean)
+        .slice(0, 50)
+        .map(item => ({
+            ts: Number(item.ts || Date.now()),
+            level: String(item.level || 'error').slice(0, 20),
+            source: String(item.source || 'extension').slice(0, 80),
+            message: String(item.message || '').slice(0, 1000),
+            url: String(item.url || '').slice(0, 500),
+            stack: String(item.stack || '').slice(0, 2000),
+            context: item.context && typeof item.context === 'object' ? item.context : {},
+        }));
+    if (!cleanEvents.length) return { ok: true, accepted: 0 };
+
+    try {
+        const { apiKey, serverUrl } = await getSettings();
+        if (!apiKey || !serverUrl) return { ok: false, reason: 'not_configured' };
+        const resp = await fetch(`${serverUrl}/v1/extension/error-report`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': apiKey,
+                'X-Device-ID': await getDeviceId(),
+            },
+            body: JSON.stringify({
+                extensionVersion: chrome.runtime.getManifest?.().version || '',
+                events: cleanEvents,
+            }),
+        });
+        if (!resp.ok) return { ok: false, error: `HTTP ${resp.status}` };
+        return resp.json();
+    } catch (e) {
+        return { ok: false, error: e.message || String(e) };
+    }
+}
+
 async function incrementStat(key) {
     const data = await storageGet([key]);
     const val = (data[key] || 0) + 1;
@@ -954,6 +992,7 @@ async function syncAuthState(source) {
     try {
         const d = await apiGet('/v1/auth/verify');
         const services = d.enabled_services || d.services || {};
+        const current = await storageGet(['autofillEnabled', 'captchaEnabled', 'solverEnabled', 'userscriptsEnabled']);
         await chrome.storage.local.set({
             isMaster: !!d.is_master,
             keyName: d.key_name || '',
@@ -962,10 +1001,10 @@ async function syncAuthState(source) {
             mobile: d.mobile || d.phone || '',
             telegramId: d.telegram_id || d.tg_id || '',
             enabledServices: services,
-            autofillEnabled: services.autofill !== false,
-            captchaEnabled: services.captcha !== false,
-            solverEnabled: services.stall !== false && services.solver !== false,
-            ...(!d.is_master ? { userscriptsEnabled: true } : {}),
+            autofillEnabled: services.autofill === false ? false : current.autofillEnabled !== false,
+            captchaEnabled: services.captcha === false ? false : current.captchaEnabled !== false,
+            solverEnabled: (services.stall === false || services.solver === false) ? false : current.solverEnabled !== false,
+            ...(!d.is_master ? { userscriptsEnabled: current.userscriptsEnabled !== false } : {}),
             lastVerify: Date.now()
         });
         return { ok: true, verified: true };
@@ -1187,6 +1226,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return true;
     }
 
+    if (msg.type === 'REPORT_EXTENSION_ERROR') {
+        reportExtensionErrors(msg.events || msg.event || msg).then(sendResponse);
+        return true;
+    }
+
     // ── Text Captcha ────────────────────────────────────────────
     if (msg.type === 'SOLVE_CAPTCHA') {
         apiPost('/v1/solve', {
@@ -1228,8 +1272,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
 
         promise
-            .then(d => {
+            .then(async d => {
                 const services = d.enabled_services || d.services || d.subscribed_services || {};
+                const current = await storageGet(['autofillEnabled', 'captchaEnabled', 'solverEnabled', 'userscriptsEnabled']);
                 // Persist metadata so popup/options can detect Master Mode vs User Mode
                 chrome.storage.local.set({
                     isMaster: !!d.is_master,
@@ -1240,10 +1285,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                     mobile: d.mobile || d.phone || d.mobile_no || '',
                     telegramId: d.telegram_id || d.tg_id || '',
                     enabledServices: services,
-                    autofillEnabled: services.autofill !== false,
-                    captchaEnabled: services.captcha !== false,
-                    solverEnabled: services.stall !== false && services.solver !== false,
-                    ...(!d.is_master ? { userscriptsEnabled: true } : {}),
+                    autofillEnabled: services.autofill === false ? false : current.autofillEnabled !== false,
+                    captchaEnabled: services.captcha === false ? false : current.captchaEnabled !== false,
+                    solverEnabled: (services.stall === false || services.solver === false) ? false : current.solverEnabled !== false,
+                    ...(!d.is_master ? { userscriptsEnabled: current.userscriptsEnabled !== false } : {}),
                     lastVerify: Date.now()
                 });
                 sendResponse({ ok: true, data: d });

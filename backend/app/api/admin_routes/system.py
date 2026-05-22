@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import json
 import os, signal, subprocess, sys, shlex
 from pathlib import Path
 
@@ -119,6 +120,34 @@ async def system_health(request: Request) -> Any:
         "payments_pending": pending_payments,
         "active_subscriptions": active_subs,
     })
+
+
+@router.get("/api/extension/error-reports")
+async def extension_error_reports(request: Request) -> Any:
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+
+    reports_dir = Path(__file__).resolve().parents[4] / "data" / "extension_error_reports"
+    summary_path = reports_dir / "latest_summary.json"
+    events_path = reports_dir / "events.jsonl"
+    summary = {}
+    events: list[dict[str, Any]] = []
+
+    if summary_path.exists():
+        try:
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        except Exception:
+            summary = {}
+
+    if events_path.exists():
+        for line in events_path.read_text(encoding="utf-8").splitlines()[-100:]:
+            try:
+                events.append(json.loads(line))
+            except Exception:
+                continue
+
+    return JSONResponse({"summary": summary, "events": events})
 
 
 @router.post("/api/exam/merge")
