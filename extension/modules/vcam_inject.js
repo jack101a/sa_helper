@@ -6,6 +6,29 @@
 (function () {
     'use strict';
 
+    function isAllowedStallVcamUrl(urlValue = location.href) {
+        try {
+            const url = new URL(urlValue);
+            if (url.hostname !== 'sarathi.parivahan.gov.in') return false;
+            if (url.pathname !== '/sarathiservice/authenticationaction.do'
+                && url.pathname !== '/sarathiservice/instruction.do'
+                && url.pathname !== '/sarathiservice/examselectaction.do'
+                && url.pathname !== '/sarathiservice/stallexam.do'
+                && url.pathname !== '/sarathiservice/stallLoginSubmit.do') {
+                return false;
+            }
+            if (url.pathname === '/sarathiservice/authenticationaction.do') {
+                const authType = (url.searchParams.get('authtype') || '').toLowerCase();
+                return authType === 'anugyna' || authType === 'anugnya';
+            }
+            return true;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    if (!isAllowedStallVcamUrl()) return;
+
     if (window.__SARATHI_VCAM_INSTALLED__) return;
     window.__SARATHI_VCAM_INSTALLED__ = true;
 

@@ -60,7 +60,11 @@
     },
     {
       "matches": [
-        "https://sarathi.parivahan.gov.in/*"
+        "https://sarathi.parivahan.gov.in/sarathiservice/authenticationaction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/instruction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/examselectaction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/stallexam.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/stallLoginSubmit.do*"
       ],
       "js": [
         "modules/vcam_inject.js"
