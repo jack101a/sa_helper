@@ -15,6 +15,10 @@ _PROJECT_ROOT = get_project_root()
 _USERSCRIPTS_DIR = (_PROJECT_ROOT / "data" / "mappings").resolve()
 
 
+def _user_extension_package_dir() -> Path:
+    return (_PROJECT_ROOT / "data" / "extension_packages").resolve()
+
+
 def _extension_filename_for_format(fmt: str, variant: str = "admin") -> str:
     normalized = str(fmt or "").strip().lower()
     normalized_variant = str(variant or "admin").strip().lower()
@@ -34,6 +38,16 @@ def _extension_filename_for_format(fmt: str, variant: str = "admin") -> str:
     if normalized not in mapping:
         raise HTTPException(400, "Unsupported extension format. Use zip, crx, or xpi.")
     return mapping[normalized]
+
+
+def _user_extension_artifact_path(filename: str) -> Path:
+    if Path(filename).name != filename:
+        raise HTTPException(400, "Invalid extension filename.")
+    package_dir = _user_extension_package_dir()
+    artifact_path = (package_dir / filename).resolve()
+    if artifact_path.parent != package_dir:
+        raise HTTPException(400, "Invalid extension path.")
+    return artifact_path
 
 
 def _ensure_headers(name: str, version: str, matches: list[str], runAt: str, code: str) -> str:
@@ -380,7 +394,7 @@ async def notify_key_alert(request: Request, key_name: str = Form(...), expires_
 
 @router.post("/api/extension/repack")
 async def repack_extension(request: Request):
-    """Manually trigger a fresh packaging of the browser extension."""
+    """Manually trigger a fresh packaging of the original/admin browser extension."""
     denied = _admin_guard(request)
     if denied:
         return denied
@@ -388,18 +402,30 @@ async def repack_extension(request: Request):
     success = container.extension_service.package_extension()
     if not success:
         raise HTTPException(500, "Failed to package extension. Check backend logs.")
-    return {"ok": True, "message": "Extension repackaged successfully"}
+    return {"ok": True, "message": "Admin extension repackaged successfully"}
 
 
 @router.get("/api/extension/download")
 async def download_extension(request: Request, format: str = "zip", variant: str = "admin"):
-    """Package and download a fresh extension artifact in the requested format."""
+    """Download admin extension or prebuilt user extension artifact."""
     denied = _admin_guard(request)
     if denied:
         return denied
 
     container = request.app.state.container
-    filename = _extension_filename_for_format(format, variant)  # validate format/variant before packaging
+    normalized_variant = str(variant or "admin").strip().lower()
+    filename = _extension_filename_for_format(format, normalized_variant)  # validate format/variant before work
+
+    if normalized_variant == "user":
+        artifact_path = _user_extension_artifact_path(filename)
+        if not artifact_path.exists():
+            raise HTTPException(
+                404,
+                f"User extension package not found: {filename}. "
+                "Run scripts/pack_user_extension_release.sh and place the artifact in data/extension_packages.",
+            )
+        media_type = "application/zip" if filename.endswith(".zip") else "application/octet-stream"
+        return FileResponse(path=artifact_path, media_type=media_type, filename=filename)
 
     success = container.extension_service.package_extension()
     if not success:

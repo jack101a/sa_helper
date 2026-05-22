@@ -31,3 +31,4 @@ extension.pem
 config/backend.env
 data/payment_screenshots/
 data/telegram_user_states.json
+data/extension_packages/

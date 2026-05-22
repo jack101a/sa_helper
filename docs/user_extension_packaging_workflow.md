@@ -1,16 +1,20 @@
-# Manual User Extension Packaging Workflow
+# User Extension Packaging Workflow
 
-This workflow is for release/debug user packages where runtime stability matters more than obfuscation.
+This workflow separates debug packaging from release packaging.
 
 ## Why
 
-The backend automatic user packager rewrites JavaScript filenames, rewrites references, and minifies the temporary copy. That is useful for repeatable packaging, but it creates a second runtime shape that can behave differently from the source/admin extension. Kiwi and Lemur Android browsers are especially sensitive to extension packaging differences.
+The backend must not build the user extension automatically during admin downloads. User packages are manually prepared, verified, and placed in `data/extension_packages`, which should be mounted as Docker volume data. The Docker image should not contain the generated user package.
 
-For user-debug or release-candidate builds, package from source without minification or filename hashing first. Only introduce minification after the unminified package is confirmed working.
+The original/admin extension download stays source-based and can still be rebuilt by the backend. The user extension download serves only prebuilt files:
+
+- `data/extension_packages/mcq_solver_extension_user.zip`
+- `data/extension_packages/mcq_solver_extension_user.crx`
+- `data/extension_packages/mcq_solver_extension_user.xpi`
 
 ## Current Source Analysis
 
-At commit `08e4cb3`, the source extension has:
+At commit `08e4cb3` and later, the source extension has:
 
 - Manifest version: MV3
 - Extension version: `2.2.0`
@@ -30,7 +34,39 @@ Important current behavior:
 - `sarathi_panel.js` remains included; do not remove it without explicit approval.
 - User/admin behavior should be controlled by API key and backend entitlements, not by shipping a structurally different extension unless intentionally tested.
 
-## Manual Packaging Policy
+## Release Packaging Policy
+
+Use `scripts/pack_user_extension_release.sh` for distribution.
+
+The release script:
+
+- Copies `extension/` into a temporary build directory.
+- Validates `manifest.json` and `manifest_firefox.json`.
+- Validates every JavaScript file with `node --check` before transformation.
+- Rewrites manifest, HTML, and JS string references for renamed JavaScript files.
+- Renames JavaScript files with deterministic SHA256-content hashes.
+- Minifies JavaScript with `esbuild`.
+- Validates JavaScript syntax again after minification.
+- Validates packaged references after rewriting.
+- Creates ZIP, CRX, and XPI artifacts under `data/extension_packages/`.
+- Writes `mcq_solver_extension_user.SHA256SUMS`, `mcq_solver_extension_user.build.json`, and `mcq_solver_extension_user.report.txt`.
+- Does not call backend `ExtensionService.package_extension()`.
+- Does not write the user package into `backend/app/static/extensions/`.
+- Does not place generated user artifacts in the Docker image.
+
+Command:
+
+```bash
+./scripts/pack_user_extension_release.sh
+```
+
+Security note:
+
+- This is minification, hashed filenames, and checksum integrity.
+- It is not true encryption. Browser extension JavaScript cannot be truly encrypted because the browser must load executable code.
+- Keep sensitive logic, entitlement checks, learning data, and privileged decisions server-side.
+
+## Debug Packaging Policy
 
 Use `scripts/pack_user_extension_manual.sh`.
 
@@ -47,7 +83,7 @@ The script:
 - Extracts the ZIP and validates JavaScript syntax again.
 - Writes a packaging report beside the ZIP.
 
-## Command
+Debug command:
 
 ```bash
 ./scripts/pack_user_extension_manual.sh
@@ -57,14 +93,16 @@ The script:
 
 1. Confirm git revision with `git rev-parse --short HEAD`.
 2. Run `find extension -name '*.js' -print0 | xargs -0 -n1 node --check`.
-3. Run `./scripts/pack_user_extension_manual.sh`.
-4. Load the generated ZIP/unpacked contents on desktop Chromium first.
-5. Test the same package on Kiwi or Lemur Android.
-6. If Android fails but admin/source package works, compare with backend automatic user package only after recording the failing URL, browser version, and console/network errors.
+3. Run `./scripts/pack_user_extension_release.sh`.
+4. Verify `data/extension_packages/mcq_solver_extension_user.SHA256SUMS`.
+5. Load the generated ZIP/unpacked contents on desktop Chromium first.
+6. Test the same package on Kiwi or Lemur Android.
+7. If Android fails but admin/source package works, run `./scripts/pack_user_extension_manual.sh` and compare behavior before changing source code.
 
 ## Do Not
 
 - Do not remove `sarathi_panel.js` without explicit approval.
-- Do not rely on minified/hashed user output while debugging STALL runtime behavior.
+- Do not rely only on minified/hashed output while debugging STALL runtime behavior.
 - Do not package from stale generated artifacts.
 - Do not change source behavior while only trying to create a user package.
+- Do not reintroduce backend automatic user package building.
