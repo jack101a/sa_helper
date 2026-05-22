@@ -8,21 +8,6 @@ if (window.__SP_PANEL_MERGED__) return; window.__SP_PANEL_MERGED__ = true;
 // - Add Script: Text हटाकर "+" icon button कर दिया गया है (tray height 210px ही).
 // - Edit/Zoom buttons तभी दिखेंगे जब image उपलब्ध होगी; editor Upload वैसा ही है; Apply केवल VCAM अपडेट करता है (panel circle नहीं).
 
-if (location.hostname !== 'sarathi.parivahan.gov.in') return;
-if (typeof chrome === "undefined" || !chrome.runtime?.id) return;
-
-// Activation gate removed for the current build.
-// Panel starts unlocked and does not persist any serial/hash state.
-
-// Virtual webcam keys
-const SP_VCAM_ENABLED_KEY = "sp_vcam_enabled";
-const SP_VCAM_FORCE_KEY   = "sp_vcam_force_all";
-const SP_VCAM_ZOOM_KEY    = "sp_vcam_zoom";
-const STALL_VCAM_ACTIVE_KEY = "stallVcamActive";
-
-// Image defaults key
-const SP_IMG_DEFAULTS_KEY = "sp_img_defaults"; // {bri,con,sat,hue,fmt,qual}
-
 function isStallExamRelatedUrl(){
   try {
     const url = new URL(location.href);
@@ -38,6 +23,22 @@ function isStallExamRelatedUrl(){
     return false;
   }
 }
+
+if (location.hostname !== 'sarathi.parivahan.gov.in') return;
+if (!isStallExamRelatedUrl()) return;
+if (typeof chrome === "undefined" || !chrome.runtime?.id) return;
+
+// Activation gate removed for the current build.
+// Panel starts unlocked and does not persist any serial/hash state.
+
+// Virtual webcam keys
+const SP_VCAM_ENABLED_KEY = "sp_vcam_enabled";
+const SP_VCAM_FORCE_KEY   = "sp_vcam_force_all";
+const SP_VCAM_ZOOM_KEY    = "sp_vcam_zoom";
+const STALL_VCAM_ACTIVE_KEY = "stallVcamActive";
+
+// Image defaults key
+const SP_IMG_DEFAULTS_KEY = "sp_img_defaults"; // {bri,con,sat,hue,fmt,qual}
 
 function showPanelToast(msg, variant='info', duration=1600){
   try{ console.debug('[SarathiPanel]', variant, msg); }catch{}
