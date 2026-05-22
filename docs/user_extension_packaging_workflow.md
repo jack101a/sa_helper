@@ -43,11 +43,10 @@ The release script:
 - Copies `extension/` into a temporary build directory.
 - Validates `manifest.json` and `manifest_firefox.json`.
 - Validates every JavaScript file with `node --check` before transformation.
-- Rewrites manifest, HTML, and JS string references for renamed JavaScript files.
-- Renames JavaScript files with deterministic SHA256-content hashes.
-- Minifies JavaScript with `esbuild`.
+- Preserves manifest, background, content, popup, options, and module filenames.
+- Minifies JavaScript with `esbuild` without filename hashing or renaming.
 - Validates JavaScript syntax again after minification.
-- Validates packaged references after rewriting.
+- Validates packaged references before final output and after ZIP extraction.
 - Creates ZIP, CRX, and XPI artifacts under `data/extension_packages/`.
 - Writes `mcq_solver_extension_user.SHA256SUMS`, `mcq_solver_extension_user.build.json`, and `mcq_solver_extension_user.report.txt`.
 - Does not call backend `ExtensionService.package_extension()`.
@@ -62,7 +61,7 @@ Command:
 
 Security note:
 
-- This is minification, hashed filenames, and checksum integrity.
+- This is minification and checksum integrity.
 - It is not true encryption. Browser extension JavaScript cannot be truly encrypted because the browser must load executable code.
 - Keep sensitive logic, entitlement checks, learning data, and privileged decisions server-side.
 
@@ -102,7 +101,7 @@ Debug command:
 ## Do Not
 
 - Do not remove `sarathi_panel.js` without explicit approval.
-- Do not rely only on minified/hashed output while debugging STALL runtime behavior.
+- Do not introduce hashed/renamed JavaScript entrypoints until the stable-minified package is proven on Kiwi/Lemur.
 - Do not package from stale generated artifacts.
 - Do not change source behavior while only trying to create a user package.
 - Do not reintroduce backend automatic user package building.
