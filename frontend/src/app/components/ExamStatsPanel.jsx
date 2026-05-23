@@ -480,22 +480,32 @@ export function ExamStatsPanel({
 
       {training.data && (
         <div className={`rounded-2xl p-5 ${glassPanel}`}>
-          <h3 className={`text-lg font-semibold mb-3 ${t_textHeading}`}>Training Pipeline</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <h3 className={`text-lg font-semibold mb-3 ${t_textHeading}`}>Learning Bank</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
             <div>
               <p className={`text-sm ${t_textMuted}`}>Main Bank</p>
               <p className={`text-xl font-bold ${t_textHeading}`}>{training.data.main_bank_count}</p>
             </div>
             <div>
-              <p className={`text-sm ${t_textMuted}`}>Learned Total</p>
+              <p className={`text-sm ${t_textMuted}`}>Saved Copies</p>
               <p className={`text-xl font-bold ${t_textHeading}`}>{training.data.learned_total}</p>
             </div>
             <div>
-              <p className={`text-sm ${t_textMuted}`}>Verified</p>
-              <p className="text-xl font-bold text-emerald-500">{training.data.learned_verified}</p>
+              <p className={`text-sm ${t_textMuted}`}>Question Groups</p>
+              <p className={`text-xl font-bold ${t_textHeading}`}>{training.data.learned_clusters || 0}</p>
             </div>
             <div>
-              <p className={`text-sm ${t_textMuted}`}>In-Memory Index</p>
+              <p className={`text-sm ${t_textMuted}`}>Trusted Groups</p>
+              <p className="text-xl font-bold text-emerald-500">
+                {training.data.learned_verified_clusters ?? training.data.learned_verified}
+              </p>
+            </div>
+            <div>
+              <p className={`text-sm ${t_textMuted}`}>Needs Review</p>
+              <p className="text-xl font-bold text-amber-500">{training.data.learned_conflict_clusters || 0}</p>
+            </div>
+            <div>
+              <p className={`text-sm ${t_textMuted}`}>Fast Match Index</p>
               <p className={`text-xl font-bold ${t_textHeading}`}>{training.data.inmemory_hash_count}</p>
             </div>
           </div>
@@ -531,7 +541,7 @@ export function ExamStatsPanel({
             <div>
               <h3 className={`text-lg font-semibold ${t_textHeading}`}>Hash-Based Self-Learning</h3>
               <p className={`text-xs ${t_textMuted}`}>
-                Stores question image hashes and correct options; OCR text is preview only
+                Groups repeated saved copies into trusted question groups automatically
               </p>
             </div>
           </div>
@@ -556,28 +566,34 @@ export function ExamStatsPanel({
         </div>
 
         {learningStats && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div className={`rounded-xl p-4 border ${t_borderLight} ${learningStats?.learning_enabled ? '' : 'opacity-50'}`}>
-              <p className={`text-xs ${t_textMuted}`}>Hash Entries Learned</p>
+              <p className={`text-xs ${t_textMuted}`}>Saved Copies</p>
               <p className="text-2xl font-bold text-indigo-400">
                 {learningStats.learned?.total_learned || 0}
               </p>
             </div>
             <div className={`rounded-xl p-4 border ${t_borderLight} ${learningStats?.learning_enabled ? '' : 'opacity-50'}`}>
-              <p className={`text-xs ${t_textMuted}`}>High Confidence</p>
+              <p className={`text-xs ${t_textMuted}`}>Trusted Groups</p>
               <p className="text-2xl font-bold text-emerald-400">
-                {learningStats.learned?.high_confidence || 0}
+                {learningStats.learned?.verified_clusters ?? learningStats.learned?.high_confidence ?? 0}
               </p>
             </div>
             <div className={`rounded-xl p-4 border ${t_borderLight} ${learningStats?.learning_enabled ? '' : 'opacity-50'}`}>
-              <p className={`text-xs ${t_textMuted}`}>Total Confirmations</p>
+              <p className={`text-xs ${t_textMuted}`}>Question Groups</p>
               <p className="text-2xl font-bold text-amber-400">
+                {learningStats.learned?.total_clusters || 0}
+              </p>
+            </div>
+            <div className={`rounded-xl p-4 border ${t_borderLight} ${learningStats?.learning_enabled ? '' : 'opacity-50'}`}>
+              <p className={`text-xs ${t_textMuted}`}>Confirmations</p>
+              <p className="text-2xl font-bold text-cyan-400">
                 {learningStats.learned?.total_confirmations || 0}
               </p>
             </div>
             <div className={`rounded-xl p-4 border ${t_borderLight} ${learningStats?.learning_enabled ? '' : 'opacity-50'}`}>
               <p className={`text-xs ${t_textMuted}`}>Attempt Accuracy</p>
-              <p className="text-2xl font-bold text-cyan-400">
+              <p className="text-2xl font-bold text-sky-400">
                 {((learningStats.attempts?.accuracy || 0) * 100).toFixed(1)}%
               </p>
             </div>
@@ -589,8 +605,8 @@ export function ExamStatsPanel({
           <ol className="list-decimal list-inside space-y-0.5 opacity-80">
             <li>Extension solves question on real exam</li>
             <li>Score counter confirms answer was correct</li>
-            <li>Question image hash, pHash, selected option, and OCR preview are saved in SQLite</li>
-            <li>Same/similar question images are answered by hash match without LLM</li>
+            <li>Saved copies that look like the same question are grouped together</li>
+            <li>Groups answer automatically after enough correct confirmations</li>
           </ol>
         </div>
       </div>
