@@ -64,5 +64,31 @@ class TestExamService(unittest.TestCase):
         self.assertEqual(self.service._sign_hashes["abc"], "STOP")
         self.assertEqual(self.service._sign_labels["STOP"], "Stop Sign")
 
+    def test_solver_methods_uses_configured_order_and_random_flag(self):
+        self.mock_db.get_setting.return_value = json.dumps([
+            {"id": "llm", "enabled": True, "priority": 10},
+            {"id": "sign_hash_label", "enabled": False, "priority": 15},
+            {"id": "ocr_db", "enabled": False, "priority": 20},
+            {"id": "sign_hash_db", "enabled": True, "priority": 30},
+            {"id": "random_fallback", "enabled": False, "priority": 40},
+        ])
+
+        methods, allow_random = self.service._solver_methods()
+
+        self.assertEqual(methods[0], "llm")
+        self.assertLess(methods.index("llm"), methods.index("sign_hash_db"))
+        self.assertNotIn("ocr_db", methods)
+        self.assertFalse(allow_random)
+
+    def test_solver_methods_falls_back_to_safe_defaults_on_bad_json(self):
+        self.mock_db.get_setting.return_value = "{bad json"
+
+        methods, allow_random = self.service._solver_methods()
+
+        self.assertIn("sign_hash_db", methods)
+        self.assertIn("ocr_db", methods)
+        self.assertIn("llm", methods)
+        self.assertTrue(allow_random)
+
 if __name__ == "__main__":
     unittest.main()

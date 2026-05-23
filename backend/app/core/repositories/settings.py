@@ -20,7 +20,7 @@ class SettingsRepository(BaseRepository):
         "exam.learn_min_confirmations": "5",
         "exam.learn_phash_max_distance": "3",
         "exam.learn_option_phash_max_distance": "3",
-        "exam.solver_methods_ui": '[{"id":"sign_hash_db","enabled":true,"priority":10},{"id":"sign_hash_label","enabled":true,"priority":20},{"id":"learned_exact_hash","enabled":false,"priority":30},{"id":"learned_phash","enabled":false,"priority":40},{"id":"learned_text_identity","enabled":false,"priority":50},{"id":"ocr_db","enabled":true,"priority":60},{"id":"llm","enabled":true,"priority":70},{"id":"random_fallback","enabled":false,"priority":80}]',
+        "exam.solver_methods_ui": '[{"id":"sign_hash_db","enabled":true,"priority":10},{"id":"sign_hash_label","enabled":true,"priority":20},{"id":"learned_exact_hash","enabled":true,"priority":30},{"id":"learned_phash","enabled":true,"priority":40},{"id":"learned_text_identity","enabled":true,"priority":50},{"id":"ocr_db","enabled":true,"priority":60},{"id":"llm","enabled":true,"priority":70},{"id":"random_fallback","enabled":true,"priority":80}]',
         # WhatsApp alerts
         "alerts.whatsapp_enabled":  "false",
         "alerts.callmebot_phone":   "",

@@ -446,6 +446,13 @@
                         return;
                     }
 
+                    if (resp?.ok && resp.data?.allow_random_fallback === false) {
+                        setStatus('No match', 'fail');
+                        setResult('Server returned no match. Random fallback is disabled.');
+                        state.processing = false;
+                        return;
+                    }
+
                     await waitForClickWindow('No match, waiting for click window');
 
                     const optCount = optImgs.length || 3;

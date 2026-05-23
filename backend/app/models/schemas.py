@@ -47,6 +47,7 @@ class ExamSolveResponse(BaseModel):
     confidence: float | None = None
     verified_count: int | None = None
     phash_distance: int | None = None
+    allow_random_fallback: bool = True
 
 
 class ExamFeedbackRequest(BaseModel):

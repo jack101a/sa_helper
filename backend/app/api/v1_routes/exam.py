@@ -113,6 +113,7 @@ async def exam_solve(request: Request, payload: ExamSolveRequest) -> ExamSolveRe
             confidence=result.get("confidence"),
             verified_count=result.get("verified_count"),
             phash_distance=result.get("phash_distance"),
+            allow_random_fallback=bool(result.get("allow_random_fallback", True)),
         )
     except HTTPException:
         raise

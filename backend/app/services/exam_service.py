@@ -29,6 +29,18 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_SOLVER_METHOD_DEFAULTS: list[dict[str, Any]] = [
+    {"id": "sign_hash_db", "enabled": True, "priority": 10},
+    {"id": "sign_hash_label", "enabled": True, "priority": 20},
+    {"id": "learned_exact_hash", "enabled": True, "priority": 30},
+    {"id": "learned_phash", "enabled": True, "priority": 40},
+    {"id": "learned_text_identity", "enabled": True, "priority": 50},
+    {"id": "ocr_db", "enabled": True, "priority": 60},
+    {"id": "llm", "enabled": True, "priority": 70},
+    {"id": "random_fallback", "enabled": True, "priority": 80},
+]
+_SOLVER_METHOD_IDS = {item["id"] for item in _SOLVER_METHOD_DEFAULTS}
+
 # Try importing pytesseract; gracefully degrade if Tesseract binary is not installed.
 try:
     import pytesseract
@@ -406,6 +418,37 @@ class ExamService:
         mode = str(self._db.get_setting("exam.learning_mode", "train_only") or "train_only").strip().lower()
         return mode if mode in {"train_only", "auto_click"} else "train_only"
 
+    def _solver_methods(self) -> tuple[list[str], bool]:
+        """Return enabled solver method ids in admin-configured order."""
+        defaults = {item["id"]: dict(item) for item in _SOLVER_METHOD_DEFAULTS}
+        try:
+            raw = self._db.get_setting("exam.solver_methods_ui", "")
+            parsed = json.loads(raw) if raw else []
+            if not isinstance(parsed, list):
+                parsed = []
+        except Exception:
+            parsed = []
+
+        merged = defaults
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            method_id = str(item.get("id") or "")
+            if method_id not in _SOLVER_METHOD_IDS:
+                continue
+            current = merged[method_id]
+            if isinstance(item.get("enabled"), bool):
+                current["enabled"] = item["enabled"]
+            try:
+                current["priority"] = int(item.get("priority", current["priority"]))
+            except (TypeError, ValueError):
+                pass
+
+        ordered = sorted(merged.values(), key=lambda item: (int(item["priority"]), str(item["id"])))
+        enabled = [str(item["id"]) for item in ordered if item.get("enabled") and item["id"] != "random_fallback"]
+        allow_random_fallback = bool(merged.get("random_fallback", {}).get("enabled", True))
+        return enabled, allow_random_fallback
+
     def _tessdata_dir(self) -> str | None:
         """Return absolute path to tessdata dir if it exists, else None."""
         raw = self._db.get_setting("exam.tessdata_path", "backend/tessdata")
@@ -751,25 +794,10 @@ class ExamService:
             except Exception:
                 option_imgs.append(None)
 
-        # Layer 1 — Perceptual Hash (sign images → sign label → correct option)
-        sign_label = self._match_sign_hash(q_img)
-        if sign_label:
-            # First try sign label lookup in questions DB
-            sign_entry = self._search_by_sign(sign_label)
-            if sign_entry and sign_entry.get("correct_option_number"):
-                opt_num = int(sign_entry["correct_option_number"])
-                answer  = sign_entry.get(f"option_{opt_num}", self._sign_labels.get(sign_label, sign_label))
-                ms = int((time.perf_counter() - started) * 1000)
-                logger.info("exam_solved_hash_db", extra={"context": {"sign": sign_label, "option": opt_num}})
-                return {"option_number": opt_num, "answer_text": answer, "method": "hash_db", "processing_ms": ms}
-            # Fallback: match sign description against OCR'd option text
-            opt_num = self._sign_to_option(sign_label, option_b64s)
-            if opt_num:
-                ms = int((time.perf_counter() - started) * 1000)
-                logger.info("exam_solved_hash", extra={"context": {"sign": sign_label, "option": opt_num}})
-                return {"option_number": opt_num, "answer_text": self._sign_labels.get(sign_label, sign_label), "method": "hash", "processing_ms": ms}
-
-        # Layer 1.5 — Self-Learned Database (questions learned from correct exam answers)
+        enabled_methods, allow_random_fallback = self._solver_methods()
+        sign_label: str | None = None
+        question_text: str | None = None
+        option_texts: list[str] | None = None
         question_hash = _djb2_hash(q_img)
         question_phash = _phash(q_img)
         learn_min_confidence = self._learn_min_confidence()
@@ -800,143 +828,208 @@ class ExamService:
                 response["option_phash_distance"] = row.get("_option_phash_distance")
             return response
 
-        learned = self._inmemory_get_by_hash(
-            question_hash,
-            min_confidence=learn_min_confidence,
-            min_verified=learn_min_confirmations,
-        )
-        if learned and learned.get("correct_option") and learning_mode == "auto_click":
-            opt_num, resolve_method = self._resolve_learned_option(learned, option_imgs)
-            if opt_num:
-                stored_opt = int(learned["correct_option"])
-                answer  = learned.get("correct_option_text") or learned.get(f"option_{stored_opt}", f"Option {stored_opt}")
-                ms = int((time.perf_counter() - started) * 1000)
-                logger.info("exam_solved_learned", extra={"context": {"hash": question_hash[:12], "option": opt_num, "identity": resolve_method, "confidence": learned.get("confidence")}})
-                return {
-                    "option_number": opt_num,
-                    "answer_text": answer,
-                    "method": f"learned_db_{resolve_method}",
-                    "processing_ms": ms,
-                    "train_only": False,
-                    "confidence": float(learned.get("confidence") or 0),
-                    "verified_count": int(learned.get("verified_count") or 0),
-                    "option_phash_distance": learned.get("_option_phash_distance"),
-                }
-            pending_verified_learned = (learned, "learned_db")
-            train_candidate = _train_response(learned, "learned_db_unmatched")
-        if learned and learned.get("correct_option"):
-            train_candidate = train_candidate or _train_response(learned, "learned_db_train")
+        def with_fallback_flag(result: dict[str, Any] | None) -> dict[str, Any] | None:
+            if result is not None:
+                result.setdefault("allow_random_fallback", allow_random_fallback)
+            return result
 
-        candidate = self._inmemory_get_candidate_by_hash(question_hash)
-        if not train_candidate and candidate and candidate.get("correct_option"):
-            train_candidate = _train_response(candidate, "learned_candidate")
+        def get_sign_label() -> str | None:
+            nonlocal sign_label
+            if sign_label is None:
+                sign_label = self._match_sign_hash(q_img) or ""
+            return sign_label or None
 
-        learned = self._inmemory_get_by_phash(
-            question_phash,
-            max_distance=learn_phash_max_distance,
-            min_confidence=learn_min_confidence,
-            min_verified=learn_min_confirmations,
-        )
-        if learned and learned.get("correct_option") and learning_mode == "auto_click":
-            opt_num, resolve_method = self._resolve_learned_option(learned, option_imgs)
-            if opt_num:
-                stored_opt = int(learned["correct_option"])
-                answer  = learned.get("correct_option_text") or learned.get(f"option_{stored_opt}", f"Option {stored_opt}")
-                ms = int((time.perf_counter() - started) * 1000)
-                logger.info("exam_solved_learned_phash", extra={"context": {
-                    "hash": question_hash[:12],
-                    "phash_distance": learned.get("_phash_distance"),
-                    "option": opt_num,
-                    "identity": resolve_method,
-                    "confidence": learned.get("confidence"),
-                }})
-                return {
-                    "option_number": opt_num,
-                    "answer_text": answer,
-                    "method": f"learned_phash_{resolve_method}",
-                    "processing_ms": ms,
-                    "train_only": False,
-                    "confidence": float(learned.get("confidence") or 0),
-                    "verified_count": int(learned.get("verified_count") or 0),
-                    "phash_distance": learned.get("_phash_distance"),
-                    "option_phash_distance": learned.get("_option_phash_distance"),
-                }
-            pending_verified_learned = pending_verified_learned or (learned, "learned_phash")
-            train_candidate = train_candidate or _train_response(learned, "learned_phash_unmatched")
-        if learned and learned.get("correct_option"):
-            train_candidate = train_candidate or _train_response(learned, "learned_phash_train")
-
-        candidate = self._inmemory_get_candidate_by_phash(question_phash, max_distance=learn_phash_max_distance)
-        if not train_candidate and candidate and candidate.get("correct_option"):
-            train_candidate = _train_response(candidate, "learned_phash_candidate")
-
-        # Layer 2 — OCR + DB (question text / option text / Hindi fuzzy)
-        # We run OCR for question and 4 options in parallel to save time
-        # Use the persistent thread pool instead of creating a new one per request
-        q_future = self._ocr_pool.submit(self._ocr_text, q_img)
-
-        # 2. Start option OCRs
-        opt_futures = []
-        for opt_img in option_imgs:
-            try:
-                if opt_img is None:
-                    raise ValueError("invalid option image")
-                opt_futures.append(self._ocr_pool.submit(self._ocr_text, opt_img))
-            except Exception:
-                opt_futures.append(None)
-        
-        # 3. Collect results
-        question_text = q_future.result()
-        option_texts  = []
-        for fut in opt_futures:
-            if fut:
+        def ensure_ocr_texts() -> tuple[str, list[str]]:
+            nonlocal question_text, option_texts
+            if question_text is not None and option_texts is not None:
+                return question_text, option_texts
+            q_future = self._ocr_pool.submit(self._ocr_text, q_img)
+            opt_futures = []
+            for opt_img in option_imgs:
                 try:
-                    option_texts.append(fut.result())
+                    if opt_img is None:
+                        raise ValueError("invalid option image")
+                    opt_futures.append(self._ocr_pool.submit(self._ocr_text, opt_img))
                 except Exception:
+                    opt_futures.append(None)
+            question_text = q_future.result()
+            option_texts = []
+            for fut in opt_futures:
+                if fut:
+                    try:
+                        option_texts.append(fut.result())
+                    except Exception:
+                        option_texts.append("")
+                else:
                     option_texts.append("")
-            else:
-                option_texts.append("")
+            return question_text, option_texts
 
-        if pending_verified_learned and learning_mode == "auto_click":
+        def try_sign_hash_db() -> dict[str, Any] | None:
+            label = get_sign_label()
+            if not label:
+                return None
+            sign_entry = self._search_by_sign(label)
+            if not sign_entry or not sign_entry.get("correct_option_number"):
+                return None
+            opt_num = int(sign_entry["correct_option_number"])
+            answer = sign_entry.get(f"option_{opt_num}", self._sign_labels.get(label, label))
+            ms = int((time.perf_counter() - started) * 1000)
+            logger.info("exam_solved_hash_db", extra={"context": {"sign": label, "option": opt_num}})
+            return {"option_number": opt_num, "answer_text": answer, "method": "hash_db", "processing_ms": ms}
+
+        def try_sign_hash_label() -> dict[str, Any] | None:
+            label = get_sign_label()
+            if not label:
+                return None
+            opt_num = self._sign_to_option(label, option_b64s)
+            if not opt_num:
+                return None
+            ms = int((time.perf_counter() - started) * 1000)
+            logger.info("exam_solved_hash", extra={"context": {"sign": label, "option": opt_num}})
+            return {"option_number": opt_num, "answer_text": self._sign_labels.get(label, label), "method": "hash", "processing_ms": ms}
+
+        def try_learned_exact_hash() -> dict[str, Any] | None:
+            nonlocal pending_verified_learned, train_candidate
+            learned = self._inmemory_get_by_hash(
+                question_hash,
+                min_confidence=learn_min_confidence,
+                min_verified=learn_min_confirmations,
+            )
+            if learned and learned.get("correct_option") and learning_mode == "auto_click":
+                opt_num, resolve_method = self._resolve_learned_option(learned, option_imgs)
+                if opt_num:
+                    stored_opt = int(learned["correct_option"])
+                    answer = learned.get("correct_option_text") or learned.get(f"option_{stored_opt}", f"Option {stored_opt}")
+                    ms = int((time.perf_counter() - started) * 1000)
+                    logger.info("exam_solved_learned", extra={"context": {"hash": question_hash[:12], "option": opt_num, "identity": resolve_method, "confidence": learned.get("confidence")}})
+                    return {
+                        "option_number": opt_num,
+                        "answer_text": answer,
+                        "method": f"learned_db_{resolve_method}",
+                        "processing_ms": ms,
+                        "train_only": False,
+                        "confidence": float(learned.get("confidence") or 0),
+                        "verified_count": int(learned.get("verified_count") or 0),
+                        "option_phash_distance": learned.get("_option_phash_distance"),
+                    }
+                pending_verified_learned = (learned, "learned_db")
+                train_candidate = _train_response(learned, "learned_db_unmatched")
+            if learned and learned.get("correct_option"):
+                train_candidate = train_candidate or _train_response(learned, "learned_db_train")
+
+            candidate = self._inmemory_get_candidate_by_hash(question_hash)
+            if not train_candidate and candidate and candidate.get("correct_option"):
+                train_candidate = _train_response(candidate, "learned_candidate")
+            return None
+
+        def try_learned_phash() -> dict[str, Any] | None:
+            nonlocal pending_verified_learned, train_candidate
+            learned = self._inmemory_get_by_phash(
+                question_phash,
+                max_distance=learn_phash_max_distance,
+                min_confidence=learn_min_confidence,
+                min_verified=learn_min_confirmations,
+            )
+            if learned and learned.get("correct_option") and learning_mode == "auto_click":
+                opt_num, resolve_method = self._resolve_learned_option(learned, option_imgs)
+                if opt_num:
+                    stored_opt = int(learned["correct_option"])
+                    answer = learned.get("correct_option_text") or learned.get(f"option_{stored_opt}", f"Option {stored_opt}")
+                    ms = int((time.perf_counter() - started) * 1000)
+                    logger.info("exam_solved_learned_phash", extra={"context": {
+                        "hash": question_hash[:12],
+                        "phash_distance": learned.get("_phash_distance"),
+                        "option": opt_num,
+                        "identity": resolve_method,
+                        "confidence": learned.get("confidence"),
+                    }})
+                    return {
+                        "option_number": opt_num,
+                        "answer_text": answer,
+                        "method": f"learned_phash_{resolve_method}",
+                        "processing_ms": ms,
+                        "train_only": False,
+                        "confidence": float(learned.get("confidence") or 0),
+                        "verified_count": int(learned.get("verified_count") or 0),
+                        "phash_distance": learned.get("_phash_distance"),
+                        "option_phash_distance": learned.get("_option_phash_distance"),
+                    }
+                pending_verified_learned = pending_verified_learned or (learned, "learned_phash")
+                train_candidate = train_candidate or _train_response(learned, "learned_phash_unmatched")
+            if learned and learned.get("correct_option"):
+                train_candidate = train_candidate or _train_response(learned, "learned_phash_train")
+
+            candidate = self._inmemory_get_candidate_by_phash(question_phash, max_distance=learn_phash_max_distance)
+            if not train_candidate and candidate and candidate.get("correct_option"):
+                train_candidate = _train_response(candidate, "learned_phash_candidate")
+            return None
+
+        def try_learned_text_identity() -> dict[str, Any] | None:
+            if not pending_verified_learned or learning_mode != "auto_click":
+                return None
+            _question_text, ocr_option_texts = ensure_ocr_texts()
             learned_row, base_method = pending_verified_learned
-            opt_num, resolve_method = self._resolve_learned_option(learned_row, option_imgs, option_texts)
-            if opt_num:
-                stored_opt = int(learned_row["correct_option"])
-                answer = learned_row.get("correct_option_text") or learned_row.get(f"option_{stored_opt}", f"Option {stored_opt}")
-                ms = int((time.perf_counter() - started) * 1000)
-                logger.info("exam_solved_learned_text_identity", extra={"context": {
-                    "hash": question_hash[:12],
-                    "option": opt_num,
-                    "identity": resolve_method,
-                    "method": base_method,
-                    "confidence": learned_row.get("confidence"),
-                }})
-                return {
-                    "option_number": opt_num,
-                    "answer_text": answer,
-                    "method": f"{base_method}_{resolve_method}",
-                    "processing_ms": ms,
-                    "train_only": False,
-                    "confidence": float(learned_row.get("confidence") or 0),
-                    "verified_count": int(learned_row.get("verified_count") or 0),
-                    "phash_distance": learned_row.get("_phash_distance"),
-                    "option_phash_distance": learned_row.get("_option_phash_distance"),
-                }
+            opt_num, resolve_method = self._resolve_learned_option(learned_row, option_imgs, ocr_option_texts)
+            if not opt_num:
+                return None
+            stored_opt = int(learned_row["correct_option"])
+            answer = learned_row.get("correct_option_text") or learned_row.get(f"option_{stored_opt}", f"Option {stored_opt}")
+            ms = int((time.perf_counter() - started) * 1000)
+            logger.info("exam_solved_learned_text_identity", extra={"context": {
+                "hash": question_hash[:12],
+                "option": opt_num,
+                "identity": resolve_method,
+                "method": base_method,
+                "confidence": learned_row.get("confidence"),
+            }})
+            return {
+                "option_number": opt_num,
+                "answer_text": answer,
+                "method": f"{base_method}_{resolve_method}",
+                "processing_ms": ms,
+                "train_only": False,
+                "confidence": float(learned_row.get("confidence") or 0),
+                "verified_count": int(learned_row.get("verified_count") or 0),
+                "phash_distance": learned_row.get("_phash_distance"),
+                "option_phash_distance": learned_row.get("_option_phash_distance"),
+            }
 
-        match = self._db_lookup(question_text, option_texts)
-        if match and match.get("correct_option_number"):  # ← correct key name
-            ms      = int((time.perf_counter() - started) * 1000)
+        def try_ocr_db() -> dict[str, Any] | None:
+            ocr_question_text, ocr_option_texts = ensure_ocr_texts()
+            match = self._db_lookup(ocr_question_text, ocr_option_texts)
+            if not match or not match.get("correct_option_number"):
+                return None
             opt_num = int(match["correct_option_number"])
-            answer  = match.get(f"option_{opt_num}", f"Option {opt_num}")
+            answer = match.get(f"option_{opt_num}", f"Option {opt_num}")
+            ms = int((time.perf_counter() - started) * 1000)
             logger.info("exam_solved_ocr_db", extra={"context": {"option": opt_num, "ms": ms}})
             return {"option_number": opt_num, "answer_text": answer, "method": "ocr_db", "processing_ms": ms}
 
-        # Layer 3 — LiteLLM multimodal fallback
-        opt_num = await self._llm_solve(question_b64, option_b64s)
-        ms = int((time.perf_counter() - started) * 1000)
-        if opt_num:
+        async def try_llm() -> dict[str, Any] | None:
+            opt_num = await self._llm_solve(question_b64, option_b64s)
+            if not opt_num:
+                return None
+            ms = int((time.perf_counter() - started) * 1000)
             logger.info("exam_solved_llm", extra={"context": {"option": opt_num, "ms": ms}})
             return {"option_number": opt_num, "answer_text": f"Option {opt_num} (AI)", "method": "llm", "processing_ms": ms}
+
+        handlers = {
+            "sign_hash_db": try_sign_hash_db,
+            "sign_hash_label": try_sign_hash_label,
+            "learned_exact_hash": try_learned_exact_hash,
+            "learned_phash": try_learned_phash,
+            "learned_text_identity": try_learned_text_identity,
+            "ocr_db": try_ocr_db,
+            "llm": try_llm,
+        }
+
+        for method_id in enabled_methods:
+            handler = handlers.get(method_id)
+            if not handler:
+                continue
+            result = await handler() if method_id == "llm" else handler()
+            if result and result.get("option_number"):
+                return with_fallback_flag(result)
 
         if train_candidate:
             train_candidate["processing_ms"] = int((time.perf_counter() - started) * 1000)
@@ -946,8 +1039,14 @@ class ExamService:
                 "confidence": train_candidate.get("confidence"),
                 "verified_count": train_candidate.get("verified_count"),
             }})
-            return train_candidate
+            return with_fallback_flag(train_candidate)
 
         ms = int((time.perf_counter() - started) * 1000)
-        logger.warning("exam_no_match", extra={"context": {"question_text": question_text[:80] if question_text else ""}})
-        return {"option_number": None, "answer_text": None, "method": "none", "processing_ms": ms}
+        logger.warning("exam_no_match", extra={"context": {"question_text": (question_text or "")[:80]}})
+        return {
+            "option_number": None,
+            "answer_text": None,
+            "method": "none",
+            "processing_ms": ms,
+            "allow_random_fallback": allow_random_fallback,
+        }

@@ -60,7 +60,7 @@ const SOLVER_METHODS = [
 
 const DEFAULT_SOLVER_METHODS = SOLVER_METHODS.map((method, index) => ({
   id: method.id,
-  enabled: ["sign_hash_db", "sign_hash_label", "ocr_db", "llm"].includes(method.id),
+  enabled: true,
   priority: (index + 1) * 10
 }));
 
