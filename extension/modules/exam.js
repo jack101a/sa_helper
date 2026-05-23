@@ -398,8 +398,9 @@
 
                 if (resp?.ok && resp.data?.train_only) {
                     const candidate = resp.data.candidate_option;
+                    const required = resp.data.verified_required || 10;
                     setStatus(`Training ${resp.data.method || 'learned'} (${resp.data.processing_ms || 0}ms)`, 'work');
-                    setResult(`Guess only: Option ${candidate || '?'} (${Math.round((resp.data.confidence || 0) * 100)}%, ${resp.data.verified_count || 0}/10). Not clicking.`);
+                    setResult(`Guess only: Option ${candidate || '?'} (${Math.round((resp.data.confidence || 0) * 100)}%, ${resp.data.verified_count || 0}/${required}). Not clicking.`);
                     console.log('[Exam] Train-only learned guess; not clicking:', resp.data);
                     state.processing = false;
                     return;

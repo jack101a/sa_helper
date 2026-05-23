@@ -112,6 +112,7 @@ async def exam_solve(request: Request, payload: ExamSolveRequest) -> ExamSolveRe
             candidate_option=result.get("candidate_option"),
             confidence=result.get("confidence"),
             verified_count=result.get("verified_count"),
+            verified_required=result.get("verified_required"),
             phash_distance=result.get("phash_distance"),
             allow_random_fallback=bool(result.get("allow_random_fallback", True)),
         )

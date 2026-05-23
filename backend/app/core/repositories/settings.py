@@ -17,7 +17,7 @@ class SettingsRepository(BaseRepository):
         # MCQ self-learning safety
         "exam.learning_mode":      "train_only",
         "exam.learn_min_confidence": "0.95",
-        "exam.learn_min_confirmations": "5",
+        "exam.learn_min_confirmations": "10",
         "exam.learn_phash_max_distance": "3",
         "exam.learn_option_phash_max_distance": "3",
         "exam.solver_methods_ui": '[{"id":"auto_learned_bank","enabled":true,"priority":10},{"id":"ocr_db","enabled":true,"priority":20},{"id":"llm","enabled":true,"priority":30},{"id":"random_fallback","enabled":true,"priority":40}]',

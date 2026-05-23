@@ -11,7 +11,7 @@ class ExamLearnedRepository(BaseRepository):
     """Self-learning question bank populated from confirmed exam feedback."""
 
     DEFAULT_MIN_CONFIDENCE = 0.95
-    DEFAULT_MIN_VERIFIED = 5
+    DEFAULT_MIN_VERIFIED = 10
 
     def _min_verified(self) -> int:
         """Runtime confirmation threshold from settings, with safe fallback."""

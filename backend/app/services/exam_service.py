@@ -428,7 +428,7 @@ class ExamService:
 
     def _learn_min_confirmations(self) -> int:
         try:
-            return max(1, int(self._db.get_setting("exam.learn_min_confirmations", "5")))
+            return max(1, int(self._db.get_setting("exam.learn_min_confirmations", "10")))
         except ValueError:
             return 5
 
@@ -877,6 +877,7 @@ class ExamService:
                 "train_only": True,
                 "confidence": float(row.get("confidence") or 0),
                 "verified_count": int(row.get("verified_count") or 0),
+                "verified_required": learn_min_confirmations,
                 "answer_identity": resolve_method,
             }
             if row.get("_phash_distance") is not None:

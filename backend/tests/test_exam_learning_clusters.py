@@ -25,7 +25,7 @@ def test_learned_variants_roll_up_into_verified_cluster():
     try:
         repo = db.exam_learned
         cluster_ids = []
-        for idx in range(5):
+        for idx in range(10):
             result = repo.upsert_learned(
                 question_hash=f"hash-{idx}",
                 question_phash="a" * 16,
@@ -43,14 +43,14 @@ def test_learned_variants_roll_up_into_verified_cluster():
 
         assert len(set(cluster_ids)) == 1
         stats = repo.get_stats()
-        assert stats["total_learned"] == 5
+        assert stats["total_learned"] == 10
         assert stats["total_clusters"] == 1
         assert stats["verified_clusters"] == 1
         assert stats["high_confidence"] == 1
 
         learned_rows = repo.get_all_learned()
         assert all(row["cluster_status"] == "verified" for row in learned_rows)
-        assert all(row["cluster_verified_count"] == 5 for row in learned_rows)
+        assert all(row["cluster_verified_count"] == 10 for row in learned_rows)
         assert len(repo.export_to_json()) == 1
     finally:
         tmp.cleanup()

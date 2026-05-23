@@ -354,6 +354,46 @@ export function ExamStatsPanel({
           </div>
         </div>
 
+        <div className={`mt-6 pt-6 border-t ${t_borderLight}`}>
+          <h4 className={`text-xs font-bold uppercase tracking-widest ${t_textMuted}`}>Self-Learning Safety</h4>
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className={`text-xs block mb-1 ${t_textMuted}`}>Required Confirmations</label>
+              <input
+                type="number"
+                min="1"
+                max="50"
+                className={glassInput}
+                value={settings["exam.learn_min_confirmations"] || "10"}
+                onChange={(e) => updateSetting("exam.learn_min_confirmations", String(Math.max(1, Math.min(50, Number(e.target.value) || 1))))}
+              />
+            </div>
+            <div>
+              <label className={`text-xs block mb-1 ${t_textMuted}`}>Minimum Confidence</label>
+              <input
+                type="number"
+                min="0.5"
+                max="1"
+                step="0.01"
+                className={glassInput}
+                value={settings["exam.learn_min_confidence"] || "0.95"}
+                onChange={(e) => updateSetting("exam.learn_min_confidence", e.target.value)}
+              />
+            </div>
+            <div>
+              <label className={`text-xs block mb-1 ${t_textMuted}`}>pHash Match Distance</label>
+              <input
+                type="number"
+                min="0"
+                max="10"
+                className={glassInput}
+                value={settings["exam.learn_phash_max_distance"] || "3"}
+                onChange={(e) => updateSetting("exam.learn_phash_max_distance", String(Math.max(0, Math.min(10, Number(e.target.value) || 0))))}
+              />
+            </div>
+          </div>
+        </div>
+
       </div>
 
       <div className={`rounded-2xl p-6 ${glassPanel}`}>

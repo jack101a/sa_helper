@@ -46,6 +46,7 @@ class ExamSolveResponse(BaseModel):
     candidate_option: int | None = None
     confidence: float | None = None
     verified_count: int | None = None
+    verified_required: int | None = None
     phash_distance: int | None = None
     allow_random_fallback: bool = True
 

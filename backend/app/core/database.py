@@ -486,6 +486,14 @@ class Database:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_exam_learned_clusters_phash ON exam_learned_clusters(canonical_question_phash)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_exam_learned_clusters_status ON exam_learned_clusters(status)")
 
+        conn.execute(
+            """
+            UPDATE platform_settings
+            SET value = '10'
+            WHERE key = 'exam.learn_min_confirmations' AND value = '5'
+            """
+        )
+
         conn.execute("INSERT OR IGNORE INTO access_control (key, value) VALUES ('global_access', 'true')")
         conn.commit()
 
