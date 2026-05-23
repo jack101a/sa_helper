@@ -1,11 +1,96 @@
 import React, { useState, useEffect, useRef } from "react";
 import PropTypes from "prop-types";
 import { useQuery } from "@tanstack/react-query";
-import { BrainCircuit, Loader2, Save, GraduationCap, ToggleLeft, ToggleRight } from "lucide-react";
+import { ArrowDown, ArrowUp, BrainCircuit, Loader2, Save, GraduationCap, ToggleLeft, ToggleRight } from "lucide-react";
 import { useThemeContext } from "../context/ThemeContext";
 import { apiGet, apiPostJson } from "../../api/client";
 import { fetchTrainingStats, queryKeys } from "../../api/queries";
 import { AutomationMethodsPanel } from "./AutomationMethodsPanel";
+
+const SOLVER_METHODS = [
+  {
+    id: "sign_hash_db",
+    label: "Main Bank Sign Hash",
+    detail: "Matches known sign/image hashes against the main question bank.",
+    runtime: "Runtime currently uses this"
+  },
+  {
+    id: "sign_hash_label",
+    label: "Sign Label Option Match",
+    detail: "Uses sign labels and option text when the direct bank match is missing.",
+    runtime: "Runtime currently uses this"
+  },
+  {
+    id: "learned_exact_hash",
+    label: "Learned Exact Hash",
+    detail: "Uses verified learned rows with the same question image hash.",
+    runtime: "Depends on learning mode"
+  },
+  {
+    id: "learned_phash",
+    label: "Learned pHash",
+    detail: "Uses verified learned rows with a visually similar question image.",
+    runtime: "Depends on learning mode"
+  },
+  {
+    id: "learned_text_identity",
+    label: "Learned Answer Remap",
+    detail: "Uses option image/text identity to handle shuffled learned options.",
+    runtime: "Depends on learning mode"
+  },
+  {
+    id: "ocr_db",
+    label: "OCR DB",
+    detail: "Runs OCR on question/options and searches the question bank.",
+    runtime: "Runtime currently uses this"
+  },
+  {
+    id: "llm",
+    label: "LLM Fallback",
+    detail: "Uses the configured LiteLLM model when local matching fails.",
+    runtime: "Runtime currently uses this"
+  },
+  {
+    id: "random_fallback",
+    label: "Random Fallback",
+    detail: "Extension fallback when backend returns no answer.",
+    runtime: "Runtime currently uses this"
+  }
+];
+
+const DEFAULT_SOLVER_METHODS = SOLVER_METHODS.map((method, index) => ({
+  id: method.id,
+  enabled: ["sign_hash_db", "sign_hash_label", "ocr_db", "llm"].includes(method.id),
+  priority: (index + 1) * 10
+}));
+
+function normalizeSolverMethods(rawValue) {
+  let parsed = [];
+  try {
+    parsed = JSON.parse(rawValue || "[]");
+  } catch (_) {
+    parsed = [];
+  }
+  const byId = new Map(Array.isArray(parsed) ? parsed.map(item => [item?.id, item]) : []);
+  return DEFAULT_SOLVER_METHODS
+    .map(defaultItem => {
+      const item = byId.get(defaultItem.id) || {};
+      return {
+        id: defaultItem.id,
+        enabled: typeof item.enabled === "boolean" ? item.enabled : defaultItem.enabled,
+        priority: Number.isFinite(Number(item.priority)) ? Number(item.priority) : defaultItem.priority
+      };
+    })
+    .sort((a, b) => a.priority - b.priority);
+}
+
+function serializeSolverMethods(methods) {
+  return JSON.stringify(methods.map((method, index) => ({
+    id: method.id,
+    enabled: !!method.enabled,
+    priority: (index + 1) * 10
+  })));
+}
 
 export function ExamStatsPanel({
   examStats,
@@ -68,6 +153,31 @@ export function ExamStatsPanel({
 
   const updateSetting = (key, value) => {
     setSettings(prev => ({ ...prev, [key]: value }));
+  };
+
+  const solverMethods = normalizeSolverMethods(settings["exam.solver_methods_ui"]);
+
+  const updateSolverMethods = (nextMethods) => {
+    updateSetting("exam.solver_methods_ui", serializeSolverMethods(nextMethods));
+  };
+
+  const toggleSolverMethod = (id) => {
+    updateSolverMethods(solverMethods.map(method =>
+      method.id === id ? { ...method, enabled: !method.enabled } : method
+    ));
+  };
+
+  const moveSolverMethod = (id, direction) => {
+    const index = solverMethods.findIndex(method => method.id === id);
+    const targetIndex = index + direction;
+    if (index < 0 || targetIndex < 0 || targetIndex >= solverMethods.length) return;
+    const next = [...solverMethods];
+    [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+    updateSolverMethods(next);
+  };
+
+  const resetSolverMethods = () => {
+    updateSolverMethods(DEFAULT_SOLVER_METHODS);
   };
 
   const fetchLearningStats = async () => {
@@ -218,6 +328,86 @@ export function ExamStatsPanel({
           </div>
         </div>
 
+      </div>
+
+      <div className={`rounded-2xl p-6 ${glassPanel}`}>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-5">
+          <div>
+            <h3 className={`text-lg font-semibold ${t_textHeading}`}>MCQ/STall Solving Priority</h3>
+            <p className={`text-xs mt-1 ${t_textMuted}`}>
+              Dashboard-only metadata. Changing these controls does not change live solver execution yet.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={resetSolverMethods}
+            className={`px-3 py-2 rounded-lg border ${t_borderLight} text-xs ${t_textHeading} hover:bg-white/5 transition-colors`}
+          >
+            Reset View
+          </button>
+        </div>
+
+        <div className="space-y-2">
+          {solverMethods.map((method, index) => {
+            const meta = SOLVER_METHODS.find(item => item.id === method.id) || { label: method.id, detail: "", runtime: "" };
+            return (
+              <div
+                key={method.id}
+                className={`flex flex-col gap-3 rounded-xl border ${t_borderLight} p-3 md:flex-row md:items-center md:justify-between`}
+              >
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className={`w-8 h-8 rounded-lg border ${t_borderLight} flex items-center justify-center text-xs font-bold ${t_textHeading}`}>
+                    {index + 1}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className={`font-semibold ${t_textHeading}`}>{meta.label}</p>
+                      <span className={`px-2 py-0.5 rounded-full border ${t_borderLight} text-[10px] ${t_textMuted}`}>
+                        {meta.runtime}
+                      </span>
+                    </div>
+                    <p className={`text-xs mt-1 ${t_textMuted}`}>{meta.detail}</p>
+                    <p className={`text-[10px] mt-1 ${t_textMuted}`}>Setting id: {method.id}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-end md:self-auto">
+                  <button
+                    type="button"
+                    onClick={() => moveSolverMethod(method.id, -1)}
+                    disabled={index === 0}
+                    className={`p-2 rounded-lg border ${t_borderLight} ${t_textHeading} disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/5 transition-colors`}
+                    title="Move up"
+                  >
+                    <ArrowUp size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => moveSolverMethod(method.id, 1)}
+                    disabled={index === solverMethods.length - 1}
+                    className={`p-2 rounded-lg border ${t_borderLight} ${t_textHeading} disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/5 transition-colors`}
+                    title="Move down"
+                  >
+                    <ArrowDown size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleSolverMethod(method.id)}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium transition-colors ${
+                      method.enabled
+                        ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
+                        : 'border-slate-500/40 bg-slate-500/10 text-slate-400'
+                    }`}
+                    title={method.enabled ? "Marked enabled in dashboard metadata" : "Marked disabled in dashboard metadata"}
+                  >
+                    {method.enabled ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
+                    {method.enabled ? "Enabled" : "Disabled"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {training.data && (
