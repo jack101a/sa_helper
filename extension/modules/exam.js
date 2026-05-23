@@ -166,6 +166,15 @@
             }
         }
 
+        async function waitForRandomFallbackWindow() {
+            const fallbackAt = state.questionStart + CFG.DEADLINE - window.up_rndInt(1000, 2000);
+            const waitMs = Math.max(0, fallbackAt - Date.now());
+            if (waitMs > 0) {
+                setStatus('Random fallback window', 'work');
+                await new Promise(r => setTimeout(r, waitMs));
+            }
+        }
+
         function imageToPayload(imgEl) {
             if (!imgEl) return null;
             if (typeof window.up_imgToB64 === 'function') {
@@ -453,7 +462,7 @@
                         return;
                     }
 
-                    await waitForClickWindow('No match, waiting for click window');
+                    await waitForRandomFallbackWindow();
 
                     const optCount = optImgs.length || 3;
                     const randomOpt = window.up_rndInt(1, optCount);

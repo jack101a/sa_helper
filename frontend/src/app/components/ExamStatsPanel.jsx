@@ -9,52 +9,28 @@ import { AutomationMethodsPanel } from "./AutomationMethodsPanel";
 
 const SOLVER_METHODS = [
   {
-    id: "sign_hash_db",
-    label: "Main Bank Sign Hash",
-    detail: "Matches known sign/image hashes against the main question bank.",
-    runtime: "Runtime currently uses this"
-  },
-  {
-    id: "sign_hash_label",
-    label: "Sign Label Option Match",
-    detail: "Uses sign labels and option text when the direct bank match is missing.",
-    runtime: "Runtime currently uses this"
-  },
-  {
-    id: "learned_exact_hash",
-    label: "Learned Exact Hash",
-    detail: "Uses verified learned rows with the same question image hash.",
-    runtime: "Depends on learning mode"
-  },
-  {
-    id: "learned_phash",
-    label: "Learned pHash",
-    detail: "Uses verified learned rows with a visually similar question image.",
-    runtime: "Depends on learning mode"
-  },
-  {
-    id: "learned_text_identity",
-    label: "Learned Answer Remap",
-    detail: "Uses option image/text identity to handle shuffled learned options.",
-    runtime: "Depends on learning mode"
+    id: "auto_learned_bank",
+    label: "Auto Learned Bank",
+    detail: "Uses the latest verified learned answers from exact hash, pHash, and answer remap.",
+    runtime: "Live"
   },
   {
     id: "ocr_db",
     label: "OCR DB",
-    detail: "Runs OCR on question/options and searches the question bank.",
-    runtime: "Runtime currently uses this"
+    detail: "Uses sign/image bank matches first, then OCR question-bank lookup.",
+    runtime: "Live"
   },
   {
     id: "llm",
-    label: "LLM Fallback",
-    detail: "Uses the configured LiteLLM model when local matching fails.",
-    runtime: "Runtime currently uses this"
+    label: "LLM",
+    detail: "Uses the configured LiteLLM model after local methods fail.",
+    runtime: "Live"
   },
   {
     id: "random_fallback",
     label: "Random Fallback",
-    detail: "Extension fallback when backend returns no answer.",
-    runtime: "Runtime currently uses this"
+    detail: "Last-resort click near the end of the question timer when no method returns an answer.",
+    runtime: "Live"
   }
 ];
 
@@ -64,6 +40,21 @@ const DEFAULT_SOLVER_METHODS = SOLVER_METHODS.map((method, index) => ({
   priority: (index + 1) * 10
 }));
 
+const LEGACY_SOLVER_GROUPS = {
+  auto_learned_bank: ["learned_exact_hash", "learned_phash", "learned_text_identity"],
+  ocr_db: ["sign_hash_db", "sign_hash_label", "ocr_db"],
+  llm: ["llm"],
+  random_fallback: ["random_fallback"]
+};
+
+const LEGACY_ONLY_SOLVER_IDS = new Set([
+  "sign_hash_db",
+  "sign_hash_label",
+  "learned_exact_hash",
+  "learned_phash",
+  "learned_text_identity"
+]);
+
 function normalizeSolverMethods(rawValue) {
   let parsed = [];
   try {
@@ -71,9 +62,26 @@ function normalizeSolverMethods(rawValue) {
   } catch (_) {
     parsed = [];
   }
-  const byId = new Map(Array.isArray(parsed) ? parsed.map(item => [item?.id, item]) : []);
+  if (!Array.isArray(parsed)) parsed = [];
+  const byId = new Map(parsed.map(item => [item?.id, item]));
+  const hasLegacyOnlyIds = parsed.some(item => LEGACY_ONLY_SOLVER_IDS.has(item?.id));
   return DEFAULT_SOLVER_METHODS
     .map(defaultItem => {
+      if (hasLegacyOnlyIds) {
+        const legacyItems = (LEGACY_SOLVER_GROUPS[defaultItem.id] || [])
+          .map(id => byId.get(id))
+          .filter(Boolean);
+        if (legacyItems.length > 0) {
+          const priorities = legacyItems
+            .map(item => Number(item.priority))
+            .filter(Number.isFinite);
+          return {
+            id: defaultItem.id,
+            enabled: legacyItems.some(item => item.enabled === true),
+            priority: priorities.length ? Math.min(...priorities) : defaultItem.priority
+          };
+        }
+      }
       const item = byId.get(defaultItem.id) || {};
       return {
         id: defaultItem.id,
@@ -335,7 +343,7 @@ export function ExamStatsPanel({
           <div>
             <h3 className={`text-lg font-semibold ${t_textHeading}`}>MCQ/STall Solving Priority</h3>
             <p className={`text-xs mt-1 ${t_textMuted}`}>
-              Dashboard-only metadata. Changing these controls does not change live solver execution yet.
+              Controls the live solver order. Disabled methods are skipped for new MCQ solve requests.
             </p>
           </div>
           <button
@@ -398,7 +406,7 @@ export function ExamStatsPanel({
                         ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
                         : 'border-slate-500/40 bg-slate-500/10 text-slate-400'
                     }`}
-                    title={method.enabled ? "Marked enabled in dashboard metadata" : "Marked disabled in dashboard metadata"}
+                    title={method.enabled ? "Enabled for live solver execution" : "Skipped by live solver execution"}
                   >
                     {method.enabled ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
                     {method.enabled ? "Enabled" : "Disabled"}

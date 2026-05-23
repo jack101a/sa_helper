@@ -20,7 +20,7 @@ class SettingsRepository(BaseRepository):
         "exam.learn_min_confirmations": "5",
         "exam.learn_phash_max_distance": "3",
         "exam.learn_option_phash_max_distance": "3",
-        "exam.solver_methods_ui": '[{"id":"sign_hash_db","enabled":true,"priority":10},{"id":"sign_hash_label","enabled":true,"priority":20},{"id":"learned_exact_hash","enabled":true,"priority":30},{"id":"learned_phash","enabled":true,"priority":40},{"id":"learned_text_identity","enabled":true,"priority":50},{"id":"ocr_db","enabled":true,"priority":60},{"id":"llm","enabled":true,"priority":70},{"id":"random_fallback","enabled":true,"priority":80}]',
+        "exam.solver_methods_ui": '[{"id":"auto_learned_bank","enabled":true,"priority":10},{"id":"ocr_db","enabled":true,"priority":20},{"id":"llm","enabled":true,"priority":30},{"id":"random_fallback","enabled":true,"priority":40}]',
         # WhatsApp alerts
         "alerts.whatsapp_enabled":  "false",
         "alerts.callmebot_phone":   "",
@@ -47,7 +47,7 @@ class SettingsRepository(BaseRepository):
         "exam.learn_min_confirmations": "Minimum correct confirmations before learned answer can auto-click",
         "exam.learn_phash_max_distance": "Maximum pHash distance for learned image matching",
         "exam.learn_option_phash_max_distance": "Maximum pHash distance for remapping a learned answer to shuffled options",
-        "exam.solver_methods_ui": "Dashboard-only MCQ solving method order/toggle metadata; not applied to solver execution",
+        "exam.solver_methods_ui": "Live MCQ solving method order/toggle config",
         "alerts.whatsapp_enabled":  "Enable WhatsApp admin alerts (true/false)",
         "alerts.callmebot_phone":   "Admin WhatsApp number in E.164 format (+91XXXXXXXXXX)",
         "alerts.callmebot_apikey":  "CallMeBot API key (get from callmebot.com)",

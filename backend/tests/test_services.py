@@ -67,17 +67,31 @@ class TestExamService(unittest.TestCase):
     def test_solver_methods_uses_configured_order_and_random_flag(self):
         self.mock_db.get_setting.return_value = json.dumps([
             {"id": "llm", "enabled": True, "priority": 10},
-            {"id": "sign_hash_label", "enabled": False, "priority": 15},
             {"id": "ocr_db", "enabled": False, "priority": 20},
-            {"id": "sign_hash_db", "enabled": True, "priority": 30},
+            {"id": "auto_learned_bank", "enabled": True, "priority": 30},
             {"id": "random_fallback", "enabled": False, "priority": 40},
         ])
 
         methods, allow_random = self.service._solver_methods()
 
         self.assertEqual(methods[0], "llm")
-        self.assertLess(methods.index("llm"), methods.index("sign_hash_db"))
+        self.assertLess(methods.index("llm"), methods.index("auto_learned_bank"))
         self.assertNotIn("ocr_db", methods)
+        self.assertFalse(allow_random)
+
+    def test_solver_methods_maps_legacy_granular_config(self):
+        self.mock_db.get_setting.return_value = json.dumps([
+            {"id": "learned_exact_hash", "enabled": False, "priority": 30},
+            {"id": "learned_phash", "enabled": True, "priority": 5},
+            {"id": "sign_hash_db", "enabled": False, "priority": 10},
+            {"id": "ocr_db", "enabled": True, "priority": 20},
+            {"id": "llm", "enabled": False, "priority": 70},
+            {"id": "random_fallback", "enabled": False, "priority": 80},
+        ])
+
+        methods, allow_random = self.service._solver_methods()
+
+        self.assertEqual(methods, ["auto_learned_bank", "ocr_db"])
         self.assertFalse(allow_random)
 
     def test_solver_methods_falls_back_to_safe_defaults_on_bad_json(self):
@@ -85,7 +99,7 @@ class TestExamService(unittest.TestCase):
 
         methods, allow_random = self.service._solver_methods()
 
-        self.assertIn("sign_hash_db", methods)
+        self.assertIn("auto_learned_bank", methods)
         self.assertIn("ocr_db", methods)
         self.assertIn("llm", methods)
         self.assertTrue(allow_random)

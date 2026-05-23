@@ -30,16 +30,25 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _SOLVER_METHOD_DEFAULTS: list[dict[str, Any]] = [
-    {"id": "sign_hash_db", "enabled": True, "priority": 10},
-    {"id": "sign_hash_label", "enabled": True, "priority": 20},
-    {"id": "learned_exact_hash", "enabled": True, "priority": 30},
-    {"id": "learned_phash", "enabled": True, "priority": 40},
-    {"id": "learned_text_identity", "enabled": True, "priority": 50},
-    {"id": "ocr_db", "enabled": True, "priority": 60},
-    {"id": "llm", "enabled": True, "priority": 70},
-    {"id": "random_fallback", "enabled": True, "priority": 80},
+    {"id": "auto_learned_bank", "enabled": True, "priority": 10},
+    {"id": "ocr_db", "enabled": True, "priority": 20},
+    {"id": "llm", "enabled": True, "priority": 30},
+    {"id": "random_fallback", "enabled": True, "priority": 40},
 ]
 _SOLVER_METHOD_IDS = {item["id"] for item in _SOLVER_METHOD_DEFAULTS}
+_LEGACY_SOLVER_GROUPS: dict[str, tuple[str, ...]] = {
+    "auto_learned_bank": ("learned_exact_hash", "learned_phash", "learned_text_identity"),
+    "ocr_db": ("sign_hash_db", "sign_hash_label", "ocr_db"),
+    "llm": ("llm",),
+    "random_fallback": ("random_fallback",),
+}
+_LEGACY_ONLY_SOLVER_IDS = {
+    "sign_hash_db",
+    "sign_hash_label",
+    "learned_exact_hash",
+    "learned_phash",
+    "learned_text_identity",
+}
 
 # Try importing pytesseract; gracefully degrade if Tesseract binary is not installed.
 try:
@@ -430,19 +439,47 @@ class ExamService:
             parsed = []
 
         merged = defaults
-        for item in parsed:
-            if not isinstance(item, dict):
-                continue
-            method_id = str(item.get("id") or "")
-            if method_id not in _SOLVER_METHOD_IDS:
-                continue
-            current = merged[method_id]
-            if isinstance(item.get("enabled"), bool):
-                current["enabled"] = item["enabled"]
-            try:
-                current["priority"] = int(item.get("priority", current["priority"]))
-            except (TypeError, ValueError):
-                pass
+        has_legacy_only_ids = any(
+            isinstance(item, dict) and str(item.get("id") or "") in _LEGACY_ONLY_SOLVER_IDS
+            for item in parsed
+        )
+        if has_legacy_only_ids:
+            legacy: dict[str, list[dict[str, Any]]] = {group_id: [] for group_id in _SOLVER_METHOD_IDS}
+            for item in parsed:
+                if not isinstance(item, dict):
+                    continue
+                legacy_id = str(item.get("id") or "")
+                for group_id, legacy_ids in _LEGACY_SOLVER_GROUPS.items():
+                    if legacy_id in legacy_ids:
+                        legacy[group_id].append(item)
+
+            for group_id, items in legacy.items():
+                if not items:
+                    continue
+                current = merged[group_id]
+                current["enabled"] = any(item.get("enabled") is True for item in items)
+                priorities: list[int] = []
+                for item in items:
+                    try:
+                        priorities.append(int(item.get("priority", current["priority"])))
+                    except (TypeError, ValueError):
+                        pass
+                if priorities:
+                    current["priority"] = min(priorities)
+        else:
+            for item in parsed:
+                if not isinstance(item, dict):
+                    continue
+                method_id = str(item.get("id") or "")
+                if method_id not in _SOLVER_METHOD_IDS:
+                    continue
+                current = merged[method_id]
+                if isinstance(item.get("enabled"), bool):
+                    current["enabled"] = item["enabled"]
+                try:
+                    current["priority"] = int(item.get("priority", current["priority"]))
+                except (TypeError, ValueError):
+                    pass
 
         ordered = sorted(merged.values(), key=lambda item: (int(item["priority"]), str(item["id"])))
         enabled = [str(item["id"]) for item in ordered if item.get("enabled") and item["id"] != "random_fallback"]
@@ -1013,21 +1050,29 @@ class ExamService:
             logger.info("exam_solved_llm", extra={"context": {"option": opt_num, "ms": ms}})
             return {"option_number": opt_num, "answer_text": f"Option {opt_num} (AI)", "method": "llm", "processing_ms": ms}
 
-        handlers = {
-            "sign_hash_db": try_sign_hash_db,
-            "sign_hash_label": try_sign_hash_label,
-            "learned_exact_hash": try_learned_exact_hash,
-            "learned_phash": try_learned_phash,
-            "learned_text_identity": try_learned_text_identity,
-            "ocr_db": try_ocr_db,
-            "llm": try_llm,
-        }
+        def try_auto_learned_bank() -> dict[str, Any] | None:
+            for handler in (try_learned_exact_hash, try_learned_phash, try_learned_text_identity):
+                result = handler()
+                if result and result.get("option_number"):
+                    return result
+            return None
+
+        def try_ocr_bank() -> dict[str, Any] | None:
+            for handler in (try_sign_hash_db, try_sign_hash_label, try_ocr_db):
+                result = handler()
+                if result and result.get("option_number"):
+                    return result
+            return None
 
         for method_id in enabled_methods:
-            handler = handlers.get(method_id)
-            if not handler:
+            if method_id == "auto_learned_bank":
+                result = try_auto_learned_bank()
+            elif method_id == "ocr_db":
+                result = try_ocr_bank()
+            elif method_id == "llm":
+                result = await try_llm()
+            else:
                 continue
-            result = await handler() if method_id == "llm" else handler()
             if result and result.get("option_number"):
                 return with_fallback_flag(result)
 
