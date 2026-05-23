@@ -210,6 +210,10 @@ class ExamService:
         # Keyed by question_hash and question_phash for O(1) and O(n) lookup
         self._learned_by_hash: dict[str, dict] = {}
         self._learned_by_phash: dict[str, dict] = {}
+        try:
+            self._db.exam_learned.ensure_clusters()
+        except Exception as e:
+            logger.warning("learned_cluster_backfill_failed", extra={"context": {"error": str(e)}})
         self._reload_learned_index()
 
     async def close(self) -> None:
@@ -275,7 +279,17 @@ class ExamService:
                 if h:
                     by_hash[h] = row
                 if p:
-                    by_phash[p] = row
+                    current = by_phash.get(p)
+                    row_score = (
+                        int(row.get("cluster_verified_count") or row.get("verified_count") or 0),
+                        float(row.get("cluster_confidence") or row.get("confidence") or 0),
+                    )
+                    current_score = (
+                        int(current.get("cluster_verified_count") or current.get("verified_count") or 0),
+                        float(current.get("cluster_confidence") or current.get("confidence") or 0),
+                    ) if current else (-1, -1.0)
+                    if current is None or row_score >= current_score:
+                        by_phash[p] = row
             self._learned_by_hash = by_hash
             self._learned_by_phash = by_phash
             logger.info("learned_index_loaded", extra={"context": {
@@ -295,14 +309,27 @@ class ExamService:
         item = self._learned_by_hash.get(question_hash)
         if not item:
             return None
-        if (
+        if self._learned_item_verified(item, min_confidence, min_verified):
+            return item
+        return None
+
+    @staticmethod
+    def _learned_item_verified(item: dict, min_confidence: float, min_verified: int) -> bool:
+        row_verified = (
             item.get("status") == "verified"
             and float(item.get("confidence") or 0) >= min_confidence
             and int(item.get("verified_count") or 0) >= min_verified
             and int(item.get("wrong_count") or 0) == 0
-        ):
-            return item
-        return None
+        )
+        cluster_verified = (
+            item.get("cluster_status") == "verified"
+            and float(item.get("cluster_confidence") or 0) >= min_confidence
+            and int(item.get("cluster_verified_count") or 0) >= min_verified
+            and int(item.get("cluster_wrong_count") or 0) == 0
+            and item.get("status") != "rejected"
+            and int(item.get("wrong_count") or 0) == 0
+        )
+        return row_verified or cluster_verified
 
     def _inmemory_get_candidate_by_hash(self, question_hash: str) -> dict | None:
         """In-memory equivalent of exam_learned.get_candidate_by_hash()."""
@@ -324,13 +351,7 @@ class ExamService:
         best: dict | None = None
         best_distance = max_distance + 1
         for phash, item in self._learned_by_phash.items():
-            if item.get("status") != "verified":
-                continue
-            if float(item.get("confidence") or 0) < min_confidence:
-                continue
-            if int(item.get("verified_count") or 0) < min_verified:
-                continue
-            if int(item.get("wrong_count") or 0) != 0:
+            if not self._learned_item_verified(item, min_confidence, min_verified):
                 continue
             dist = _hamming(question_phash, phash)
             if dist < best_distance:
@@ -840,7 +861,6 @@ class ExamService:
         learn_min_confidence = self._learn_min_confidence()
         learn_min_confirmations = self._learn_min_confirmations()
         learn_phash_max_distance = self._learn_phash_max_distance()
-        learning_mode = self._learning_mode()
         train_candidate: dict[str, Any] | None = None
         pending_verified_learned: tuple[dict[str, Any], str] | None = None
 
@@ -932,7 +952,7 @@ class ExamService:
                 min_confidence=learn_min_confidence,
                 min_verified=learn_min_confirmations,
             )
-            if learned and learned.get("correct_option") and learning_mode == "auto_click":
+            if learned and learned.get("correct_option"):
                 opt_num, resolve_method = self._resolve_learned_option(learned, option_imgs)
                 if opt_num:
                     stored_opt = int(learned["correct_option"])
@@ -967,7 +987,7 @@ class ExamService:
                 min_confidence=learn_min_confidence,
                 min_verified=learn_min_confirmations,
             )
-            if learned and learned.get("correct_option") and learning_mode == "auto_click":
+            if learned and learned.get("correct_option"):
                 opt_num, resolve_method = self._resolve_learned_option(learned, option_imgs)
                 if opt_num:
                     stored_opt = int(learned["correct_option"])
@@ -1002,7 +1022,7 @@ class ExamService:
             return None
 
         def try_learned_text_identity() -> dict[str, Any] | None:
-            if not pending_verified_learned or learning_mode != "auto_click":
+            if not pending_verified_learned:
                 return None
             _question_text, ocr_option_texts = ensure_ocr_texts()
             learned_row, base_method = pending_verified_learned

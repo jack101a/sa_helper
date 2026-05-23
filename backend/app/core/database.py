@@ -118,7 +118,7 @@ class Database:
                         "missing_tables_fallback",
                         extra={"context": {"missing": sorted(missing)}},
                     )
-                    self._create_tables_fallback(conn)
+                self._create_tables_fallback(conn)
 
         # Ensure the master key is created on first start
         self.api_keys.ensure_master_key()
@@ -335,6 +335,7 @@ class Database:
 
                     CREATE TABLE IF NOT EXISTS exam_learned (
                         id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                        cluster_id       INTEGER,
                         question_hash    TEXT NOT NULL UNIQUE,
                         question_phash   TEXT NOT NULL DEFAULT '',
                         question_text    TEXT DEFAULT '',
@@ -358,6 +359,29 @@ class Database:
                         wrong_count      INTEGER NOT NULL DEFAULT 0,
                         last_verified_at TEXT,
                         status           TEXT NOT NULL DEFAULT 'training'
+                    );
+
+                    CREATE TABLE IF NOT EXISTS exam_learned_clusters (
+                        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                        canonical_question_hash TEXT NOT NULL DEFAULT '',
+                        canonical_question_phash TEXT NOT NULL DEFAULT '',
+                        question_text    TEXT NOT NULL DEFAULT '',
+                        question_text_norm TEXT NOT NULL DEFAULT '',
+                        option_signature TEXT NOT NULL DEFAULT '',
+                        correct_option_hash TEXT NOT NULL DEFAULT '',
+                        correct_option_phash TEXT NOT NULL DEFAULT '',
+                        correct_option_text TEXT NOT NULL DEFAULT '',
+                        correct_option_text_norm TEXT NOT NULL DEFAULT '',
+                        confidence       REAL NOT NULL DEFAULT 0.8,
+                        seen_count       INTEGER NOT NULL DEFAULT 1,
+                        verified_count   INTEGER NOT NULL DEFAULT 1,
+                        wrong_count      INTEGER NOT NULL DEFAULT 0,
+                        variant_count    INTEGER NOT NULL DEFAULT 1,
+                        conflict_count   INTEGER NOT NULL DEFAULT 0,
+                        status           TEXT NOT NULL DEFAULT 'training',
+                        first_seen       TEXT NOT NULL,
+                        last_seen        TEXT NOT NULL,
+                        last_verified_at TEXT
                     );
 
                     CREATE TABLE IF NOT EXISTS automation_methods (
@@ -427,6 +451,8 @@ class Database:
             conn.execute("ALTER TABLE field_mappings ADD COLUMN target_selector TEXT NOT NULL DEFAULT ''")
 
         learned_columns = {row["name"] for row in conn.execute("PRAGMA table_info(exam_learned)")}
+        if "cluster_id" not in learned_columns:
+            conn.execute("ALTER TABLE exam_learned ADD COLUMN cluster_id INTEGER")
         if "question_phash" not in learned_columns:
             conn.execute("ALTER TABLE exam_learned ADD COLUMN question_phash TEXT NOT NULL DEFAULT ''")
         if "learning_mode" not in learned_columns:
@@ -456,6 +482,9 @@ class Database:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_field_proposals_status ON field_mapping_proposals(status)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_autofill_proposals_status ON autofill_rule_proposals(status, created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_exam_learned_phash ON exam_learned(question_phash)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_exam_learned_cluster_id ON exam_learned(cluster_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_exam_learned_clusters_phash ON exam_learned_clusters(canonical_question_phash)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_exam_learned_clusters_status ON exam_learned_clusters(status)")
 
         conn.execute("INSERT OR IGNORE INTO access_control (key, value) VALUES ('global_access', 'true')")
         conn.commit()
