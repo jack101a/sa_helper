@@ -462,6 +462,13 @@
                         return;
                     }
 
+                    if (!resp?.ok) {
+                        setStatus('Solver Error', 'fail');
+                        setResult(errMsg || 'Server did not return a usable response. Not clicking.');
+                        state.processing = false;
+                        return;
+                    }
+
                     await waitForRandomFallbackWindow();
 
                     const optCount = optImgs.length || 3;
