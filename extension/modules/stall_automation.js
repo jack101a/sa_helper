@@ -10,6 +10,14 @@
         }
     });
 
+    const getStorage = (keys) => new Promise(resolve => {
+        try {
+            chrome.storage.local.get(keys, resolve);
+        } catch (_) {
+            resolve({});
+        }
+    });
+
     const STEP4_STARTED_KEY = '_stall_step4_started_at';
     const STEP4_LOCK_KEY = '_stall_step4_lock_at';
     const STEP4_DONE_KEY = '_stall_step4_done_at';
@@ -216,9 +224,26 @@
             status.style.color = tone === 'error' ? '#b91c1c' : '#334155';
         },
 
-        ensureStartNowButton() {
+        async hasStallAccess() {
+            const data = await getStorage(['enabledServices']);
+            const services = data.enabledServices && typeof data.enabledServices === 'object' && !Array.isArray(data.enabledServices)
+                ? data.enabledServices
+                : {};
+            return services.stall !== false;
+        },
+
+        async hasSolverAccess() {
+            const data = await getStorage(['solverEnabled', 'enabledServices']);
+            const services = data.enabledServices && typeof data.enabledServices === 'object' && !Array.isArray(data.enabledServices)
+                ? data.enabledServices
+                : {};
+            return data.solverEnabled !== false && services.solver !== false;
+        },
+
+        async ensureStartNowButton() {
             if (!location.href.includes('authenticationaction.do')) return;
             if (document.getElementById('stall-start-now-wrap')) return;
+            if (!(await this.hasStallAccess())) return;
 
             const wrap = document.createElement('div');
             wrap.id = 'stall-start-now-wrap';
@@ -277,6 +302,10 @@
             this._manualBusy = true;
             const btn = document.getElementById('stall-start-now-btn');
             try {
+                if (!(await this.hasStallAccess())) {
+                    this.setStartNowStatus('disabled', 'error');
+                    return;
+                }
                 const resp = await sendMessage({ type: 'GET_STALL_STATE' });
                 if (!resp?.ok || !resp.state?.active) {
                     this.setStartNowStatus('failed', 'error');
@@ -304,17 +333,20 @@
                 }
                 this.setStartNowStatus('wait', 'ok');
                 await sendMessage({ type: 'UPDATE_STALL_STEP', step: 3 });
-                const flowResp = await this.executePayload('stall-flow');
+                const hasSolver = await this.hasSolverAccess();
+                const flowResp = await this.executePayload(hasSolver ? 'stall-flow' : 'step3');
                 if (flowResp?.ok === false) {
                     throw new Error(flowResp.error || 'STALL flow failed');
                 }
 
                 this.setStartNowStatus('wait', 'ok');
-                await chrome.storage.local.set({
-                    [STALL_FLOW_DONE_KEY]: Date.now(),
-                    [STEP4_DONE_KEY]: Date.now()
-                });
-                await sendMessage({ type: 'UPDATE_STALL_STEP', step: 5 });
+                if (hasSolver) {
+                    await chrome.storage.local.set({
+                        [STALL_FLOW_DONE_KEY]: Date.now(),
+                        [STEP4_DONE_KEY]: Date.now()
+                    });
+                    await sendMessage({ type: 'UPDATE_STALL_STEP', step: 5 });
+                }
             } catch (e) {
                 console.error('[Automation] Start STALL error:', e);
                 this.setStartNowStatus('failed', 'error');
@@ -400,6 +432,7 @@
         },
 
         async executeStep4Once(source = 'local') {
+            if (!(await this.hasSolverAccess())) return { ok: false, error: 'Solver is not enabled for this API key.' };
             if (this._step4Executing) return { ok: true, alreadyRunning: true };
 
             const now = Date.now();
@@ -427,6 +460,7 @@
 
         async maybeExecuteStep4Fallback(now) {
             if (this._step4Executing) return;
+            if (!(await this.hasSolverAccess())) return;
             const data = await chrome.storage.local.get([STEP4_STARTED_KEY, STEP4_DONE_KEY]);
             if (data[STEP4_DONE_KEY]) return;
 

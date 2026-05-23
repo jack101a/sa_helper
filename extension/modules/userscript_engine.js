@@ -252,6 +252,32 @@
         return id.includes('authentication_handler') || name === 'authentication handler';
     }
 
+    function isEnableAllFormFieldsScript(scriptData) {
+        const id = String(scriptData.id || '').toLowerCase();
+        const name = String(scriptData.name || scriptData.parsedMeta?.name || '').toLowerCase();
+        return id.includes('enable_all_form_fields') || name === 'enable all form fields';
+    }
+
+    function isAllowedStallPageScript(scriptData) {
+        return isAuthenticationHandlerScript(scriptData) || isEnableAllFormFieldsScript(scriptData);
+    }
+
+    function isStallRelatedUrl(urlValue = location.href) {
+        try {
+            const url = new URL(urlValue);
+            if (url.hostname !== 'sarathi.parivahan.gov.in') return false;
+            const path = url.pathname.toLowerCase();
+            return path === '/sarathiservice/authenticationaction.do'
+                || path === '/sarathiservice/instruction.do'
+                || path === '/sarathiservice/examselectaction.do'
+                || path === '/sarathiservice/stallexam.do'
+                || path === '/sarathiservice/stallexamaction.do'
+                || path === '/sarathiservice/stallloginsubmit.do';
+        } catch (_) {
+            return false;
+        }
+    }
+
     function isAllowedStallAuthUrl(urlValue = location.href) {
         try {
             const url = new URL(urlValue);
@@ -418,12 +444,13 @@ ${scriptData.rawCode || ''}
             return;
         }
         const stallFlowActive = await isStallFlowActive();
-        scripts = scripts.filter(script => {
+        const filterScriptsForUrl = (url) => scripts.filter(script => {
+            if (isStallRelatedUrl(url) && !isAllowedStallPageScript(script)) return false;
             if (!isAuthenticationHandlerScript(script)) return true;
-            return stallFlowActive && isAllowedStallAuthUrl(location.href);
+            return stallFlowActive && isAllowedStallAuthUrl(url);
         });
         const runForUrl = (url, reason) => runtime.runMatchingScripts({
-            scripts: scripts.filter(script => !isAuthenticationHandlerScript(script) || (stallFlowActive && isAllowedStallAuthUrl(url))),
+            scripts: filterScriptsForUrl(url),
             url,
             reason,
             execute: executeScriptData,

@@ -53,38 +53,6 @@
             } catch (_) { el.value = value; }
         }
 
-        // Human-like typing: clears field then types character by character
-        async function humanType(inp, text) {
-            inp.focus();
-            // Clear existing value first
-            setNativeVal(inp, '');
-            inp.dispatchEvent(new Event('input', { bubbles: true }));
-
-            await new Promise(r => setTimeout(r, window.up_rndInt(80, 200))); // brief focus pause
-
-            for (let i = 0; i < text.length; i++) {
-                const ch = text[i];
-                const keyOpts = { key: ch, bubbles: true, cancelable: true };
-
-                inp.dispatchEvent(new KeyboardEvent('keydown',  keyOpts));
-                inp.dispatchEvent(new KeyboardEvent('keypress', keyOpts));
-
-                // Set value up to this char
-                setNativeVal(inp, text.slice(0, i + 1));
-                inp.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ch }));
-
-                inp.dispatchEvent(new KeyboardEvent('keyup', keyOpts));
-
-                // Random inter-key delay: 40–130ms, occasional longer pause
-                const pause = Math.random() < 0.1 ? window.up_rndInt(250, 500) : window.up_rndInt(40, 130);
-                await new Promise(r => setTimeout(r, pause));
-            }
-
-            await new Promise(r => setTimeout(r, window.up_rndInt(60, 160)));
-            inp.dispatchEvent(new Event('change', { bubbles: true }));
-            inp.dispatchEvent(new Event('blur',   { bubbles: true }));
-        }
-
         async function waitForImageReady(img, timeoutMs = 2000) {
             if (!img) return false;
             const ready = () => img.complete && (img.naturalWidth || img.width) > 0 && (img.naturalHeight || img.height) > 0;
@@ -107,20 +75,14 @@
             inp.dispatchEvent(inputEvent);
             inp.dispatchEvent(new Event('change', { bubbles: true }));
             inp.dispatchEvent(new KeyboardEvent('keyup', { key: String(value || '').slice(-1) || 'Unidentified', bubbles: true, cancelable: true }));
-            inp.dispatchEvent(new Event('blur', { bubbles: true }));
         }
 
         async function fastFillCaptcha(inp, text) {
             if (!inp) return;
             const value = String(text || '').trim();
             if (!value) return;
-            await new Promise(r => setTimeout(r, window.up_rndInt(300, 800)));
-            inp.focus();
-            setNativeVal(inp, '');
-            inp.dispatchEvent(new Event('input', { bubbles: true }));
             setNativeVal(inp, value);
             dispatchFillEvents(inp, value);
-            try { inp.blur(); } catch (_) {}
         }
 
         // Priority 1: server/local domain field routes
@@ -224,7 +186,6 @@
             }
 
             updateSolvedMap(cacheKey, b64Key);
-            await window.up_humanMouse(inp);
             await fastFillCaptcha(inp, resp.result);
             console.log(`[Captcha] ✓ "${resp.result}" in ${resp.ms}ms (${domain})`);
         }
@@ -248,7 +209,6 @@
             }
 
             updateSolvedMap(cacheKey, raw);
-            await window.up_humanMouse(target);
             await fastFillCaptcha(target, resp.result);
             console.log(`[Captcha] ✓ text route "${resp.result}" in ${resp.ms}ms (${domain})`);
         }

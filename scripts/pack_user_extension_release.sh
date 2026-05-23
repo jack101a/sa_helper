@@ -21,8 +21,28 @@ from pathlib import Path
 
 ROOT = Path(sys.argv[1]).resolve()
 SRC_DIR = ROOT / "extension"
+TEMPLATE_DIR = ROOT / "scripts" / "user_extension_templates"
 OUT_DIR = ROOT / "data" / "extension_packages"
 PKG_BASE = "mcq_solver_extension_user"
+MODULE_ALIASES = {
+    "modules/autofill.js": "modules/Apollo.js",
+    "modules/captcha.js": "modules/Hermes.js",
+    "modules/dialog_boot.js": "modules/Iris.js",
+    "modules/dialog_handler.js": "modules/Echo.js",
+    "modules/exam.js": "modules/Athena.js",
+    "modules/human_utils.js": "modules/Daedalus.js",
+    "modules/main_inject.js": "modules/Helios.js",
+    "modules/mock_trainer.js": "modules/Hephaestus.js",
+    "modules/sarathi_harden.js": "modules/Aegis.js",
+    "modules/sarathi_panel.js": "modules/Argus.js",
+    "modules/shared_utils.js": "modules/Atlas.js",
+    "modules/stall_automation.js": "modules/Poseidon.js",
+    "modules/userscript_engine.js": "modules/Odysseus.js",
+    "modules/userscript_matcher.js": "modules/Orion.js",
+    "modules/userscript_runtime.js": "modules/Chronos.js",
+    "modules/vcam_controller.js": "modules/Zeus.js",
+    "modules/vcam_inject.js": "modules/Nyx.js",
+}
 
 
 def fail(message: str) -> None:
@@ -76,6 +96,90 @@ def minify_js(js_path: Path, esbuild: str) -> None:
         "--log-level=error",
     ])
     js_path.write_text(result.stdout, encoding="utf-8")
+
+
+def walk_json_strings(value, mapper):
+    if isinstance(value, str):
+        return mapper(value)
+    if isinstance(value, list):
+        return [walk_json_strings(item, mapper) for item in value]
+    if isinstance(value, dict):
+        return {key: walk_json_strings(item, mapper) for key, item in value.items()}
+    return value
+
+
+def rewrite_path_text(text: str) -> str:
+    for source, alias in MODULE_ALIASES.items():
+        text = text.replace(source, alias)
+    return text
+
+
+def apply_user_manifest_profile(manifest_path: Path) -> None:
+    manifest = load_json(manifest_path)
+    manifest.pop("options_page", None)
+    manifest["name"] = "ta-ta User"
+    manifest["description"] = "Browser assistant synced by your ta-ta account"
+    manifest = walk_json_strings(manifest, rewrite_path_text)
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+
+def apply_user_release_profile(dist_dir: Path) -> None:
+    if not TEMPLATE_DIR.is_dir():
+        fail(f"user extension templates not found: {TEMPLATE_DIR}")
+
+    options_dir = dist_dir / "options"
+    if options_dir.exists():
+        shutil.rmtree(options_dir)
+
+    popup_dir = dist_dir / "popup"
+    popup_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(TEMPLATE_DIR / "popup.html", popup_dir / "popup.html")
+    shutil.copy2(TEMPLATE_DIR / "popup.js", popup_dir / "popup.js")
+
+    apply_user_manifest_profile(dist_dir / "manifest.json")
+    if (dist_dir / "manifest_firefox.json").exists():
+        apply_user_manifest_profile(dist_dir / "manifest_firefox.json")
+
+    for path in sorted(dist_dir.rglob("*")):
+        if path.is_file() and path.suffix.lower() in {".js", ".html", ".css", ".json"}:
+            text = path.read_text(encoding="utf-8")
+            next_text = rewrite_path_text(text)
+            if next_text != text:
+                path.write_text(next_text, encoding="utf-8")
+
+    for source, alias in MODULE_ALIASES.items():
+        src = dist_dir / source
+        dst = dist_dir / alias
+        if not src.is_file():
+            fail(f"module alias source missing: {source}")
+        if dst.exists():
+            fail(f"module alias target already exists: {alias}")
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        src.rename(dst)
+
+
+def validate_user_profile(dist_dir: Path) -> None:
+    for manifest_name in ("manifest.json", "manifest_firefox.json"):
+        manifest_path = dist_dir / manifest_name
+        if manifest_path.exists() and "options_page" in load_json(manifest_path):
+            fail(f"{manifest_name} must not contain options_page in the user package")
+    if (dist_dir / "options").exists():
+        fail("options directory must not be included in the user package")
+    for source in MODULE_ALIASES:
+        if (dist_dir / source).exists():
+            fail(f"original module filename still present in package: {source}")
+    popup_text = (dist_dir / "popup" / "popup.html").read_text(encoding="utf-8")
+    blocked_tokens = [
+        "view-master",
+        "btn-dashboard",
+        "btn-record",
+        "tog-userscripts",
+        "Open Admin Dashboard",
+        "Start Rule Recording",
+    ]
+    leaked = [token for token in blocked_tokens if token in popup_text]
+    if leaked:
+        fail("user popup still contains admin controls: " + ", ".join(leaked))
 
 
 def collect_manifest_refs(dist_dir: Path, manifest_name: str) -> list[str]:
@@ -164,9 +268,11 @@ def main() -> None:
         for path in dist_dir.rglob(".DS_Store"):
             path.unlink()
 
+        apply_user_release_profile(dist_dir)
         load_json(dist_dir / "manifest.json")
         if (dist_dir / "manifest_firefox.json").exists():
             load_json(dist_dir / "manifest_firefox.json")
+        validate_user_profile(dist_dir)
         for js_path in sorted(dist_dir.rglob("*.js")):
             node_check(js_path)
 
@@ -175,6 +281,7 @@ def main() -> None:
             node_check(js_path)
 
         ref_count = validate_refs(dist_dir)
+        validate_user_profile(dist_dir)
         for js_path in sorted(dist_dir.rglob("*.js")):
             node_check(js_path)
 
@@ -189,6 +296,7 @@ def main() -> None:
         with zipfile.ZipFile(zip_path, "r") as archive:
             archive.extractall(check_dir)
         validate_refs(check_dir)
+        validate_user_profile(check_dir)
         for js_path in sorted(check_dir.rglob("*.js")):
             node_check(js_path)
 
@@ -204,12 +312,14 @@ def main() -> None:
         "source": str(SRC_DIR),
         "output_dir": str(OUT_DIR),
         "package_base": PKG_BASE,
-        "js_files_renamed": 0,
+        "js_files_renamed": len(MODULE_ALIASES),
+        "file_aliases": MODULE_ALIASES,
         "references_validated": ref_count,
         "minifier": esbuild,
         "protection": {
             "minified": True,
             "hashed_js_filenames": False,
+            "coded_module_filenames": True,
             "sha256_checksums": True,
             "encrypted": False,
             "encryption_note": "Browser extension JavaScript cannot be truly encrypted because the browser must load executable code.",
@@ -232,11 +342,15 @@ Artifacts:
 
 Packaging policy:
 - Copied extension source into a temporary release directory.
-- Preserved manifest, background, content, popup, options, and module filenames.
+- Applied the user release profile in the temporary release directory only.
+- Removed options_page and excluded the options directory.
+- Replaced the popup with the user-only popup.
+- Renamed module JavaScript files to coded filenames and stored the source-to-package map in build metadata.
 - Minified JavaScript with esbuild.
 - Validated manifest JSON.
 - Validated JavaScript syntax before and after minification.
 - Validated manifest, HTML, and web-accessible-resource references before and after ZIP extraction.
+- Validated that original module filenames and admin popup controls are not present in the packaged user extension.
 - Wrote SHA256 checksums for release artifacts.
 - Did not call backend ExtensionService automatic packaging.
 - Did not place package artifacts in the Docker image.

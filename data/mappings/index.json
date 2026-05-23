@@ -18,7 +18,11 @@
       "none"
     ],
     "connects": [],
-    "noframes": false
+    "noframes": false,
+    "accessScope": "service",
+    "services": [
+      "stall"
+    ]
   },
   {
     "id": "bypass_sarathi_restrictions_v2",
@@ -37,7 +41,11 @@
       "none"
     ],
     "connects": [],
-    "noframes": false
+    "noframes": false,
+    "accessScope": "service",
+    "services": [
+      "stall"
+    ]
   },
   {
     "id": "copy_paste",

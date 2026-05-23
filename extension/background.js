@@ -554,6 +554,40 @@ function storageRemove(keys) {
     return new Promise(resolve => chrome.storage.local.remove(keys, resolve));
 }
 
+function serviceMapFrom(data) {
+    const services = data && (data.enabledServices || data.enabled_services || data.services || data.subscribed_services);
+    return services && typeof services === 'object' && !Array.isArray(services) ? services : {};
+}
+
+function isServiceAllowed(services, name) {
+    if (!services || typeof services !== 'object') return true;
+    return services[name] !== false;
+}
+
+function isStallEntitledFrom(data) {
+    const services = serviceMapFrom(data);
+    return isServiceAllowed(services, 'stall');
+}
+
+function isSolverEntitledFrom(data) {
+    const services = serviceMapFrom(data);
+    return isServiceAllowed(services, 'solver');
+}
+
+function isUserscriptsEntitledFrom() {
+    return true;
+}
+
+async function hasStallEntitlement() {
+    const data = await storageGet(['enabledServices']);
+    return isStallEntitledFrom(data);
+}
+
+async function hasSolverEntitlement() {
+    const data = await storageGet(['enabledServices', 'solverEnabled']);
+    return data.solverEnabled !== false && isSolverEntitledFrom(data);
+}
+
 function normalizeRuleStep(step = {}) {
     const selector = step.selector || {};
     return {
@@ -993,8 +1027,9 @@ async function syncAuthState(source) {
         const d = await apiGet('/v1/auth/verify');
         const services = d.enabled_services || d.services || {};
         const current = await storageGet(['autofillEnabled', 'captchaEnabled', 'solverEnabled', 'userscriptsEnabled']);
+        const isMaster = !!d.is_master;
         await chrome.storage.local.set({
-            isMaster: !!d.is_master,
+            isMaster,
             keyName: d.key_name || '',
             expiresAt: d.expires_at || null,
             planName: d.plan_name || d.plan || '',
@@ -1003,8 +1038,8 @@ async function syncAuthState(source) {
             enabledServices: services,
             autofillEnabled: services.autofill === false ? false : current.autofillEnabled !== false,
             captchaEnabled: services.captcha === false ? false : current.captchaEnabled !== false,
-            solverEnabled: (services.stall === false || services.solver === false) ? false : current.solverEnabled !== false,
-            ...(!d.is_master ? { userscriptsEnabled: current.userscriptsEnabled !== false } : {}),
+            solverEnabled: isSolverEntitledFrom({ enabledServices: services }) ? current.solverEnabled !== false : false,
+            userscriptsEnabled: isMaster ? current.userscriptsEnabled !== false : isUserscriptsEntitledFrom({ enabledServices: services }),
             lastVerify: Date.now()
         });
         return { ok: true, verified: true };
@@ -1085,10 +1120,10 @@ async function syncHeavyData(source, options = {}) {
                     });
                 }
             }
-            const existing = await storageGet(['userscriptsEnabled', 'isMaster']);
+            const existing = await storageGet(['userscriptsEnabled', 'isMaster', 'enabledServices']);
             await chrome.storage.local.set({
                 normalized_userscripts: normalized,
-                userscriptsEnabled: existing.isMaster ? existing.userscriptsEnabled !== false : true
+                userscriptsEnabled: existing.isMaster ? existing.userscriptsEnabled !== false : isUserscriptsEntitledFrom(existing)
             });
             results.userscripts = normalized.length;
             console.log(`[Sync:${source}] Userscripts synced — ${results.userscripts} scripts`);
@@ -1275,9 +1310,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             .then(async d => {
                 const services = d.enabled_services || d.services || d.subscribed_services || {};
                 const current = await storageGet(['autofillEnabled', 'captchaEnabled', 'solverEnabled', 'userscriptsEnabled']);
+                const isMaster = !!d.is_master;
                 // Persist metadata so popup/options can detect Master Mode vs User Mode
                 chrome.storage.local.set({
-                    isMaster: !!d.is_master,
+                    isMaster,
                     keyName: d.key_name || '',
                     expiresAt: d.expires_at || null,
                     userName: d.user_name || d.name || d.key_name || '',
@@ -1287,8 +1323,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                     enabledServices: services,
                     autofillEnabled: services.autofill === false ? false : current.autofillEnabled !== false,
                     captchaEnabled: services.captcha === false ? false : current.captchaEnabled !== false,
-                    solverEnabled: (services.stall === false || services.solver === false) ? false : current.solverEnabled !== false,
-                    ...(!d.is_master ? { userscriptsEnabled: current.userscriptsEnabled !== false } : {}),
+                    solverEnabled: isSolverEntitledFrom({ enabledServices: services }) ? current.solverEnabled !== false : false,
+                    userscriptsEnabled: isMaster ? current.userscriptsEnabled !== false : isUserscriptsEntitledFrom({ enabledServices: services }),
                     lastVerify: Date.now()
                 });
                 sendResponse({ ok: true, data: d });
@@ -1593,7 +1629,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 
     if (msg.type === 'START_STALL_AUTOMATION') {
-        clearStallData().then(async () => {
+        hasStallEntitlement().then(async allowed => {
+            if (!allowed) {
+                sendResponse({ ok: false, error: 'STALL is not enabled for this API key.' });
+                return;
+            }
+            await clearStallData();
             // Enable dialog suppression for STALL session
             await chrome.storage.local.set({
                 suppressDialogs: true,
@@ -1627,7 +1668,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                     sendResponse({ ok: false, error: 'Failed to start window' });
                 }
             });
-        });
+        }).catch(e => sendResponse({ ok: false, error: e.message || String(e) }));
         return true; // async
     }
 
@@ -1638,7 +1679,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     if (msg.type === 'FETCH_STALL_PAYLOAD') {
         const stepId = String(msg.stepId || '');
-        fetchServerStallPayload(stepId)
+        const entitlementCheck = stepId === 'step3' ? hasStallEntitlement() : hasSolverEntitlement();
+        entitlementCheck
+            .then(allowed => {
+                if (!allowed) throw new Error(stepId === 'step3' ? 'STALL is not enabled for this API key.' : 'Solver is not enabled for this API key.');
+                return fetchServerStallPayload(stepId);
+            })
             .then(payload => sendResponse({ ok: true, payload }))
             .catch(err => sendResponse({ ok: false, error: err.message }));
         return true;
@@ -1658,10 +1704,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
             // Handle specific delays (e.g. 5 seconds between 3 and 4)
             if (msg.step === 4) {
-                chrome.storage.local.set({ _stall_step4_started_at: Date.now() });
-                setTimeout(() => {
-                    chrome.tabs.sendMessage(automationState.tabId, { type: 'EXECUTE_STALL_STEP', step: 4 });
-                }, 5000);
+                hasSolverEntitlement().then(allowed => {
+                    if (!allowed) return;
+                    chrome.storage.local.set({ _stall_step4_started_at: Date.now() });
+                    setTimeout(() => {
+                        chrome.tabs.sendMessage(automationState.tabId, { type: 'EXECUTE_STALL_STEP', step: 4 });
+                    }, 5000);
+                });
             }
         }
         sendResponse({ ok: true });

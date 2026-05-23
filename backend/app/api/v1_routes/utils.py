@@ -296,7 +296,15 @@ def userscript_allowed_for_key(entry: dict, key_record: dict, entitlements: dict
             return False
     if scope == "service":
         services = entitlements.get("services") or {}
-        return services.get("custom") is not False
+        service_names = userscript_string_list(
+            entry.get("services")
+            or entry.get("service")
+            or entry.get("serviceNames")
+            or entry.get("service_names")
+        )
+        if not service_names:
+            service_names = ["custom"]
+        return any(services.get(name) is not False for name in service_names)
     return False
 
 

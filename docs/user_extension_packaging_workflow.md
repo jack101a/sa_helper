@@ -41,12 +41,17 @@ Use `scripts/pack_user_extension_release.sh` for distribution.
 The release script:
 
 - Copies `extension/` into a temporary build directory.
+- Applies a user-only release profile in that temporary directory.
+- Removes `options_page` and excludes the `options/` directory from the user package.
+- Replaces the combined admin/user popup with a user-only popup.
 - Validates `manifest.json` and `manifest_firefox.json`.
 - Validates every JavaScript file with `node --check` before transformation.
-- Preserves manifest, background, content, popup, options, and module filenames.
+- Renames module JavaScript files to deterministic coded filenames such as `Apollo.js`, `Poseidon.js`, and `Zeus.js`.
+- Rewrites manifest, HTML, and JavaScript file references to the coded module filenames.
 - Minifies JavaScript with `esbuild` without filename hashing or renaming.
 - Validates JavaScript syntax again after minification.
 - Validates packaged references before final output and after ZIP extraction.
+- Validates that the packaged user popup does not contain admin controls.
 - Creates ZIP, CRX, and XPI artifacts under `data/extension_packages/`.
 - Writes `mcq_solver_extension_user.SHA256SUMS`, `mcq_solver_extension_user.build.json`, and `mcq_solver_extension_user.report.txt`.
 - Does not call backend `ExtensionService.package_extension()`.
@@ -101,7 +106,7 @@ Debug command:
 ## Do Not
 
 - Do not remove `sarathi_panel.js` without explicit approval.
-- Do not introduce hashed/renamed JavaScript entrypoints until the stable-minified package is proven on Kiwi/Lemur.
+- Do not rename files directly inside `extension/`; user filename coding belongs in the release packaging transform.
 - Do not package from stale generated artifacts.
 - Do not change source behavior while only trying to create a user package.
 - Do not reintroduce backend automatic user package building.
