@@ -226,23 +226,40 @@ class AutofillRepository(BaseRepository):
             conn.commit()
 
     def bulk_import_approved_rules(self, rules: list[dict]) -> int:
-        """Import rules (metadata only). Returns count of newly inserted rules."""
+        """Import rules. Accept exported rows or raw autofill rule objects."""
         now = datetime.now(timezone.utc).isoformat()
         count = 0
         with self._lock:
             with self.connect() as conn:
-                for rule in rules:
+                for index, rule in enumerate(rules):
+                    if not isinstance(rule, dict):
+                        continue
                     rule_json = rule.get("rule_json")
-                    approved_id = rule.get("approved_rule_id")
-                    if not (rule_json and approved_id):
+                    if rule_json and not isinstance(rule_json, str):
+                        rule_json = _json.dumps(rule_json)
+                    if not rule_json:
+                        rule_json = _json.dumps(rule)
+
+                    approved_id = (
+                        rule.get("approved_rule_id")
+                        or rule.get("server_rule_id")
+                        or "srv_" + _hashlib.sha1(f"{now}:{index}:{rule_json}".encode()).hexdigest()[:12]
+                    )
+                    raw_status = str(rule.get("status") or "approved").strip().lower()
+                    status = "rejected" if raw_status in {"inactive", "disabled", "rejected"} else "approved"
+                    existing = conn.execute(
+                        "SELECT id FROM autofill_rule_proposals WHERE approved_rule_id = ?",
+                        (approved_id,),
+                    ).fetchone()
+                    if existing:
                         continue
                     cur = conn.execute(
                         """
                         INSERT INTO autofill_rule_proposals 
                             (idempotency_key, device_id, api_key_id, status, submitted_at, rule_json, approved_rule_id, reviewed_at, created_at)
-                        VALUES (?, ?, ?, 'approved', ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
-                        ("imported_" + approved_id, "imported", 0, now, rule_json, approved_id, now, now),
+                        ("imported_" + approved_id, "admin", 0, status, now, rule_json, approved_id, now, now),
                     )
                     if cur.rowcount > 0:
                         count += 1

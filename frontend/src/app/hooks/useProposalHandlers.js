@@ -71,6 +71,15 @@ export function useProposalHandlers({ showToast }) {
     onError: () => showToast("Failed to delete proposal", "error"),
   });
 
+  const importAutofill = useMutation({
+    mutationFn: (rules) => apiPostJson("/admin/api/autofill/import", { rules }),
+    onSuccess: (body) => {
+      showToast(`Imported ${body.imported || 0} autofill rule(s).`);
+      invalidate();
+    },
+    onError: (e) => showToast(e.message || "Failed to import autofill rules", "error"),
+  });
+
   const approveCaptcha = useMutation({
     mutationFn: ({ id, model_id }) => apiPostJson(`/admin/api/captcha/proposals/${id}/approve`, { model_id: Number(model_id) }),
     onMutate: async ({ id }) => {
@@ -142,6 +151,7 @@ export function useProposalHandlers({ showToast }) {
     handleBulkRejectAutofillProposals: (ids) => bulkRejectAutofill.mutate(ids),
     handleEditAutofillProposal: (id, patch) => editAutofill.mutateAsync({ id, patch }).then(() => true).catch(() => false),
     handleDeleteAutofillProposal: (id) => { if (window.confirm("Permanently delete this autofill proposal?")) deleteAutofill.mutate(id); },
+    handleImportAutofillRules: (rules) => importAutofill.mutateAsync(rules).then(() => true).catch(() => false),
     handleApproveCaptchaProposal: (id, model_id) => approveCaptcha.mutate({ id, model_id }),
     handleRejectCaptchaProposal: (id) => { if (window.confirm("Reject this captcha route proposal?")) rejectCaptcha.mutate(id); },
     handleBulkApproveCaptchaProposals: (ids, model_id) => bulkApproveCaptcha.mutate({ ids, model_id }),
