@@ -38,7 +38,7 @@ _SOLVER_METHOD_DEFAULTS: list[dict[str, Any]] = [
 _SOLVER_METHOD_IDS = {item["id"] for item in _SOLVER_METHOD_DEFAULTS}
 _LEGACY_SOLVER_GROUPS: dict[str, tuple[str, ...]] = {
     "auto_learned_bank": ("learned_exact_hash", "learned_phash", "learned_text_identity"),
-    "ocr_db": ("ocr_db",),
+    "ocr_db": ("sign_hash_db", "sign_hash_label", "ocr_db"),
     "llm": ("llm",),
     "random_fallback": ("random_fallback",),
 }
@@ -1058,7 +1058,11 @@ class ExamService:
             return None
 
         def try_ocr_bank() -> dict[str, Any] | None:
-            return try_ocr_db()
+            for handler in (try_sign_hash_db, try_sign_hash_label, try_ocr_db):
+                result = handler()
+                if result and result.get("option_number"):
+                    return result
+            return None
 
         for method_id in enabled_methods:
             if method_id == "auto_learned_bank":
