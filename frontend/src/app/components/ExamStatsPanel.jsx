@@ -108,6 +108,7 @@ export function ExamStatsPanel({
   const [settings, setSettings] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingSolverMethods, setSavingSolverMethods] = useState(false);
   const [learningStats, setLearningStats] = useState(null);
   const [togglingLearning, setTogglingLearning] = useState(false);
   const initialSettings = useRef(null);
@@ -165,8 +166,25 @@ export function ExamStatsPanel({
 
   const solverMethods = normalizeSolverMethods(settings["exam.solver_methods_ui"]);
 
-  const updateSolverMethods = (nextMethods) => {
-    updateSetting("exam.solver_methods_ui", serializeSolverMethods(nextMethods));
+  const updateSolverMethods = async (nextMethods) => {
+    const key = "exam.solver_methods_ui";
+    const previousValue = settings[key];
+    const nextValue = serializeSolverMethods(nextMethods);
+    updateSetting(key, nextValue);
+    setSavingSolverMethods(true);
+    try {
+      await apiPostJson("/admin/api/settings/bulk", { settings: { [key]: nextValue } });
+      initialSettings.current = {
+        ...(initialSettings.current || {}),
+        [key]: nextValue,
+      };
+      showToast("Solver priority saved");
+    } catch (e) {
+      updateSetting(key, previousValue || "");
+      showToast("Failed to save solver priority", "error");
+    } finally {
+      setSavingSolverMethods(false);
+    }
   };
 
   const toggleSolverMethod = (id) => {
@@ -343,15 +361,16 @@ export function ExamStatsPanel({
           <div>
             <h3 className={`text-lg font-semibold ${t_textHeading}`}>MCQ/STall Solving Priority</h3>
             <p className={`text-xs mt-1 ${t_textMuted}`}>
-              Controls the live solver order. Disabled methods are skipped for new MCQ solve requests.
+              Controls the live solver order. Changes save immediately and apply to new MCQ solve requests.
             </p>
           </div>
           <button
             type="button"
             onClick={resetSolverMethods}
-            className={`px-3 py-2 rounded-lg border ${t_borderLight} text-xs ${t_textHeading} hover:bg-white/5 transition-colors`}
+            disabled={savingSolverMethods}
+            className={`px-3 py-2 rounded-lg border ${t_borderLight} text-xs ${t_textHeading} hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
           >
-            Reset View
+            {savingSolverMethods ? "Saving..." : "Reset Order"}
           </button>
         </div>
 
@@ -383,7 +402,7 @@ export function ExamStatsPanel({
                   <button
                     type="button"
                     onClick={() => moveSolverMethod(method.id, -1)}
-                    disabled={index === 0}
+                    disabled={savingSolverMethods || index === 0}
                     className={`p-2 rounded-lg border ${t_borderLight} ${t_textHeading} disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/5 transition-colors`}
                     title="Move up"
                   >
@@ -392,7 +411,7 @@ export function ExamStatsPanel({
                   <button
                     type="button"
                     onClick={() => moveSolverMethod(method.id, 1)}
-                    disabled={index === solverMethods.length - 1}
+                    disabled={savingSolverMethods || index === solverMethods.length - 1}
                     className={`p-2 rounded-lg border ${t_borderLight} ${t_textHeading} disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/5 transition-colors`}
                     title="Move down"
                   >
@@ -401,11 +420,12 @@ export function ExamStatsPanel({
                   <button
                     type="button"
                     onClick={() => toggleSolverMethod(method.id)}
+                    disabled={savingSolverMethods}
                     className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium transition-colors ${
                       method.enabled
                         ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
                         : 'border-slate-500/40 bg-slate-500/10 text-slate-400'
-                    }`}
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
                     title={method.enabled ? "Enabled for live solver execution" : "Skipped by live solver execution"}
                   >
                     {method.enabled ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
