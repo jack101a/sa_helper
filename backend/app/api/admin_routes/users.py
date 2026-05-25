@@ -2,17 +2,109 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Request, Query
 from fastapi.responses import JSONResponse
 
-from app.core.models import UserSubscription, SubscriptionPlan, UsageCycle
+from app.core.models import (
+    PaymentRecord,
+    SubscriptionPlan,
+    UsageCycle,
+    User,
+    UserApiKey,
+    UserApiKeyDevice,
+    UserSubscription,
+)
 from app.core.db import get_session
 
 from .utils import _admin_guard
 
 router = APIRouter(tags=["admin-users"])
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+
+
+def _serialize_subscription(sub: UserSubscription, plan: SubscriptionPlan | None = None) -> dict:
+    data = sub.to_dict()
+    if plan is not None:
+        data["plan_name"] = plan.name
+        data["plan_code"] = plan.code
+        data["plan_duration_days"] = plan.duration_days
+    return data
+
+
+def _ensure_usage_cycle(session, user_id: int, subscription_id: int, plan: SubscriptionPlan, now: datetime) -> None:
+    existing = (
+        session.query(UsageCycle)
+        .filter(UsageCycle.user_id == user_id, UsageCycle.subscription_id == subscription_id)
+        .first()
+    )
+    if existing:
+        existing.monthly_limit = int(plan.monthly_limit or existing.monthly_limit or 0)
+        existing.updated_at = now
+        return
+    session.add(UsageCycle(
+        user_id=user_id,
+        subscription_id=subscription_id,
+        cycle_start_at=now,
+        cycle_end_at=now + timedelta(days=30),
+        monthly_limit=int(plan.monthly_limit or 0),
+        used_count=0,
+    ))
+
+
+def _create_active_subscription(
+    session,
+    user: User,
+    plan: SubscriptionPlan,
+    now: datetime,
+    *,
+    start_at: datetime | None = None,
+    end_at: datetime | None = None,
+    expire_existing: bool = True,
+) -> UserSubscription:
+    if expire_existing:
+        session.query(UserSubscription).filter(
+            UserSubscription.user_id == user.id,
+            UserSubscription.status == "active",
+        ).update({"status": "expired", "updated_at": now})
+
+    start = start_at or now
+    end = end_at or (start + timedelta(days=int(plan.duration_days or 30)))
+    sub = UserSubscription(
+        user_id=user.id,
+        plan_id=plan.id,
+        status="active",
+        monthly_limit_snapshot=int(plan.monthly_limit or 0),
+        start_at=start,
+        end_at=end,
+        billing_anchor_day=start.day,
+        current_cycle_start_at=now,
+        current_cycle_end_at=now + timedelta(days=30),
+        approved_at=now,
+    )
+    session.add(sub)
+    session.flush()
+    _ensure_usage_cycle(session, int(user.id), int(sub.id), plan, now)
+    user.status = "active"
+    user.updated_at = now
+    return sub
 
 
 @router.get("/api/users")
@@ -71,11 +163,68 @@ async def get_user(request: Request, user_id: int) -> Any:
     denied = _admin_guard(request)
     if denied:
         return denied
-    container = request.app.state.container
-    user = container.user_service.get_user(user_id)
-    if not user:
-        return JSONResponse({"error": "User not found"}, status_code=404)
-    return JSONResponse(user.to_dict())
+    session = get_session()
+    try:
+        user = session.query(User).filter(User.id == user_id).first()
+        if not user:
+            return JSONResponse({"error": "User not found"}, status_code=404)
+
+        data = user.to_dict()
+        subs = (
+            session.query(UserSubscription)
+            .filter(UserSubscription.user_id == user.id)
+            .order_by(UserSubscription.created_at.desc())
+            .all()
+        )
+        plan_ids = {s.plan_id for s in subs}
+        plans = {
+            p.id: p
+            for p in session.query(SubscriptionPlan).filter(SubscriptionPlan.id.in_(plan_ids)).all()
+        } if plan_ids else {}
+        active_sub = next((s for s in subs if s.status == "active"), None)
+        active_key = (
+            session.query(UserApiKey)
+            .filter(UserApiKey.user_id == user.id, UserApiKey.status == "active")
+            .order_by(UserApiKey.issued_at.desc())
+            .first()
+        )
+        devices = []
+        if active_key:
+            devices = (
+                session.query(UserApiKeyDevice)
+                .filter(UserApiKeyDevice.api_key_id == active_key.id)
+                .order_by(UserApiKeyDevice.last_seen_at.desc())
+                .all()
+            )
+        payments = (
+            session.query(PaymentRecord)
+            .filter(PaymentRecord.user_id == user.id)
+            .order_by(PaymentRecord.created_at.desc())
+            .limit(20)
+            .all()
+        )
+
+        data["active_subscription"] = (
+            _serialize_subscription(active_sub, plans.get(active_sub.plan_id)) if active_sub else None
+        )
+        data["subscriptions"] = [_serialize_subscription(s, plans.get(s.plan_id)) for s in subs]
+        data["active_key"] = active_key.to_dict() if active_key else None
+        data["devices"] = [
+            {
+                "id": d.id,
+                "device_fingerprint": (d.device_fingerprint[:20] + "...") if d.device_fingerprint else "",
+                "device_name": d.device_name,
+                "user_agent": d.user_agent[:80] if d.user_agent else "",
+                "status": d.status,
+                "first_seen": d.first_seen_at.isoformat() if d.first_seen_at else None,
+                "last_seen": d.last_seen_at.isoformat() if d.last_seen_at else None,
+            }
+            for d in devices
+        ]
+        data["payments"] = [p.to_dict() for p in payments]
+        return JSONResponse(data)
+    finally:
+        session.close()
 
 
 @router.post("/api/users")
@@ -83,23 +232,69 @@ async def create_user(request: Request) -> Any:
     denied = _admin_guard(request)
     if denied:
         return denied
-    container = request.app.state.container
     body = await request.json()
+    container = request.app.state.container
+    session = get_session()
     try:
-        user = container.user_service.create_user(
+        now = _utcnow()
+        plan_id = body.get("plan_id")
+        user = User(
             full_name=body.get("full_name", ""),
-            mobile_number=body.get("mobile_number"),
-            telegram_user_id=body.get("telegram_user_id"),
-            telegram_chat_id=body.get("telegram_chat_id"),
+            mobile_number=body.get("mobile_number") or None,
+            telegram_user_id=body.get("telegram_user_id") or None,
+            telegram_chat_id=body.get("telegram_chat_id") or None,
+            status=body.get("status") or ("active" if plan_id else "pending_payment"),
             notes=body.get("notes", ""),
         )
+        session.add(user)
+        session.flush()
+        plan = None
+        sub = None
+        if plan_id:
+            plan = session.query(SubscriptionPlan).filter(SubscriptionPlan.id == int(plan_id)).first()
+            if not plan:
+                session.rollback()
+                return JSONResponse({"error": "Plan not found"}, status_code=404)
+            custom_end = _parse_datetime(body.get("subscription_end"))
+            custom_start = _parse_datetime(body.get("subscription_start"))
+            duration_days = body.get("duration_days")
+            if duration_days and not custom_end:
+                custom_end = (custom_start or now) + timedelta(days=int(duration_days))
+            sub = _create_active_subscription(
+                session,
+                user,
+                plan,
+                now,
+                start_at=custom_start,
+                end_at=custom_end,
+                expire_existing=False,
+            )
+        session.commit()
+        session.refresh(user)
+
+        key_payload = None
+        if body.get("issue_api_key", bool(plan_id)):
+            key, plain = request.app.state.user_key_service.create_key(user_id=int(user.id))
+            key_payload = {
+                "key_id": key.id,
+                "api_key": plain,
+                "key_prefix": key.key_prefix_display,
+                "expires_at": key.expires_at.isoformat() if key.expires_at else None,
+            }
+
         container.audit_service.log(
             actor_type="admin", action="user_created",
             target_type="user", target_id=user.id,
         )
-        return JSONResponse(user.to_dict(), status_code=201)
+        result = user.to_dict()
+        result["active_subscription"] = _serialize_subscription(sub, plan) if sub and plan else None
+        result["created_key"] = key_payload
+        return JSONResponse(result, status_code=201)
     except Exception as e:
+        session.rollback()
         return JSONResponse({"error": str(e)}, status_code=400)
+    finally:
+        session.close()
 
 
 @router.put("/api/users/{user_id}")
@@ -109,19 +304,168 @@ async def update_user(request: Request, user_id: int) -> Any:
         return denied
     container = request.app.state.container
     body = await request.json()
-    user = container.user_service.update_user(
-        user_id=user_id,
-        full_name=body.get("full_name"),
-        mobile_number=body.get("mobile_number"),
-        notes=body.get("notes"),
-    )
-    if not user:
-        return JSONResponse({"error": "User not found"}, status_code=404)
+    session = get_session()
+    try:
+        user = session.query(User).filter(User.id == user_id).first()
+        if not user:
+            return JSONResponse({"error": "User not found"}, status_code=404)
+        for key in ("full_name", "mobile_number", "telegram_user_id", "telegram_chat_id", "notes", "status"):
+            if key in body:
+                value = body.get(key)
+                setattr(user, key, value or None if key in {"mobile_number", "telegram_user_id", "telegram_chat_id"} else value)
+        user.updated_at = _utcnow()
+        session.commit()
+        session.refresh(user)
+    except Exception as e:
+        session.rollback()
+        return JSONResponse({"error": str(e)}, status_code=400)
+    finally:
+        session.close()
     container.audit_service.log(
         actor_type="admin", action="user_updated",
         target_type="user", target_id=user.id,
     )
     return JSONResponse(user.to_dict())
+
+
+@router.post("/api/users/{user_id}/subscription/change-plan")
+async def change_user_plan(request: Request, user_id: int) -> Any:
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    container = request.app.state.container
+    body = await request.json()
+    plan_id = body.get("plan_id")
+    if not plan_id:
+        return JSONResponse({"error": "plan_id is required"}, status_code=400)
+
+    session = get_session()
+    try:
+        now = _utcnow()
+        user = session.query(User).filter(User.id == user_id).first()
+        if not user:
+            return JSONResponse({"error": "User not found"}, status_code=404)
+        plan = session.query(SubscriptionPlan).filter(SubscriptionPlan.id == int(plan_id)).first()
+        if not plan:
+            return JSONResponse({"error": "Plan not found"}, status_code=404)
+        custom_end = _parse_datetime(body.get("subscription_end"))
+        duration_days = body.get("duration_days")
+        if duration_days and not custom_end:
+            custom_end = now + timedelta(days=int(duration_days))
+        sub = _create_active_subscription(session, user, plan, now, end_at=custom_end)
+        session.commit()
+
+        container.audit_service.log(
+            actor_type="admin", action="subscription_plan_changed",
+            target_type="user", target_id=user_id,
+        )
+        return JSONResponse(_serialize_subscription(sub, plan), status_code=201)
+    except Exception as e:
+        session.rollback()
+        return JSONResponse({"error": str(e)}, status_code=400)
+    finally:
+        session.close()
+
+
+@router.post("/api/users/{user_id}/subscription/renew")
+async def renew_user_subscription(request: Request, user_id: int) -> Any:
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    container = request.app.state.container
+    body = await request.json()
+    session = get_session()
+    try:
+        now = _utcnow()
+        user = session.query(User).filter(User.id == user_id).first()
+        if not user:
+            return JSONResponse({"error": "User not found"}, status_code=404)
+        current = (
+            session.query(UserSubscription)
+            .filter(UserSubscription.user_id == user_id, UserSubscription.status == "active")
+            .order_by(UserSubscription.created_at.desc())
+            .first()
+        )
+        plan_id = body.get("plan_id") or (current.plan_id if current else None)
+        if not plan_id:
+            return JSONResponse({"error": "plan_id is required when user has no active subscription"}, status_code=400)
+        plan = session.query(SubscriptionPlan).filter(SubscriptionPlan.id == int(plan_id)).first()
+        if not plan:
+            return JSONResponse({"error": "Plan not found"}, status_code=404)
+
+        duration_days = int(body.get("duration_days") or plan.duration_days or 30)
+        if current and int(current.plan_id) == int(plan.id):
+            base = current.end_at or now
+            if base.tzinfo is None:
+                base = base.replace(tzinfo=timezone.utc)
+            if base < now:
+                base = now
+            current.end_at = base + timedelta(days=duration_days)
+            current.monthly_limit_snapshot = int(plan.monthly_limit or current.monthly_limit_snapshot or 0)
+            current.status = "active"
+            current.updated_at = now
+            user.status = "active"
+            user.updated_at = now
+            _ensure_usage_cycle(session, int(user.id), int(current.id), plan, now)
+            sub = current
+        else:
+            sub = _create_active_subscription(session, user, plan, now)
+        session.commit()
+
+        created_key_payload = None
+        active_key = request.app.state.user_key_service.get_user_key(user_id)
+        if not active_key and body.get("issue_api_key", True):
+            key, plain = request.app.state.user_key_service.create_key(user_id=user_id)
+            created_key_payload = {
+                "key_id": key.id,
+                "api_key": plain,
+                "key_prefix": key.key_prefix_display,
+                "expires_at": key.expires_at.isoformat() if key.expires_at else None,
+            }
+
+        container.audit_service.log(
+            actor_type="admin", action="subscription_renewed",
+            target_type="user", target_id=user_id,
+        )
+        payload = _serialize_subscription(sub, plan)
+        payload["created_key"] = created_key_payload
+        return JSONResponse(payload)
+    except Exception as e:
+        session.rollback()
+        return JSONResponse({"error": str(e)}, status_code=400)
+    finally:
+        session.close()
+
+
+@router.post("/api/users/{user_id}/subscription/expire")
+async def expire_user_subscription(request: Request, user_id: int) -> Any:
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    container = request.app.state.container
+    session = get_session()
+    try:
+        now = _utcnow()
+        user = session.query(User).filter(User.id == user_id).first()
+        if not user:
+            return JSONResponse({"error": "User not found"}, status_code=404)
+        count = session.query(UserSubscription).filter(
+            UserSubscription.user_id == user_id,
+            UserSubscription.status == "active",
+        ).update({"status": "expired", "updated_at": now})
+        user.status = "expired"
+        user.updated_at = now
+        session.commit()
+        container.audit_service.log(
+            actor_type="admin", action="subscription_expired",
+            target_type="user", target_id=user_id,
+        )
+        return JSONResponse({"ok": True, "expired_count": count})
+    except Exception as e:
+        session.rollback()
+        return JSONResponse({"error": str(e)}, status_code=400)
+    finally:
+        session.close()
 
 
 @router.post("/api/users/{user_id}/status")

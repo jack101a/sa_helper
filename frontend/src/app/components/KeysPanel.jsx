@@ -29,7 +29,10 @@ export function KeysPanel({
       <div className={`rounded-2xl flex flex-col transition-colors duration-500 overflow-hidden ${glassPanel}`}>
         <div className={`p-5 border-b flex items-center gap-3 ${t_borderLight}`}>
           <div className="p-2 bg-indigo-500/20 text-indigo-500 rounded-lg backdrop-blur-md"><Key size={20}/></div>
-          <h2 className={`text-lg font-semibold tracking-wide drop-shadow-sm ${t_textHeading}`}>API Credentials</h2>
+          <div>
+            <h2 className={`text-lg font-semibold tracking-wide drop-shadow-sm ${t_textHeading}`}>Legacy / System API Credentials</h2>
+            <p className={`text-xs ${t_textMuted}`}>Plan-managed customers are created and renewed from User Management.</p>
+          </div>
         </div>
         
         <div className="p-5 flex-1 flex flex-col">
@@ -142,7 +145,7 @@ export function KeysPanel({
               <div>
                 <label className={`text-xs ${t_textMuted}`}>Key Type</label>
                 <select name="key_type" className={glassInput} title="Key Type">
-                  <option value="user">User Key (Device Bound)</option>
+                  <option value="user">Legacy Device-bound Key</option>
                   <option value="master">Master Key (No Restrictions)</option>
                 </select>
               </div>
@@ -151,8 +154,8 @@ export function KeysPanel({
                 <input type="number" name="burst" defaultValue="10" min="0" className={glassInput} title="Per-key burst" />
               </div>
               <div>
-                <label className={`text-xs ${t_textMuted}`}>Plan</label>
-                <input type="text" name="plan_name" defaultValue="Standard" className={glassInput} title="Plan name" />
+                <label className={`text-xs ${t_textMuted}`}>Legacy Plan Label</label>
+                <input type="text" name="plan_name" defaultValue="Standard" className={glassInput} title="Legacy plan label" />
               </div>
               <div>
                 <label className={`text-xs ${t_textMuted}`}>Mobile</label>

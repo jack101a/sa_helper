@@ -22,7 +22,13 @@
     "accessScope": "service",
     "services": [
       "stall"
-    ]
+    ],
+    "runtimeRole": "stall_core",
+    "runtimeRoles": [
+      "stall_core",
+      "stall_auth"
+    ],
+    "stallRunMode": "auth_pages"
   },
   {
     "id": "bypass_sarathi_restrictions_v2",
@@ -45,7 +51,13 @@
     "accessScope": "service",
     "services": [
       "stall"
-    ]
+    ],
+    "runtimeRole": "stall_core",
+    "runtimeRoles": [
+      "stall_core",
+      "stall_sarathi_guard"
+    ],
+    "stallRunMode": "stall_pages"
   },
   {
     "id": "copy_paste",
@@ -102,6 +114,12 @@
       "none"
     ],
     "connects": [],
-    "noframes": false
+    "noframes": false,
+    "runtimeRole": "stall_core",
+    "runtimeRoles": [
+      "stall_core",
+      "stall_form_unlocker"
+    ],
+    "stallRunMode": "stall_pages"
   }
 ]

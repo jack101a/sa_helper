@@ -77,7 +77,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         key_burst = self._burst
         container = getattr(request.app.state, "container", None)
         if key_id is not None and container is not None:
-            custom = container.db.get_api_key_rate_limit(key_id)
+            if getattr(request.state, "is_user_key", False) and key_record:
+                custom = self._get_user_plan_rate_limit(key_record)
+            else:
+                custom = container.db.get_api_key_rate_limit(key_id)
             if custom:
                 key_rpm = int(custom.get("requests_per_minute", key_rpm))
                 key_burst = int(custom.get("burst", key_burst))
@@ -90,3 +93,36 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         key_queue.append(now)
 
         return await call_next(request)
+
+    def _get_user_plan_rate_limit(self, key_record: dict) -> dict[str, int] | None:
+        user_id = key_record.get("user_id")
+        if not user_id:
+            return None
+        try:
+            from app.core.db import get_session
+            from app.core.models import SubscriptionPlan, UserSubscription
+
+            session = get_session()
+            try:
+                sub = (
+                    session.query(UserSubscription)
+                    .filter(
+                        UserSubscription.user_id == int(user_id),
+                        UserSubscription.status == "active",
+                    )
+                    .order_by(UserSubscription.created_at.desc())
+                    .first()
+                )
+                if not sub:
+                    return None
+                plan = session.query(SubscriptionPlan).filter(SubscriptionPlan.id == sub.plan_id).first()
+                if not plan:
+                    return None
+                return {
+                    "requests_per_minute": int(plan.rate_limit_rpm or self._rpm),
+                    "burst": int(getattr(plan, "rate_limit_burst", self._burst) or self._burst),
+                }
+            finally:
+                session.close()
+        except Exception:
+            return None

@@ -122,6 +122,21 @@ def _access_from_body(body: dict, fallback: dict | None = None) -> dict:
     }
 
 
+def _runtime_metadata_from_entry(entry: dict | None) -> dict:
+    entry = entry or {}
+    runtime_role = str(entry.get("runtimeRole") or entry.get("runtime_role") or "").strip()
+    runtime_roles = _string_list(entry.get("runtimeRoles") or entry.get("runtime_roles"))
+    stall_run_mode = str(entry.get("stallRunMode") or entry.get("stall_run_mode") or "").strip()
+    out: dict[str, object] = {}
+    if runtime_role:
+        out["runtimeRole"] = runtime_role
+    if runtime_roles:
+        out["runtimeRoles"] = runtime_roles
+    if stall_run_mode:
+        out["stallRunMode"] = stall_run_mode
+    return out
+
+
 def _update_index(access_updates: dict[str, dict] | None = None):
     _USERSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
     index_path = (_USERSCRIPTS_DIR / "index.json").resolve()
@@ -150,6 +165,7 @@ def _update_index(access_updates: dict[str, dict] | None = None):
         access = _access_from_entry(existing_entries.get(uid))
         if access_updates and uid in access_updates:
             access = _access_from_body(access_updates[uid], access)
+        runtime_metadata = _runtime_metadata_from_entry(existing_entries.get(uid))
         new_index.append({
             "id": uid,
             "file": file_path.name,
@@ -172,6 +188,7 @@ def _update_index(access_updates: dict[str, dict] | None = None):
             "noframes": meta["noframes"],
             "diagnostics": meta.get("diagnostics", {"warnings": [], "errors": []}),
             "syncStatus": _userscript_sync_status(meta),
+            **runtime_metadata,
         })
     index_path.write_text(json.dumps(new_index, indent=2), encoding="utf-8")
 

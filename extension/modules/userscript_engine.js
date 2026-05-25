@@ -258,8 +258,32 @@
         return id.includes('enable_all_form_fields') || name === 'enable all form fields';
     }
 
-    function isAllowedStallPageScript(scriptData) {
+    function stringList(value) {
+        return Array.isArray(value) ? value.map(item => String(item || '').trim()).filter(Boolean) : [];
+    }
+
+    function runtimeRoles(scriptData) {
+        const roles = stringList(scriptData.runtimeRoles || scriptData.runtime_roles);
+        const role = String(scriptData.runtimeRole || scriptData.runtime_role || '').trim();
+        if (role) roles.push(role);
+        return roles.map(item => item.toLowerCase());
+    }
+
+    function hasRuntimeRole(scriptData, role) {
+        return runtimeRoles(scriptData).includes(String(role || '').toLowerCase());
+    }
+
+    function isStallCoreScript(scriptData) {
+        if (hasRuntimeRole(scriptData, 'stall_core')) return true;
         return isAuthenticationHandlerScript(scriptData) || isEnableAllFormFieldsScript(scriptData);
+    }
+
+    function stallRunMode(scriptData) {
+        const explicit = String(scriptData.stallRunMode || scriptData.stall_run_mode || '').trim().toLowerCase();
+        if (explicit) return explicit;
+        if (isAuthenticationHandlerScript(scriptData)) return 'auth_pages';
+        if (isEnableAllFormFieldsScript(scriptData)) return 'stall_pages';
+        return 'stall_pages';
     }
 
     function isStallRelatedUrl(urlValue = location.href) {
@@ -282,12 +306,13 @@
         try {
             const url = new URL(urlValue);
             if (url.hostname !== 'sarathi.parivahan.gov.in') return false;
-            if (url.pathname !== '/sarathiservice/authenticationaction.do'
-                && url.pathname !== '/sarathiservice/instruction.do'
-                && url.pathname !== '/sarathiservice/examselectaction.do') {
+            const path = url.pathname.toLowerCase();
+            if (path !== '/sarathiservice/authenticationaction.do'
+                && path !== '/sarathiservice/instruction.do'
+                && path !== '/sarathiservice/examselectaction.do') {
                 return false;
             }
-            if (url.pathname === '/sarathiservice/authenticationaction.do') {
+            if (path === '/sarathiservice/authenticationaction.do') {
                 const authType = (url.searchParams.get('authtype') || '').toLowerCase();
                 return authType === 'anugyna' || authType === 'anugnya';
             }
@@ -297,13 +322,20 @@
         }
     }
 
-    async function isStallFlowActive() {
-        try {
-            const data = await chrome.storage.local.get(['_automationState', 'stallVcamActive']);
-            return data.stallVcamActive === true || data._automationState?.active === true;
-        } catch (_) {
-            return false;
+    function stallCoreAllowedForUrl(scriptData, url) {
+        if (!isStallRelatedUrl(url) || !isStallCoreScript(scriptData)) return false;
+        const mode = stallRunMode(scriptData);
+        if (mode === 'auth_pages') return isAllowedStallAuthUrl(url);
+        if (mode === 'stall_pages') return true;
+        if (mode === 'all_sarathi_pages') {
+            try {
+                const parsed = new URL(url);
+                return parsed.hostname === 'sarathi.parivahan.gov.in';
+            } catch (_) {
+                return false;
+            }
         }
+        return false;
     }
 
     function buildWrappedCode(scriptData) {
@@ -443,11 +475,9 @@ ${scriptData.rawCode || ''}
             console.log('[Userscript Engine] No scripts configured.');
             return;
         }
-        const stallFlowActive = await isStallFlowActive();
         const filterScriptsForUrl = (url) => scripts.filter(script => {
-            if (isStallRelatedUrl(url) && !isAllowedStallPageScript(script)) return false;
-            if (!isAuthenticationHandlerScript(script)) return true;
-            return stallFlowActive && isAllowedStallAuthUrl(url);
+            if (!isStallRelatedUrl(url)) return true;
+            return stallCoreAllowedForUrl(script, url);
         });
         const runForUrl = (url, reason) => runtime.runMatchingScripts({
             scripts: filterScriptsForUrl(url),
