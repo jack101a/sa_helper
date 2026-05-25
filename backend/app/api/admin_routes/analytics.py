@@ -76,6 +76,12 @@ async def admin_bootstrap(request: Request):
     if denied:
         return denied
     container = request.app.state.container
+    try:
+        from .captcha_proposals import _repair_approved_proposals
+
+        _repair_approved_proposals(container)
+    except Exception:
+        pass
     usage = container.db.get_usage_summary()
     labels_by_file = container.db.get_failed_payload_labels()
     api_keys = container.db.get_all_api_keys()

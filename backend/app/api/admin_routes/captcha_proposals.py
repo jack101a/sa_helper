@@ -13,6 +13,127 @@ from .utils import _admin_guard
 router = APIRouter(tags=["admin-captcha-proposals"])
 
 
+def _base_field_name(proposal: dict) -> str:
+    raw = (proposal.get("proposed_field_name") or "").strip()
+    return raw or f"{proposal['task_type']}_default"
+
+
+def _exact_mapping_exists(conn, proposal: dict) -> bool:
+    row = conn.execute(
+        """
+        SELECT id FROM field_mappings
+        WHERE domain = ? AND task_type = ? AND source_selector = ? AND target_selector = ?
+        LIMIT 1
+        """,
+        (
+            proposal["domain"],
+            proposal["task_type"],
+            proposal.get("source_selector", ""),
+            proposal.get("target_selector", ""),
+        ),
+    ).fetchone()
+    return bool(row)
+
+
+def _unique_field_name(conn, proposal: dict) -> str | None:
+    """Return a field name that will not overwrite another selector pair."""
+    base = _base_field_name(proposal)
+    existing = conn.execute(
+        """
+        SELECT source_selector, target_selector FROM field_mappings
+        WHERE domain = ? AND field_name = ? AND task_type = ?
+        LIMIT 1
+        """,
+        (proposal["domain"], base, proposal["task_type"]),
+    ).fetchone()
+    if not existing:
+        return base
+    if (
+        existing["source_selector"] == (proposal.get("source_selector") or "")
+        and existing["target_selector"] == (proposal.get("target_selector") or "")
+    ):
+        return None
+
+    proposal_id = int(proposal["id"])
+    for suffix in [str(proposal_id), *[f"{proposal_id}_{i}" for i in range(2, 100)]]:
+        candidate = f"{base}_{suffix}"
+        conflict = conn.execute(
+            """
+            SELECT id FROM field_mappings
+            WHERE domain = ? AND field_name = ? AND task_type = ?
+            LIMIT 1
+            """,
+            (proposal["domain"], candidate, proposal["task_type"]),
+        ).fetchone()
+        if not conflict:
+            return candidate
+    raise HTTPException(400, detail=f"Could not allocate unique field name for proposal {proposal_id}")
+
+
+def _fallback_model_id(container, proposal: dict) -> int | None:
+    with container.db.models.connect() as conn:
+        row = conn.execute(
+            """
+            SELECT ai_model_id FROM field_mappings
+            WHERE domain = ? AND task_type = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """,
+            (proposal["domain"], proposal["task_type"]),
+        ).fetchone()
+    if row:
+        return int(row["ai_model_id"])
+
+    registry = container.db.get_model_registry()
+    active = [m for m in registry if m.get("status") == "active"]
+    task_match = next((m for m in active if m.get("task_type") == proposal["task_type"]), None)
+    return int((task_match or active[0])["id"]) if active else None
+
+
+def _promote_proposal(container, proposal: dict, model_id: int) -> bool:
+    with container.db.models.connect() as conn:
+        if _exact_mapping_exists(conn, proposal):
+            return False
+        field_name = _unique_field_name(conn, proposal)
+    if not field_name:
+        return False
+    container.db.set_field_mapping(
+        domain=proposal["domain"],
+        field_name=field_name,
+        task_type=proposal["task_type"],
+        ai_model_id=model_id,
+        source_data_type=proposal.get("source_data_type") or proposal["task_type"],
+        source_selector=proposal.get("source_selector", ""),
+        target_data_type=proposal.get("target_data_type") or "text_input",
+        target_selector=proposal.get("target_selector", ""),
+    )
+    return True
+
+
+def _repair_approved_proposals(container) -> int:
+    """Backfill active rules for approved proposals that were collapsed by field-name upsert."""
+    repaired = 0
+    with container.db.models.connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM field_mapping_proposals
+            WHERE status = 'approved'
+            ORDER BY id ASC
+            """
+        ).fetchall()
+    for row in rows:
+        proposal = dict(row)
+        with container.db.models.connect() as conn:
+            if _exact_mapping_exists(conn, proposal):
+                continue
+        model_id = _fallback_model_id(container, proposal)
+        if model_id is None:
+            continue
+        if _promote_proposal(container, proposal, model_id):
+            repaired += 1
+    return repaired
+
+
 def _approve_one(container, proposal_id: int, model_id: int) -> None:
     """Shared approval logic: promote proposal → field_mapping."""
     with container.db.models.connect() as conn:
@@ -31,17 +152,7 @@ def _approve_one(container, proposal_id: int, model_id: int) -> None:
     if model.get("status") != "active":
         raise HTTPException(400, detail=f"Model {model_id} is not active (status: {model.get('status')})")
 
-    field_name = (p.get("proposed_field_name") or "").strip() or f"{p['task_type']}_default"
-    container.db.set_field_mapping(
-        domain=p["domain"],
-        field_name=field_name,
-        task_type=p["task_type"],
-        ai_model_id=model_id,
-        source_data_type=p.get("source_data_type") or p["task_type"],
-        source_selector=p.get("source_selector", ""),
-        target_data_type=p.get("target_data_type") or "text_input",
-        target_selector=p.get("target_selector", ""),
-    )
+    _promote_proposal(container, p, model_id)
     container.db.mark_field_mapping_proposal_status(proposal_id, "approved")
 
 
@@ -55,6 +166,7 @@ async def get_captcha_proposals(request: Request) -> Any:
     if denied:
         return denied
     container = request.app.state.container
+    _repair_approved_proposals(container)
     status = request.query_params.get("status", "pending")
     if status == "all":
         with container.db.models.connect() as conn:
