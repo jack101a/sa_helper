@@ -1089,7 +1089,7 @@ async function syncAuthState(source) {
         await chrome.storage.local.set({
             isMaster,
             keyName: d.key_name || '',
-            expiresAt: d.expires_at || null,
+            expiresAt: d.subscription_expires_at || d.expires_at || null,
             planName: d.plan_name || d.plan || '',
             mobile: d.mobile || d.phone || '',
             telegramId: d.telegram_id || d.tg_id || '',
@@ -1397,7 +1397,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 chrome.storage.local.set({
                     isMaster,
                     keyName: d.key_name || '',
-                    expiresAt: d.expires_at || null,
+                    expiresAt: d.subscription_expires_at || d.expires_at || null,
                     userName: d.user_name || d.name || d.key_name || '',
                     planName: d.plan_name || d.plan || d.subscription_plan || '',
                     mobile: d.mobile || d.phone || d.mobile_no || '',

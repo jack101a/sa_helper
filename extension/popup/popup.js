@@ -175,7 +175,7 @@ async function handleLogin() {
                     serverUrl: url,
                     isMaster: !!resp.data.is_master,
                     keyName: resp.data.key_name || 'Generic Key',
-                    expiresAt: resp.data.expires_at || null
+                    expiresAt: resp.data.subscription_expires_at || resp.data.expires_at || null
                 }, () => {
                     chrome.runtime.sendMessage({ type: 'SYNC_NOW' });
                 });

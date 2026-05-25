@@ -19,6 +19,7 @@ from .utils import (
     dynamic_automation_enabled,
     read_automation_script,
     compose_stall_flow_payload,
+    get_request_entitlements,
     userscript_access,
     userscript_allowed_for_key,
     userscript_sync_status,
@@ -122,7 +123,7 @@ async def sync_userscripts(request: Request) -> dict:
     if not key_record:
         raise HTTPException(401, "API key required")
     container = request.app.state.container
-    entitlements = container.db.get_api_key_entitlements(int(key_record["id"]))
+    entitlements = get_request_entitlements(request)
     root = get_project_root()
     candidate_dirs = [
         (root / "data" / "userscripts").resolve(),

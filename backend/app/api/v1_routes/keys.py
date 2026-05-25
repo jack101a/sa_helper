@@ -49,10 +49,13 @@ async def verify(request: Request) -> VerifyResponse:
             )
             plan = session.query(SubscriptionPlan).filter(SubscriptionPlan.id == sub.plan_id).first() if sub else None
             services = (plan.allowed_services or {}) if plan else {}
+            subscription_expires_at = sub.end_at.isoformat() if sub and sub.end_at else expires_at
             return VerifyResponse(
                 valid=True,
                 key_name=key_name,
-                expires_at=expires_at,
+                expires_at=subscription_expires_at,
+                key_expires_at=expires_at,
+                subscription_expires_at=subscription_expires_at,
                 is_master=False,
                 plan_name=plan.name if plan else "Standard",
                 mobile=user.mobile_number if user and user.mobile_number else "",
@@ -69,6 +72,8 @@ async def verify(request: Request) -> VerifyResponse:
         valid=True,
         key_name=key_name,
         expires_at=expires_at,
+        key_expires_at=expires_at,
+        subscription_expires_at=None,
         is_master=is_master,
         plan_name=str(entitlements.get("plan_name") or "Standard"),
         mobile=str(entitlements.get("mobile") or ""),

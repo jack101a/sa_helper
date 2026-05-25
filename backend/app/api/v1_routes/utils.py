@@ -43,6 +43,44 @@ def ensure_master_key(request: Request) -> None:
         raise HTTPException(403, "Master key required for this administrative action.")
 
 
+def get_request_entitlements(request: Request) -> dict:
+    """Return effective key entitlements for legacy and user-linked keys."""
+    key_record = request.state.api_key_record
+    if not key_record:
+        return {"plan_name": "Standard", "mobile": "", "telegram_id": "", "services": {}}
+
+    if bool(getattr(request.state, "is_user_key", False)):
+        try:
+            from app.core.db import get_session
+            from app.core.models import SubscriptionPlan, User, UserSubscription
+
+            session = get_session()
+            try:
+                user = session.query(User).filter(User.id == int(key_record["user_id"])).first()
+                sub = (
+                    session.query(UserSubscription)
+                    .filter(
+                        UserSubscription.user_id == int(key_record["user_id"]),
+                        UserSubscription.status == "active",
+                    )
+                    .order_by(UserSubscription.created_at.desc())
+                    .first()
+                )
+                plan = session.query(SubscriptionPlan).filter(SubscriptionPlan.id == sub.plan_id).first() if sub else None
+                return {
+                    "plan_name": plan.name if plan else "Standard",
+                    "mobile": user.mobile_number if user and user.mobile_number else "",
+                    "telegram_id": user.telegram_user_id if user and user.telegram_user_id else "",
+                    "services": (plan.allowed_services or {}) if plan else {},
+                }
+            finally:
+                session.close()
+        except Exception:
+            return {"plan_name": "Standard", "mobile": "", "telegram_id": "", "services": {}}
+
+    return request.app.state.container.db.get_api_key_entitlements(int(key_record["id"]))
+
+
 def ensure_service_allowed(request: Request, service: str) -> None:
     """Raise 403 when the current key is not entitled to a service."""
     key_record = request.state.api_key_record
@@ -50,7 +88,7 @@ def ensure_service_allowed(request: Request, service: str) -> None:
         raise HTTPException(401, "API key required")
     if key_record.get("key_type") == "master":
         return
-    entitlements = request.app.state.container.db.get_api_key_entitlements(int(key_record["id"]))
+    entitlements = get_request_entitlements(request)
     services = entitlements.get("services") or {}
     if services.get(service) is False:
         raise HTTPException(403, f"{service} service is not enabled for this API key")

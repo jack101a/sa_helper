@@ -32,7 +32,7 @@ async def solve(request: Request, payload: SolveRequest) -> SolveResponse:
         if not container.db.get_global_access():
             if not container.db.is_domain_allowed(normalized):
                 raise HTTPException(403, "Domain not allowed by server policy.")
-        if not container.db.is_domain_allowed_for_key(int(key_record["id"]), normalized):
+        if not getattr(request.state, "is_user_key", False) and not container.db.is_domain_allowed_for_key(int(key_record["id"]), normalized):
             raise HTTPException(403, "Domain not allowed for this API key.")
 
     if not is_valid_base64(payload.payload_base64):

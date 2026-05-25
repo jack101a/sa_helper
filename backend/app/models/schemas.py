@@ -158,6 +158,8 @@ class VerifyResponse(BaseModel):
     valid: bool
     key_name: str
     expires_at: str | None
+    key_expires_at: str | None = None
+    subscription_expires_at: str | None = None
     is_master: bool = False
     plan_name: str = "Standard"
     mobile: str = ""
