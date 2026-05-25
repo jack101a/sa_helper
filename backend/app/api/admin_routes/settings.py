@@ -635,6 +635,25 @@ async def update_userscript(request: Request, uid: str):
     }
 
 
+@router.patch("/api/userscripts/{uid}/enabled")
+async def set_userscript_enabled(request: Request, uid: str):
+    """Enable or disable a backend-controlled userscript without rewriting its code."""
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "Invalid JSON body")
+
+    file_path = _USERSCRIPTS_DIR / f"{uid}.user.js"
+    if not file_path.exists():
+        raise HTTPException(404, f"Userscript {uid} not found")
+    enabled = bool(body.get("enabled"))
+    _update_index({uid: {"enabled": enabled}})
+    return {"ok": True, "id": uid, "enabled": enabled}
+
+
 @router.delete("/api/userscripts/{uid}")
 async def delete_userscript(request: Request, uid: str):
     """Delete a backend-controlled userscript."""

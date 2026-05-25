@@ -276,7 +276,7 @@ def userscript_access(entry: dict) -> dict:
 
 
 def userscript_allowed_for_key(entry: dict, key_record: dict, entitlements: dict) -> bool:
-    if not bool(entry.get("enabled", True)) and key_record.get("key_type") != "master":
+    if not bool(entry.get("enabled", True)):
         return False
     if key_record.get("key_type") == "master":
         return True

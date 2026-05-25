@@ -3,7 +3,7 @@ import PropTypes from "prop-types";
 import { Plus, Edit2, Trash2, RefreshCw, X, Code } from "lucide-react";
 import { useThemeContext } from "../context/ThemeContext";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
-import { apiPostJson, apiPutJson, apiDelete, apiGet } from "../../api/client";
+import { apiPostJson, apiPutJson, apiPatchJson, apiDelete, apiGet } from "../../api/client";
 import { EmptyState } from "./EmptyState";
 
 export function UserscriptsPanel({
@@ -23,6 +23,29 @@ export function UserscriptsPanel({
     apiKeyIds: ""
   });
   const [availablePlans, setAvailablePlans] = useState([]);
+  const [togglingId, setTogglingId] = useState("");
+
+  const Switch = ({ checked, onChange, disabled = false, label }) => (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={onChange}
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+        checked
+          ? "bg-emerald-500/80 border-emerald-400/70"
+          : isDark ? "bg-white/10 border-white/10" : "bg-slate-200 border-slate-300"
+      }`}
+    >
+      <span
+        className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+          checked ? "translate-x-6" : "translate-x-1"
+        }`}
+      />
+    </button>
+  );
 
   useEffect(() => {
     if (!isModalOpen) return;
@@ -144,19 +167,15 @@ export function UserscriptsPanel({
 
   const handleToggleEnabled = async (script) => {
     const nextEnabled = script.enabled === false;
+    setTogglingId(script.id);
     try {
-      await apiPutJson(`/admin/api/userscripts/${script.id}`, {
-        name: script.name || "",
-        code: script.code || "",
-        enabled: nextEnabled,
-        accessScope: script.accessScope || "global",
-        plans: Array.isArray(script.plans) ? script.plans : [],
-        apiKeyIds: Array.isArray(script.apiKeyIds) ? script.apiKeyIds : [],
-      });
+      await apiPatchJson(`/admin/api/userscripts/${script.id}/enabled`, { enabled: nextEnabled });
       showToast(`Userscript ${nextEnabled ? "enabled" : "disabled"}`, "success");
       await refreshUserscripts();
     } catch (err) {
       showToast(err.message, "error");
+    } finally {
+      setTogglingId("");
     }
   };
 
@@ -229,14 +248,15 @@ export function UserscriptsPanel({
                   </td>
                   <td className="py-4 text-right">
                     <div className="flex justify-end gap-2">
-                      <label className={`inline-flex items-center gap-2 px-2 py-1 rounded-lg text-[10px] cursor-pointer ${script.enabled === false ? (isDark ? "bg-white/5 text-gray-400" : "bg-slate-100 text-slate-500") : (isDark ? "bg-emerald-500/10 text-emerald-300" : "bg-emerald-50 text-emerald-700")}`}>
-                        <input
-                          type="checkbox"
+                      <div className={`inline-flex items-center gap-2 px-2 py-1 rounded-lg text-[10px] ${script.enabled === false ? (isDark ? "bg-white/5 text-gray-400" : "bg-slate-100 text-slate-500") : (isDark ? "bg-emerald-500/10 text-emerald-300" : "bg-emerald-50 text-emerald-700")}`}>
+                        <Switch
                           checked={script.enabled !== false}
                           onChange={() => handleToggleEnabled(script)}
+                          disabled={togglingId === script.id}
+                          label={`${script.enabled === false ? "Enable" : "Disable"} ${script.name || script.id}`}
                         />
                         {script.enabled === false ? "Disabled" : "Enabled"}
-                      </label>
+                      </div>
                       <button 
                         onClick={() => openModal(script)} 
                         className={`p-2 rounded-lg transition-colors ${isDark ? "hover:bg-white/10 text-gray-400 hover:text-white" : "hover:bg-slate-100 text-slate-500 hover:text-slate-800"}`}
@@ -309,10 +329,10 @@ export function UserscriptsPanel({
                     <span className={`block text-sm font-semibold ${t_textHeading}`}>Enable Userscript</span>
                     <span className={`block text-[11px] ${t_textMuted}`}>Disabled scripts stay saved but are not delivered to normal user extensions.</span>
                   </span>
-                  <input
-                    type="checkbox"
+                  <Switch
                     checked={formData.enabled !== false}
-                    onChange={e => setFormData({ ...formData, enabled: e.target.checked })}
+                    onChange={() => setFormData({ ...formData, enabled: formData.enabled === false })}
+                    label="Enable userscript"
                   />
                 </label>
 

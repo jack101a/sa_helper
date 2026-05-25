@@ -8,6 +8,8 @@
     const INLINE_ATTRS = ['oncontextmenu', 'oncopy', 'onpaste', 'onselectstart'];
     const EVENT_TYPES = ['contextmenu', 'copy', 'paste', 'selectstart'];
     const STYLE_ID = 'ta-ta-copy-unlocker-style';
+    let active = false;
+    let guardsInstalled = false;
 
     function storageGet(keys) {
         return new Promise(resolve => chrome.storage.local.get(keys, resolve));
@@ -66,6 +68,10 @@ html, body, body * {
         (document.documentElement || document.head || document.body)?.appendChild(style);
     }
 
+    function removeStyle() {
+        document.getElementById(STYLE_ID)?.remove();
+    }
+
     function removeInlineBlockers(root) {
         const start = root && root.nodeType === Node.ELEMENT_NODE ? root : document.documentElement;
         if (!start) return;
@@ -81,13 +87,16 @@ html, body, body * {
     }
 
     function installEventGuards() {
+        if (guardsInstalled) return;
         const allowDefaultBeforePageHandlers = (event) => {
+            if (!active) return;
             event.stopImmediatePropagation();
         };
         for (const type of EVENT_TYPES) {
             window.addEventListener(type, allowDefaultBeforePageHandlers, true);
             document.addEventListener(type, allowDefaultBeforePageHandlers, true);
         }
+        guardsInstalled = true;
     }
 
     function observeInlineBlockers() {
@@ -112,13 +121,25 @@ html, body, body * {
     }
 
     function activate() {
-        if (window.__TA_TA_COPY_UNLOCKER_ACTIVE__) return;
+        active = true;
+        if (window.__TA_TA_COPY_UNLOCKER_ACTIVE__) {
+            refreshDomHooks();
+            return;
+        }
         window.__TA_TA_COPY_UNLOCKER_ACTIVE__ = true;
         installStyle();
         installEventGuards();
         removeInlineBlockers(document.documentElement);
         observeInlineBlockers();
         console.log('[CopyUnlocker] Enabled for admin-approved site.');
+    }
+
+    function deactivate() {
+        const wasActive = active || window.__TA_TA_COPY_UNLOCKER_ACTIVE__;
+        active = false;
+        window.__TA_TA_COPY_UNLOCKER_ACTIVE__ = false;
+        removeStyle();
+        if (wasActive) console.log('[CopyUnlocker] Disabled for this site.');
     }
 
     function refreshDomHooks() {
@@ -132,9 +153,18 @@ html, body, body * {
         try {
             const data = await storageGet(['copyUnlockerConfig']);
             if (isEnabledForCurrentPage(data.copyUnlockerConfig)) activate();
+            else deactivate();
         } catch (e) {
             console.debug('[CopyUnlocker] Init skipped:', e?.message || e);
         }
+    }
+
+    if (chrome.storage?.onChanged) {
+        chrome.storage.onChanged.addListener((changes, areaName) => {
+            if (areaName !== 'local' || !changes.copyUnlockerConfig) return;
+            if (isEnabledForCurrentPage(changes.copyUnlockerConfig.newValue)) activate();
+            else deactivate();
+        });
     }
 
     if (document.readyState === 'loading') {
