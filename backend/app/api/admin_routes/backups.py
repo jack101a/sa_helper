@@ -387,8 +387,11 @@ async def test_telegram_backup_target(request: Request) -> Any:
         except Exception:
             body = {}
         body = body if isinstance(body, dict) else {}
+        chat_id = body.get("telegram_chat_id")
+        if chat_id is not None:
+            container.backup_service.save_remote_backup_config({"telegram_chat_id": chat_id})
         result = container.backup_service.test_telegram_backup_destination(
-            chat_id=body.get("telegram_chat_id"),
+            chat_id=chat_id,
         )
         return JSONResponse(result)
     except Exception as e:

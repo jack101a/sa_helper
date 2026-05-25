@@ -138,7 +138,8 @@ export function SettingsPanel({
       const data = await apiPostJson(`/admin/api/backups/${target}`, {});
       const failed = (data.results || []).filter(r => r.success === false || r.ok === false);
       if (failed.length) {
-        showToast(`${target} completed with ${failed.length} failure(s).`, "error");
+        const message = failed.map(r => r.error || r.message || r.category).filter(Boolean).join("; ");
+        showToast(`${target} completed with ${failed.length} failure(s).${message ? ` ${message}` : ""}`, "error");
       } else {
         showToast(target === "rclone-sync" ? "Latest backups sent to rclone." : "Latest backups sent to Telegram.");
       }
@@ -182,8 +183,15 @@ export function SettingsPanel({
   const testBackupTelegram = async () => {
     setBackupTestWorking("telegram");
     try {
-      const data = await apiPostJson("/admin/api/backups/test-telegram", {
+      const saved = await apiPostJson("/admin/api/backups/remote-config", {
         telegram_chat_id: backupRemoteConfig.telegram_chat_id,
+        rclone_remote: backupRemoteConfig.rclone_remote,
+        rclone_path: backupRemoteConfig.rclone_path,
+        rclone_config: backupRemoteConfig.rclone_config,
+      });
+      setBackupRemoteConfig(prev => ({ ...prev, ...saved }));
+      const data = await apiPostJson("/admin/api/backups/test-telegram", {
+        telegram_chat_id: saved.telegram_chat_id || backupRemoteConfig.telegram_chat_id,
       });
       if (data.ok) {
         showToast("Telegram backup chat test sent.");
