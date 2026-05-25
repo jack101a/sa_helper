@@ -59,6 +59,8 @@ async def approve_payment(request: Request, payment_id: int) -> Any:
     # Use a single session for the entire approve+activate flow (atomic)
     from app.core.models import User, UserSubscription, UserApiKey, SubscriptionPlan, PaymentRecord
     from app.core.db import get_session
+    from app.core.config import get_settings
+    from app.core.security import generate_plain_api_key, hash_api_key
     from datetime import datetime, timezone, timedelta
 
     session = get_session()
@@ -135,15 +137,25 @@ async def approve_payment(request: Request, payment_id: int) -> Any:
                 UserApiKey.status == "active",
             ).first()
             if not existing_key:
-                from app.services.user_key_service import UserKeyService
-                from app.core.config import get_settings
-                svc = UserKeyService(
-                    session_factory=lambda: session,
-                    settings=get_settings(),
+                settings = get_settings()
+                created_plain = generate_plain_api_key(settings)
+                created_key = UserApiKey(
+                    user_id=user.id,
+                    key_hash=hash_api_key(created_plain, settings.auth.hash_salt),
+                    key_prefix_display=created_plain[:10] + "...",
+                    status="active",
+                    key_version=1,
+                    issued_at=now,
+                    expires_at=None,
                 )
-                created_key, created_plain = svc.create_key(user_id=user.id)
+                session.add(created_key)
+                session.flush()
                 plain_key_for_user = created_plain
                 existing_key = created_key
+            else:
+                existing_key.expires_at = None
+                existing_key.revoked_at = None
+                existing_key.revoked_reason = ""
 
             # Copy plan entitlements to API key
             if plan:

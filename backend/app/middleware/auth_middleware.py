@@ -22,9 +22,11 @@ _PUBLIC_V1_PATHS = {
 # Explicit error codes for client UX
 ERROR_CODES = {
     "invalid_key":        ("api key invalid", 401),
+    "revoked_key":        ("api key revoked", 401),
     "expired_key":        ("api key expired", 401),
     "blocked_user":       ("account blocked — contact support", 403),
     "inactive_user":      ("account inactive — subscription required", 403),
+    "expired_subscription": ("subscription expired — renew required", 403),
     "device_mismatch":    ("api key locked to another device", 401),
     "quota_exceeded":     ("monthly quota exceeded", 429),
     "payment_pending":    ("payment pending — complete registration", 403),
@@ -91,6 +93,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
             record = user_key_svc.validate_key(api_key)
             if not record:
                 return None  # Not a user-linked key — fall through to legacy
+
+            auth_error = record.get("auth_error")
+            if auth_error:
+                return self._error(auth_error, request, path, key_id=record.get("id"))
 
             # Check user status for explicit error codes
             user_status = record.get("user_status", "unknown")

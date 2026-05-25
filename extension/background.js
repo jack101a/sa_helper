@@ -310,15 +310,36 @@ let automationState = {
 
 const SENSITIVE_STORAGE_KEYS = [
     'apiKey',
+    'authState',
+    'authError',
+    'lastAuthFailure',
     'isMaster',
     'keyName',
     'expiresAt',
+    'name',
+    'userName',
+    'planName',
+    'subscriptionPlan',
+    'subscription_status',
+    'mobile',
+    'telegramId',
+    'enabledServices',
+    'services',
+    'subscribedServices',
+    'autofillEnabled',
+    'captchaEnabled',
+    'solverEnabled',
+    'userscriptsEnabled',
     'lastVerify',
+    'rules',
+    'domainFieldRoutes',
+    'userscripts',
     'normalized_userscripts',
     'userscript_logs',
     'globalFieldRoutes',
     'globalLocators',
     'lastSync',
+    'lastHeavySync',
     'stall_user_photo',
     'stallStepScripts',
     '_automationState',
@@ -337,6 +358,20 @@ const SENSITIVE_STORAGE_KEYS = [
     'sp_vcam_force_all',
     'stallVcamActive'
 ];
+
+const AUTH_PRESERVE_KEY_CODES = new Set([
+    'expired_subscription',
+    'inactive_user',
+    'payment_pending',
+    'expired_key',
+    'device_mismatch'
+]);
+
+const AUTH_CLEAR_KEY_CODES = new Set([
+    'invalid_key',
+    'revoked_key',
+    'blocked_user'
+]);
 
 const SENSITIVE_STORAGE_PREFIXES = [
     'userscript_require:',
@@ -652,6 +687,26 @@ async function wipeSyncedExtensionData(options = {}) {
     return { removed: toRemove.length };
 }
 
+async function handleAuthFailure(resp, err) {
+    if (!resp || ![401, 403].includes(resp.status)) return;
+    const code = String(err?.error_code || '');
+    if (!code) return;
+
+    const preserveAuth = AUTH_PRESERVE_KEY_CODES.has(code) && !AUTH_CLEAR_KEY_CODES.has(code);
+    if (!preserveAuth && !AUTH_CLEAR_KEY_CODES.has(code)) return;
+
+    await wipeSyncedExtensionData({ preserveAuth });
+    await storageSet({
+        authState: preserveAuth ? 'renewal_required' : 'reauth_required',
+        authError: String(err?.detail || code),
+        lastAuthFailure: Date.now(),
+        autofillEnabled: false,
+        captchaEnabled: false,
+        solverEnabled: false,
+        userscriptsEnabled: false
+    });
+}
+
 async function fetchServerStallPayload(stepId) {
     const cleanStepId = String(stepId || '');
     if (!['step3', 'step4', 'stall-flow'].includes(cleanStepId)) {
@@ -712,6 +767,7 @@ async function apiGet(path) {
     });
     if (!resp.ok) {
         const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+        await handleAuthFailure(resp, err);
         console.error(`[API] GET ${path} error:`, err);
         throw new Error(err.detail || `HTTP ${resp.status}`);
     }
@@ -733,6 +789,7 @@ async function apiPost(path, body) {
     });
     if (!resp.ok) {
         const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+        await handleAuthFailure(resp, err);
         console.error(`[API] POST ${path} error:`, err);
         throw new Error(err.detail || `HTTP ${resp.status}`);
     }
@@ -1297,6 +1354,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 }).then(async r => {
                     if (!r.ok) {
                         const err = await r.json().catch(() => ({ detail: r.statusText }));
+                        await handleAuthFailure(r, err);
                         throw new Error(err.detail || `HTTP ${r.status}`);
                     }
                     return r.json();

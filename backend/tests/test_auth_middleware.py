@@ -132,6 +132,34 @@ class TestUserLinkedKey:
         assert r.status_code == 403
         assert r.json()["error_code"] == "blocked_user"
 
+    def test_user_key_revoked_does_not_fall_through(self, settings, key_service):
+        user_key_svc = MagicMock()
+        user_key_svc.validate_key.return_value = {
+            "id": 10, "user_id": 5, "key_hash": "h", "status": "revoked",
+            "key_version": 1, "auth_error": "revoked_key",
+        }
+        key_service.validate_key.return_value = {"id": 1, "name": "legacy", "enabled": 1}
+        app = _create_test_app(key_service, settings, user_key_svc=user_key_svc)
+        client = TestClient(app)
+        r = client.get("/v1/test", headers={"x-api-key": "user-key"})
+        assert r.status_code == 401
+        assert r.json()["error_code"] == "revoked_key"
+        key_service.validate_key.assert_not_called()
+
+    def test_user_key_expired_subscription_does_not_fall_through(self, settings, key_service):
+        user_key_svc = MagicMock()
+        user_key_svc.validate_key.return_value = {
+            "id": 10, "user_id": 5, "key_hash": "h", "status": "active",
+            "key_version": 1, "auth_error": "expired_subscription",
+        }
+        key_service.validate_key.return_value = {"id": 1, "name": "legacy", "enabled": 1}
+        app = _create_test_app(key_service, settings, user_key_svc=user_key_svc)
+        client = TestClient(app)
+        r = client.get("/v1/test", headers={"x-api-key": "user-key"})
+        assert r.status_code == 403
+        assert r.json()["error_code"] == "expired_subscription"
+        key_service.validate_key.assert_not_called()
+
     def test_user_key_not_found_falls_through_to_legacy(self, settings, key_service):
         user_key_svc = MagicMock()
         user_key_svc.validate_key.return_value = None

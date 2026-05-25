@@ -327,6 +327,74 @@ async def rclone_sync_latest(request: Request) -> Any:
     return JSONResponse({"results": results})
 
 
+@router.get("/api/backups/remote-config")
+async def get_remote_backup_config(request: Request) -> Any:
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    container = request.app.state.container
+    try:
+        return JSONResponse(container.backup_service.get_remote_backup_config())
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.post("/api/backups/remote-config")
+async def save_remote_backup_config(request: Request) -> Any:
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    container = request.app.state.container
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            return JSONResponse({"error": "request body must be a JSON object"}, status_code=400)
+        return JSONResponse(container.backup_service.save_remote_backup_config(body))
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.post("/api/backups/test-rclone")
+async def test_rclone_backup_target(request: Request) -> Any:
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    container = request.app.state.container
+    try:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        body = body if isinstance(body, dict) else {}
+        result = container.backup_service.test_rclone_remote(
+            remote=body.get("rclone_remote"),
+            remote_path=body.get("rclone_path"),
+        )
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@router.post("/api/backups/test-telegram")
+async def test_telegram_backup_target(request: Request) -> Any:
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    container = request.app.state.container
+    try:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        body = body if isinstance(body, dict) else {}
+        result = container.backup_service.test_telegram_backup_destination(
+            chat_id=body.get("telegram_chat_id"),
+        )
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
 @router.post("/api/backups/telegram-sync")
 async def telegram_sync_latest(request: Request) -> Any:
     denied = _admin_guard(request)

@@ -9,7 +9,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.core.models import UserApiKey, UserApiKeyDevice, User
+from app.core.models import UserApiKey, UserApiKeyDevice, User, UserSubscription
 from app.core.security import generate_plain_api_key, hash_api_key, compute_expiry_datetime
 
 
@@ -46,8 +46,7 @@ class UserKeyService:
                 # Generate new key
                 plain = generate_plain_api_key(self._settings)
                 key_hash = hash_api_key(plain, self._settings.auth.hash_salt)
-                days = expiry_days or self._settings.auth.default_expiry_days
-                expires_at = compute_expiry_datetime(days)
+                expires_at = compute_expiry_datetime(expiry_days) if expiry_days else None
 
                 key = UserApiKey(
                     user_id=user_id,
@@ -95,9 +94,6 @@ class UserKeyService:
                 # Issue new
                 plain = generate_plain_api_key(self._settings)
                 key_hash = hash_api_key(plain, self._settings.auth.hash_salt)
-                days = self._settings.auth.default_expiry_days
-                expires_at = compute_expiry_datetime(days)
-
                 key = UserApiKey(
                     user_id=user_id,
                     key_hash=key_hash,
@@ -105,7 +101,7 @@ class UserKeyService:
                     status="active",
                     key_version=old_version + 1,
                     issued_at=datetime.now(timezone.utc),
-                    expires_at=expires_at,
+                    expires_at=None,
                     rotated_from_key_id=old_id,
                     created_by_admin_id=created_by_admin_id,
                 )
@@ -140,18 +136,36 @@ class UserKeyService:
     # ── Validation ────────────────────────────────────────────────────────
 
     def validate_key(self, plain_key: str) -> dict | None:
-        """Validate a user-linked API key. Returns dict with user status info.
-        Also updates last_used_at and usage_count."""
+        """Validate a user-linked API key against key, user, and subscription state.
+
+        Unknown keys return None so legacy-key validation can still run. Known
+        user keys with denied access return an auth_error code for client UX.
+        """
         key_hash = hash_api_key(plain_key, self._settings.auth.hash_salt)
         session = self._session()
         try:
             key = (
                 session.query(UserApiKey)
-                .filter(UserApiKey.key_hash == key_hash, UserApiKey.status == "active")
+                .filter(UserApiKey.key_hash == key_hash)
                 .first()
             )
             if not key:
                 return None
+
+            base_record = {
+                "id": key.id,
+                "user_id": key.user_id,
+                "key_hash": key.key_hash,
+                "name": f"User {key.user_id}",
+                "key_type": "user_linked",
+                "expires_at": key.expires_at.isoformat() if key.expires_at else None,
+                "status": key.status,
+                "key_version": key.key_version,
+            }
+
+            if key.status != "active":
+                error_code = "expired_key" if key.status == "expired" else "revoked_key"
+                return {**base_record, "auth_error": error_code}
 
             # Check expiry
             if key.expires_at:
@@ -159,29 +173,47 @@ class UserKeyService:
                 if expires_at.tzinfo is None:
                     expires_at = expires_at.replace(tzinfo=timezone.utc)
                 if expires_at < datetime.now(timezone.utc):
-                    return None
+                    return {**base_record, "auth_error": "expired_key"}
 
             # Check user status
             user = session.query(User).filter(User.id == key.user_id).first()
-            if not user or user.status not in ("active",):
-                return None
+            if not user:
+                return {**base_record, "auth_error": "inactive_user", "user_status": "missing"}
+            base_record["name"] = user.full_name or f"User {user.id}"
+            base_record["user_status"] = user.status
+
+            if user.status == "blocked":
+                return {**base_record, "auth_error": "blocked_user"}
+            if user.status == "pending_payment":
+                return {**base_record, "auth_error": "payment_pending"}
+            if user.status != "active":
+                return {**base_record, "auth_error": "expired_subscription"}
+
+            now = datetime.now(timezone.utc)
+            sub = (
+                session.query(UserSubscription)
+                .filter(
+                    UserSubscription.user_id == key.user_id,
+                    UserSubscription.status == "active",
+                )
+                .order_by(UserSubscription.created_at.desc())
+                .first()
+            )
+            if not sub:
+                return {**base_record, "auth_error": "expired_subscription"}
+            if sub.end_at:
+                end_at = sub.end_at
+                if end_at.tzinfo is None:
+                    end_at = end_at.replace(tzinfo=timezone.utc)
+                if end_at < now:
+                    return {**base_record, "auth_error": "expired_subscription"}
 
             # Update usage tracking
-            key.last_used_at = datetime.now(timezone.utc)
+            key.last_used_at = now
             key.usage_count = (key.usage_count or 0) + 1
             session.commit()
 
-            return {
-                "id": key.id,
-                "user_id": key.user_id,
-                "key_hash": key.key_hash,
-                "name": user.full_name or f"User {user.id}",
-                "key_type": "user_linked",
-                "expires_at": key.expires_at.isoformat() if key.expires_at else None,
-                "status": key.status,
-                "key_version": key.key_version,
-                "user_status": user.status if user else "unknown",
-            }
+            return base_record
         finally:
             session.close()
 

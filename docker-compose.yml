@@ -29,6 +29,7 @@ services:
       # Telegram Bot (optional; DB/admin token is also supported)
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_BOT_ENABLED=${TELEGRAM_BOT_ENABLED:-}
+      - RCLONE_CONFIG=/root/.config/rclone/rclone.conf
       # Paths (Internal)
       - SQLITE_PATH=/app/backend/logs/app.db
       - CONFIG_PATH=/app/backend/config/config.yaml
@@ -37,6 +38,7 @@ services:
       - sa_helper_logs:/app/backend/logs
       - sa_helper_data:/app/data
       - sa_helper_config:/app/backend/config
+      - sa_helper_rclone:/root/.config/rclone
 
   scheduler:
     image: ghcr.io/jack101a/sa-helper:latest
@@ -57,6 +59,7 @@ services:
       - LITELLM_API_KEY=${LITELLM_API_KEY:-}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_BOT_ENABLED=${TELEGRAM_BOT_ENABLED:-}
+      - RCLONE_CONFIG=/root/.config/rclone/rclone.conf
       - RUN_MIGRATIONS=false
       - SQLITE_PATH=/app/backend/logs/app.db
       - CONFIG_PATH=/app/backend/config/config.yaml
@@ -65,6 +68,7 @@ services:
       - sa_helper_logs:/app/backend/logs
       - sa_helper_data:/app/data
       - sa_helper_config:/app/backend/config
+      - sa_helper_rclone:/root/.config/rclone
 
   telegram-bot:
     image: ghcr.io/jack101a/sa-helper:latest
@@ -97,3 +101,4 @@ volumes:
   sa_helper_logs:
   sa_helper_data:
   sa_helper_config:
+  sa_helper_rclone:

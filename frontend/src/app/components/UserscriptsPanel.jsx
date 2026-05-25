@@ -3,7 +3,7 @@ import PropTypes from "prop-types";
 import { Plus, Edit2, Trash2, RefreshCw, X, Code } from "lucide-react";
 import { useThemeContext } from "../context/ThemeContext";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
-import { apiPostJson, apiPutJson, apiDelete } from "../../api/client";
+import { apiPostJson, apiPutJson, apiDelete, apiGet } from "../../api/client";
 import { EmptyState } from "./EmptyState";
 
 export function UserscriptsPanel({
@@ -18,9 +18,10 @@ export function UserscriptsPanel({
     name: "",
     code: "",
     accessScope: "global",
-    plans: "",
+    plans: [],
     apiKeyIds: ""
   });
+  const [availablePlans, setAvailablePlans] = useState([]);
 
   useEffect(() => {
     if (!isModalOpen) return;
@@ -32,6 +33,12 @@ export function UserscriptsPanel({
   useKeyboardShortcuts({
     onEscape: () => { if (isModalOpen) setIsModalOpen(false); },
   });
+
+  useEffect(() => {
+    apiGet("/admin/api/plans")
+      .then(data => setAvailablePlans(Array.isArray(data.plans) ? data.plans : []))
+      .catch(() => setAvailablePlans([]));
+  }, []);
 
   const parseMeta = (code) => {
     const meta = { name: "", version: "0.0.0", matches: [], runAt: "document-idle" };
@@ -61,22 +68,52 @@ export function UserscriptsPanel({
         name: script.name || "",
         code: script.code || "",
         accessScope: script.accessScope || "global",
-        plans: Array.isArray(script.plans) ? script.plans.join(", ") : "",
+        plans: Array.isArray(script.plans) ? script.plans : [],
         apiKeyIds: Array.isArray(script.apiKeyIds) ? script.apiKeyIds.join(", ") : ""
       });
     } else {
       setEditingScript(null);
-      setFormData({ name: "", code: "", accessScope: "global", plans: "", apiKeyIds: "" });
+      setFormData({ name: "", code: "", accessScope: "global", plans: [], apiKeyIds: "" });
     }
     setIsModalOpen(true);
   };
 
+  const togglePlanSelection = (planName) => {
+    setFormData(prev => {
+      const current = Array.isArray(prev.plans) ? prev.plans : [];
+      const exists = current.includes(planName);
+      return {
+        ...prev,
+        plans: exists ? current.filter(item => item !== planName) : [...current, planName],
+      };
+    });
+  };
+
+  const activePlans = React.useMemo(
+    () => availablePlans.filter(plan => plan.is_active !== false),
+    [availablePlans],
+  );
+
+  const selectedPlanNames = React.useMemo(
+    () => Array.isArray(formData.plans) ? formData.plans : [],
+    [formData.plans],
+  );
+
+  const legacySelectedPlans = React.useMemo(() => {
+    const known = new Set(activePlans.map(plan => plan.name).filter(Boolean));
+    return selectedPlanNames.filter(name => !known.has(name));
+  }, [activePlans, selectedPlanNames]);
+
   const handleSave = async (e) => {
     e.preventDefault();
     try {
+      if (formData.accessScope === "plan" && selectedPlanNames.length === 0) {
+        showToast("Select at least one plan for plan access.", "error");
+        return;
+      }
       const payload = {
         ...formData,
-        plans: String(formData.plans || "").split(/[,;\n]+/).map(item => item.trim()).filter(Boolean),
+        plans: formData.accessScope === "plan" ? selectedPlanNames : [],
         apiKeyIds: String(formData.apiKeyIds || "").split(/[,;\n]+/).map(item => Number(item.trim())).filter(Number.isFinite),
       };
       if (editingScript) {
@@ -151,7 +188,7 @@ export function UserscriptsPanel({
                   <td className="py-4 pr-3">
                     <div className="flex flex-col gap-1">
                       <span className={`w-fit px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase ${isDark ? "bg-emerald-500/15 text-emerald-300" : "bg-emerald-50 text-emerald-700"}`}>
-                        {script.accessScope || "global"}
+                        {(script.accessScope || "global") === "global" ? "Global - all users" : script.accessScope}
                       </span>
                       {script.accessScope === "plan" && <span className={`text-[10px] ${t_textMuted}`}>{(script.plans || []).join(", ") || "No plans"}</span>}
                       {(script.accessScope === "key" || script.accessScope === "custom") && <span className={`text-[10px] ${t_textMuted}`}>{(script.apiKeyIds || []).join(", ") || "No keys"}</span>}
@@ -222,10 +259,14 @@ export function UserscriptsPanel({
                     <label className={`text-xs font-semibold ${t_textMuted}`}>Access</label>
                     <select
                       value={formData.accessScope}
-                      onChange={e => setFormData({...formData, accessScope: e.target.value})}
+                      onChange={e => setFormData({
+                        ...formData,
+                        accessScope: e.target.value,
+                        plans: e.target.value === "plan" ? formData.plans : [],
+                      })}
                       className={`${glassInput} w-full text-sm`}
                     >
-                      <option value="global">Global</option>
+                      <option value="global">Global - all users</option>
                       <option value="plan">Plan</option>
                       <option value="key">API key IDs</option>
                     </select>
@@ -234,14 +275,38 @@ export function UserscriptsPanel({
 
                 {formData.accessScope === "plan" && (
                   <div className="space-y-1">
-                    <label className={`text-xs font-semibold ${t_textMuted}`}>Plans</label>
-                    <input
-                      type="text"
-                      value={formData.plans}
-                      onChange={e => setFormData({...formData, plans: e.target.value})}
-                      placeholder="Basic, Standard, Premium"
-                      className={`${glassInput} w-full text-sm`}
-                    />
+                    <label className={`text-xs font-semibold ${t_textMuted}`}>Activate For Plans</label>
+                    <div className={`rounded-xl border p-3 ${t_borderLight}`}>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                        {activePlans.map(plan => (
+                          <label key={plan.id || plan.name} className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs cursor-pointer transition-colors ${isDark ? "hover:bg-white/5" : "hover:bg-slate-50"} ${t_textMuted}`}>
+                            <input
+                              type="checkbox"
+                              checked={selectedPlanNames.includes(plan.name)}
+                              onChange={() => togglePlanSelection(plan.name)}
+                              className="mt-0.5"
+                            />
+                            <span className="min-w-0">
+                              <span className={`block font-medium truncate ${t_textHeading}`}>{plan.name}</span>
+                              <span className="block font-mono text-[10px] truncate">{plan.code}</span>
+                            </span>
+                          </label>
+                        ))}
+                        {legacySelectedPlans.map(planName => (
+                          <label key={planName} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs cursor-pointer ${isDark ? "bg-amber-500/10 text-amber-300" : "bg-amber-50 text-amber-700"}`}>
+                            <input
+                              type="checkbox"
+                              checked
+                              onChange={() => togglePlanSelection(planName)}
+                            />
+                            <span className="truncate">{planName}</span>
+                          </label>
+                        ))}
+                      </div>
+                      {activePlans.length === 0 && legacySelectedPlans.length === 0 && (
+                        <p className={`text-xs italic ${t_textMuted}`}>No active plans found.</p>
+                      )}
+                    </div>
                   </div>
                 )}
 

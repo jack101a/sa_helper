@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import gzip
+import shutil
 import sqlite3
 import subprocess
 import tarfile
@@ -603,6 +604,20 @@ class BackupService:
     def _telegram_token(self) -> str:
         return os.getenv("TELEGRAM_BOT_TOKEN", "") or self._settings.telegram.bot_token or self._setting("telegram.bot_token")
 
+    def _rclone_config_path(self) -> Path:
+        configured = os.getenv("RCLONE_CONFIG", "").strip()
+        if configured:
+            return Path(configured).expanduser()
+        return Path.home() / ".config" / "rclone" / "rclone.conf"
+
+    def _rclone_command(self, *args: str) -> list[str]:
+        cmd = ["rclone"]
+        config_path = self._rclone_config_path()
+        if config_path.exists():
+            cmd.extend(["--config", str(config_path)])
+        cmd.extend(args)
+        return cmd
+
     def _telegram_error_hint(self, error: str) -> str:
         lowered = error.lower()
         if "unauthorized" in lowered or "not found" in lowered and "bot" in lowered:
@@ -681,6 +696,125 @@ class BackupService:
 
     def _telegram_uses_local_api(self) -> bool:
         return self._telegram_api_base_url() != TELEGRAM_HOSTED_API_BASE_URL
+
+    def get_remote_backup_config(self) -> dict:
+        config_path = self._rclone_config_path()
+        config_text = ""
+        config_error = ""
+        if config_path.exists():
+            try:
+                config_text = config_path.read_text(encoding="utf-8")
+            except Exception as exc:
+                config_error = str(exc)
+
+        remotes: list[str] = []
+        remotes_error = ""
+        if shutil.which("rclone"):
+            try:
+                result = subprocess.run(
+                    self._rclone_command("listremotes"),
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+                if result.returncode == 0:
+                    remotes = [line.rstrip(":") for line in result.stdout.splitlines() if line.strip()]
+                elif result.stderr:
+                    remotes_error = result.stderr[:500]
+            except Exception as exc:
+                remotes_error = str(exc)
+        else:
+            remotes_error = "rclone binary not found"
+
+        return {
+            "telegram_chat_id": self._setting("backup.telegram_chat_id", ""),
+            "telegram_token_set": bool(self._telegram_token()),
+            "telegram_api_base_url": self._telegram_api_base_url(),
+            "telegram_last_error": self._setting("backup.telegram_last_error", ""),
+            "rclone_remote": self._setting("backup.rclone_remote", ""),
+            "rclone_path": self._setting("backup.rclone_path", "sa-helper-backups"),
+            "rclone_binary": shutil.which("rclone") or "",
+            "rclone_config_path": str(config_path),
+            "rclone_config_exists": config_path.exists(),
+            "rclone_config": config_text,
+            "rclone_config_error": config_error,
+            "rclone_remotes": remotes,
+            "rclone_remotes_error": remotes_error,
+            "rclone_last_error": self._setting("backup.rclone_last_error", ""),
+        }
+
+    def save_remote_backup_config(self, data: dict[str, Any]) -> dict:
+        if "telegram_chat_id" in data:
+            self._set_setting("backup.telegram_chat_id", str(data.get("telegram_chat_id") or "").strip())
+        if "rclone_remote" in data:
+            self._set_setting("backup.rclone_remote", str(data.get("rclone_remote") or "").strip().rstrip(":"))
+        if "rclone_path" in data:
+            self._set_setting("backup.rclone_path", str(data.get("rclone_path") or "").strip().strip("/"))
+        if "rclone_config" in data:
+            config_path = self._rclone_config_path()
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(str(data.get("rclone_config") or ""), encoding="utf-8")
+            try:
+                config_path.chmod(0o600)
+            except Exception:
+                pass
+        return self.get_remote_backup_config()
+
+    def test_rclone_remote(self, remote: str | None = None, remote_path: str | None = None) -> dict:
+        target_remote = (remote or self._setting("backup.rclone_remote", "")).strip().rstrip(":")
+        target_path = (remote_path if remote_path is not None else self._setting("backup.rclone_path", "sa-helper-backups")).strip().strip("/")
+        if not target_remote:
+            return {"ok": False, "error": "backup.rclone_remote is not configured"}
+        if not shutil.which("rclone"):
+            return {"ok": False, "remote": target_remote, "error": "rclone binary not found"}
+
+        root_target = f"{target_remote}:"
+        configured_target = f"{target_remote}:{target_path}" if target_path else root_target
+        try:
+            result = subprocess.run(
+                self._rclone_command("lsd", root_target),
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode != 0:
+                error = (result.stderr or result.stdout or "rclone remote test failed")[:1000]
+                self._set_setting("backup.rclone_last_error", error)
+                return {"ok": False, "remote": configured_target, "error": error}
+            self._set_setting("backup.rclone_last_error", "")
+            lines = [line for line in result.stdout.splitlines() if line.strip()]
+            return {"ok": True, "remote": configured_target, "entries": lines[:20], "entry_count": len(lines)}
+        except subprocess.TimeoutExpired:
+            error = "rclone remote test timed out (30s)"
+            self._set_setting("backup.rclone_last_error", error)
+            return {"ok": False, "remote": configured_target, "error": error}
+        except Exception as exc:
+            error = str(exc)
+            self._set_setting("backup.rclone_last_error", error)
+            return {"ok": False, "remote": configured_target, "error": error}
+
+    def test_telegram_backup_destination(self, chat_id: str | None = None) -> dict:
+        token = self._telegram_token()
+        target = (chat_id or self._setting("backup.telegram_chat_id", "")).strip()
+        if not token:
+            return {"ok": False, "error": "TELEGRAM_BOT_TOKEN or telegram.bot_token is not configured"}
+        if not target:
+            return {"ok": False, "error": "backup.telegram_chat_id is not configured"}
+        try:
+            payload = self._telegram_post(
+                token,
+                "sendMessage",
+                data={
+                    "chat_id": target,
+                    "text": f"SA Helper backup destination test\nUTC: {datetime.now(UTC).isoformat()}",
+                },
+            )
+            self._set_setting("backup.telegram_last_error", "")
+            return {"ok": True, "chat_id": target, "message_id": payload.get("result", {}).get("message_id")}
+        except Exception as exc:
+            error = str(exc)
+            self._set_setting("backup.telegram_last_error", error)
+            return {"ok": False, "chat_id": target, "error": error, "hint": self._telegram_error_hint(error)}
 
     def _gdrive_token_data(self) -> dict:
         raw = self._setting("backup.gdrive.token_json")
@@ -1009,34 +1143,41 @@ class BackupService:
         remote_path = self._setting("backup.rclone_path", "sa-helper-backups")
 
         try:
-            cmd = [
-                "rclone", "copy",
+            cmd = self._rclone_command(
+                "copy",
                 str(backup_path),
                 f"{remote}:{remote_path}/",
-                "--log-level", "ERROR",
-            ]
+                "--log-level",
+                "ERROR",
+            )
             result = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=300,
             )
             if result.returncode != 0:
                 error_msg = result.stderr[:500] if result.stderr else "Unknown error"
+                self._set_setting("backup.rclone_last_error", error_msg)
                 logger.error("rclone_failed", extra={"context": {"stderr": error_msg}})
                 return {"success": False, "remote": remote, "error": error_msg}
 
+            self._set_setting("backup.rclone_last_error", "")
             logger.info("rclone_synced", extra={"context": {
                 "file": backup_path.name, "remote": remote,
             }})
             return {"success": True, "remote": f"{remote}:{remote_path}", "error": ""}
         except FileNotFoundError:
             msg = "rclone binary not found — install rclone in container"
+            self._set_setting("backup.rclone_last_error", msg)
             logger.error(msg)
             return {"success": False, "remote": remote, "error": msg}
         except subprocess.TimeoutExpired:
             msg = "rclone upload timed out (300s)"
+            self._set_setting("backup.rclone_last_error", msg)
             logger.error(msg)
             return {"success": False, "remote": remote, "error": msg}
         except Exception as e:
-            return {"success": False, "remote": remote, "error": str(e)}
+            error = str(e)
+            self._set_setting("backup.rclone_last_error", error)
+            return {"success": False, "remote": remote, "error": error}
 
     async def telegram_backup(self, backup_path: str | Path) -> dict:
         """
@@ -1054,9 +1195,7 @@ class BackupService:
         if not chat_id:
             return {"success": False, "chat_id": "", "error": "No backup chat_id configured"}
 
-        token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-        if not token:
-            token = self._setting("telegram.bot_token", "")
+        token = self._telegram_token()
         if not token:
             return {"success": False, "chat_id": chat_id, "error": "No bot token available"}
 
@@ -1080,19 +1219,22 @@ class BackupService:
 
             with open(backup_path, "rb") as f:
                 await bot.send_document(
-                    chat_id=int(chat_id),
+                    chat_id=chat_id,
                     document=f,
                     filename=backup_path.name,
                     caption=caption,
                 )
 
+            self._set_setting("backup.telegram_last_error", "")
             logger.info("telegram_backup_uploaded", extra={"context": {
                 "file": backup_path.name, "chat_id": chat_id,
             }})
             return {"success": True, "chat_id": chat_id, "error": ""}
         except Exception as e:
-            logger.error("telegram_backup_failed", extra={"context": {"error": str(e)}})
-            return {"success": False, "chat_id": chat_id, "error": str(e)}
+            error = str(e)
+            self._set_setting("backup.telegram_last_error", error)
+            logger.error("telegram_backup_failed", extra={"context": {"error": error}})
+            return {"success": False, "chat_id": chat_id, "error": error}
 
     def _export_table_rows(self, table_name: str) -> list[dict[str, Any]]:
         with sqlite3.connect(str(self._db_path)) as conn:

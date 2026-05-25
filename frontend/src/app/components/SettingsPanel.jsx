@@ -44,6 +44,27 @@ export function SettingsPanel({
   const [backupWorking, setBackupWorking] = useState("");
   const [selectedSystemBackup, setSelectedSystemBackup] = useState("");
   const [selectedUserBackup, setSelectedUserBackup] = useState("");
+  const [backupRemoteConfig, setBackupRemoteConfig] = useState({
+    telegram_chat_id: "",
+    telegram_token_set: false,
+    telegram_last_error: "",
+    rclone_remote: "",
+    rclone_path: "sa-helper-backups",
+    rclone_binary: "",
+    rclone_config_path: "",
+    rclone_config_exists: false,
+    rclone_config: "",
+    rclone_remotes: [],
+    rclone_remotes_error: "",
+    rclone_last_error: "",
+  });
+  const [backupConfigLoading, setBackupConfigLoading] = useState(false);
+  const [backupConfigSaving, setBackupConfigSaving] = useState(false);
+  const [backupTestWorking, setBackupTestWorking] = useState("");
+
+  const updateBackupRemoteConfig = (key, value) => {
+    setBackupRemoteConfig(prev => ({ ...prev, [key]: value }));
+  };
 
   const formatBackupSize = (bytes) => {
     const value = Number(bytes || 0);
@@ -128,6 +149,75 @@ export function SettingsPanel({
     }
   };
 
+  const loadBackupRemoteConfig = async () => {
+    setBackupConfigLoading(true);
+    try {
+      const data = await apiGet("/admin/api/backups/remote-config");
+      setBackupRemoteConfig(prev => ({ ...prev, ...data }));
+    } catch (e) {
+      showToast("Failed to load backup connection settings: " + e.message, "error");
+    } finally {
+      setBackupConfigLoading(false);
+    }
+  };
+
+  const saveBackupRemoteConfig = async () => {
+    setBackupConfigSaving(true);
+    try {
+      const data = await apiPostJson("/admin/api/backups/remote-config", {
+        telegram_chat_id: backupRemoteConfig.telegram_chat_id,
+        rclone_remote: backupRemoteConfig.rclone_remote,
+        rclone_path: backupRemoteConfig.rclone_path,
+        rclone_config: backupRemoteConfig.rclone_config,
+      });
+      setBackupRemoteConfig(prev => ({ ...prev, ...data }));
+      showToast("Backup connection settings saved.");
+    } catch (e) {
+      showToast("Failed to save backup settings: " + e.message, "error");
+    } finally {
+      setBackupConfigSaving(false);
+    }
+  };
+
+  const testBackupTelegram = async () => {
+    setBackupTestWorking("telegram");
+    try {
+      const data = await apiPostJson("/admin/api/backups/test-telegram", {
+        telegram_chat_id: backupRemoteConfig.telegram_chat_id,
+      });
+      if (data.ok) {
+        showToast("Telegram backup chat test sent.");
+      } else {
+        showToast("Telegram backup test failed: " + (data.error || data.hint || "unknown error"), "error");
+      }
+      await loadBackupRemoteConfig();
+    } catch (e) {
+      showToast("Telegram backup test failed: " + e.message, "error");
+    } finally {
+      setBackupTestWorking("");
+    }
+  };
+
+  const testBackupRclone = async () => {
+    setBackupTestWorking("rclone");
+    try {
+      const data = await apiPostJson("/admin/api/backups/test-rclone", {
+        rclone_remote: backupRemoteConfig.rclone_remote,
+        rclone_path: backupRemoteConfig.rclone_path,
+      });
+      if (data.ok) {
+        showToast(`Rclone remote reachable: ${data.remote}`);
+      } else {
+        showToast("Rclone test failed: " + (data.error || "unknown error"), "error");
+      }
+      await loadBackupRemoteConfig();
+    } catch (e) {
+      showToast("Rclone test failed: " + e.message, "error");
+    } finally {
+      setBackupTestWorking("");
+    }
+  };
+
   useEffect(() => {
     apiGet("/admin/api/settings/telegram.bot_token")
       .then(d => setTelegramToken(d.value || ""))
@@ -137,6 +227,7 @@ export function SettingsPanel({
       .catch(() => {});
     refreshTelegramStatus();
     refreshBackups();
+    loadBackupRemoteConfig();
   }, []);
 
   const refreshTelegramStatus = async () => {
@@ -569,6 +660,115 @@ export function SettingsPanel({
                 Latest: {formatBackupSize(backupList.users[0].size)} · {formatBackupDate(backupList.users[0].created)}
               </p>
             )}
+          </div>
+        </div>
+
+        <div className={`mt-4 rounded-xl border p-4 ${t_borderLight}`}>
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4">
+            <div>
+              <h4 className={`text-sm font-semibold ${t_textHeading}`}>Remote Backup Connections</h4>
+              <p className={`text-[11px] mt-1 ${t_textMuted}`}>
+                Manage the Telegram backup destination and the rclone remote used by manual and scheduled backups.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={loadBackupRemoteConfig} disabled={backupConfigLoading} className={glassButton}>
+                {backupConfigLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                Reload
+              </button>
+              <button type="button" onClick={saveBackupRemoteConfig} disabled={backupConfigSaving || backupConfigLoading} className={solidButton}>
+                {backupConfigSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                {backupConfigSaving ? "Saving..." : "Save Backup Config"}
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Send size={16} className="text-blue-400" />
+                <h5 className={`text-xs font-bold uppercase tracking-widest ${t_textMuted}`}>Telegram Backup</h5>
+              </div>
+              <div>
+                <label className={`text-xs block mb-1 ${t_textMuted}`}>Backup Chat ID</label>
+                <input
+                  className={glassInput}
+                  value={backupRemoteConfig.telegram_chat_id || ""}
+                  onChange={(e) => updateBackupRemoteConfig("telegram_chat_id", e.target.value)}
+                  placeholder="-1001234567890"
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" onClick={testBackupTelegram} disabled={backupTestWorking === "telegram" || !backupRemoteConfig.telegram_chat_id} className={glassButton}>
+                  {backupTestWorking === "telegram" ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                  Test Chat
+                </button>
+                <span className={`text-[11px] ${t_textMuted}`}>
+                  Bot token: {backupRemoteConfig.telegram_token_set ? "set" : "missing"}
+                </span>
+              </div>
+              {backupRemoteConfig.telegram_last_error && (
+                <p className="text-[11px] text-red-400 break-words">
+                  Last Telegram error: {backupRemoteConfig.telegram_last_error}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <CloudUpload size={16} className="text-cyan-400" />
+                <h5 className={`text-xs font-bold uppercase tracking-widest ${t_textMuted}`}>Rclone Backup</h5>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className={`text-xs block mb-1 ${t_textMuted}`}>Remote Name</label>
+                  <input
+                    className={glassInput}
+                    value={backupRemoteConfig.rclone_remote || ""}
+                    onChange={(e) => updateBackupRemoteConfig("rclone_remote", e.target.value)}
+                    placeholder="gdrive"
+                  />
+                </div>
+                <div>
+                  <label className={`text-xs block mb-1 ${t_textMuted}`}>Remote Folder</label>
+                  <input
+                    className={glassInput}
+                    value={backupRemoteConfig.rclone_path || ""}
+                    onChange={(e) => updateBackupRemoteConfig("rclone_path", e.target.value)}
+                    placeholder="sa-helper-backups"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className={`text-xs block mb-1 ${t_textMuted}`}>rclone.conf</label>
+                <textarea
+                  className={`${glassInput} min-h-40 font-mono text-[11px] leading-relaxed`}
+                  value={backupRemoteConfig.rclone_config || ""}
+                  onChange={(e) => updateBackupRemoteConfig("rclone_config", e.target.value)}
+                  spellCheck={false}
+                  placeholder={"[gdrive]\ntype = drive\nscope = drive.file\n..."}
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" onClick={testBackupRclone} disabled={backupTestWorking === "rclone" || !backupRemoteConfig.rclone_remote} className={glassButton}>
+                  {backupTestWorking === "rclone" ? <Loader2 size={14} className="animate-spin" /> : <CloudUpload size={14} />}
+                  Test Remote
+                </button>
+                <span className={`text-[11px] break-all ${t_textMuted}`}>
+                  Binary: {backupRemoteConfig.rclone_binary || "missing"} · Config: {backupRemoteConfig.rclone_config_exists ? backupRemoteConfig.rclone_config_path : "not saved"}
+                </span>
+              </div>
+              {(backupRemoteConfig.rclone_remotes || []).length > 0 && (
+                <p className={`text-[11px] ${t_textMuted}`}>
+                  Remotes: {(backupRemoteConfig.rclone_remotes || []).join(", ")}
+                </p>
+              )}
+              {(backupRemoteConfig.rclone_last_error || backupRemoteConfig.rclone_remotes_error) && (
+                <p className="text-[11px] text-red-400 break-words">
+                  Last rclone error: {backupRemoteConfig.rclone_last_error || backupRemoteConfig.rclone_remotes_error}
+                </p>
+              )}
+            </div>
           </div>
         </div>
 
