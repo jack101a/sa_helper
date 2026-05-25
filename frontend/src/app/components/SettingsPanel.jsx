@@ -5,6 +5,12 @@ import { useThemeContext } from "../context/ThemeContext";
 import { apiGet, apiPostJson } from "../../api/client";
 import { EmptyState } from "./EmptyState";
 
+function isNotExpired(value) {
+  if (!value) return true;
+  const ts = new Date(value).getTime();
+  return Number.isNaN(ts) || ts >= Date.now();
+}
+
 export function SettingsPanel({
   apiKeys,
   access,
@@ -61,6 +67,12 @@ export function SettingsPanel({
   const [backupConfigLoading, setBackupConfigLoading] = useState(false);
   const [backupConfigSaving, setBackupConfigSaving] = useState(false);
   const [backupTestWorking, setBackupTestWorking] = useState("");
+  const configurableKeys = apiKeys.filter((key) => (
+    key.enabled !== false
+    && !key.revoked_at
+    && isNotExpired(key.expires_at)
+    && typeof key.id !== "string"
+  ));
 
   const updateBackupRemoteConfig = (key, value) => {
     setBackupRemoteConfig(prev => ({ ...prev, [key]: value }));
@@ -518,7 +530,7 @@ export function SettingsPanel({
               <label className={`text-xs block mb-1 ${t_textMuted}`}>Select API Key</label>
               <select className={glassInput} value={settingsKeyId} onChange={(e) => handleSettingsKeyChange(e.target.value)}>
                 <option value="" disabled>Select API key</option>
-                {apiKeys.map((k) => <option key={k.id} value={k.id}>{k.name} (#{k.id})</option>)}
+                {configurableKeys.map((k) => <option key={k.id} value={k.id}>{k.name} (#{k.id})</option>)}
               </select>
             </div>
             <label className={`flex items-center gap-2 text-xs ${t_textMuted} font-medium`}>
@@ -550,7 +562,7 @@ export function SettingsPanel({
               <label className={`text-xs block mb-1 ${t_textMuted}`}>Select API Key</label>
               <select className={glassInput} value={settingsKeyId} onChange={(e) => handleSettingsKeyChange(e.target.value)}>
                 <option value="" disabled>Select API key</option>
-                {apiKeys.map((k) => <option key={k.id} value={k.id}>{k.name} (#{k.id})</option>)}
+                {configurableKeys.map((k) => <option key={k.id} value={k.id}>{k.name} (#{k.id})</option>)}
               </select>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -575,7 +587,7 @@ export function SettingsPanel({
             <label className={`text-xs block mb-1 ${t_textMuted}`}>Select API Key</label>
             <select className={glassInput} value={settingsKeyId} onChange={(e) => handleSettingsKeyChange(e.target.value)}>
               <option value="" disabled>Select API key</option>
-              {apiKeys.map((k) => <option key={k.id} value={k.id}>{k.name} (#{k.id})</option>)}
+              {configurableKeys.map((k) => <option key={k.id} value={k.id}>{k.name} (#{k.id})</option>)}
             </select>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

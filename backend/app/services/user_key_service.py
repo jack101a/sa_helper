@@ -133,6 +133,41 @@ class UserKeyService:
         finally:
             session.close()
 
+    def delete_key(self, key_id: int) -> bool:
+        """Delete one user-linked key and its device bindings."""
+        session = self._session()
+        try:
+            key = session.query(UserApiKey).filter(UserApiKey.id == key_id).first()
+            if not key:
+                return False
+            session.query(UserApiKeyDevice).filter(UserApiKeyDevice.api_key_id == key_id).delete()
+            session.delete(key)
+            session.commit()
+            return True
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def delete_revoked_keys(self) -> int:
+        """Delete user-linked keys explicitly marked revoked."""
+        session = self._session()
+        try:
+            keys = session.query(UserApiKey).filter(UserApiKey.status == "revoked").all()
+            key_ids = [int(key.id) for key in keys]
+            if not key_ids:
+                return 0
+            session.query(UserApiKeyDevice).filter(UserApiKeyDevice.api_key_id.in_(key_ids)).delete(synchronize_session=False)
+            session.query(UserApiKey).filter(UserApiKey.id.in_(key_ids)).delete(synchronize_session=False)
+            session.commit()
+            return len(key_ids)
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     # ── Validation ────────────────────────────────────────────────────────
 
     def validate_key(self, plain_key: str) -> dict | None:

@@ -128,6 +128,32 @@ class APIKeyRepository(BaseRepository):
                 conn.commit()
                 return result.rowcount > 0
 
+    def delete_revoked_api_keys(self) -> int:
+        """Delete all revoked legacy keys and dependent metadata."""
+        with self._lock:
+            with self.connect() as conn:
+                rows = conn.execute(
+                    "SELECT id FROM api_keys WHERE enabled = 0 OR revoked_at IS NOT NULL"
+                ).fetchall()
+                key_ids = [int(row["id"]) for row in rows]
+                for key_id in key_ids:
+                    conn.execute("DELETE FROM usage_events WHERE key_id = ?", (key_id,))
+                    conn.execute("DELETE FROM api_key_allowed_domains WHERE key_id = ?", (key_id,))
+                    conn.execute("DELETE FROM api_key_rate_limits WHERE key_id = ?", (key_id,))
+                    conn.execute("DELETE FROM api_key_device_bindings WHERE key_id = ?", (key_id,))
+                    conn.execute("DELETE FROM field_mapping_proposals WHERE reported_by = ?", (key_id,))
+                    conn.execute("DELETE FROM active_learning WHERE reported_by = ?", (key_id,))
+                    conn.execute("UPDATE retrain_jobs SET requested_by = NULL WHERE requested_by = ?", (key_id,))
+                    conn.execute(
+                        "UPDATE retrain_samples SET labeled_by = NULL WHERE labeled_by = ?",
+                        (key_id,),
+                    )
+                    conn.execute("DELETE FROM retrain_samples WHERE reported_by = ?", (key_id,))
+                    conn.execute("DELETE FROM platform_settings WHERE key = ?", (f"api_key_plain_{key_id}",))
+                    conn.execute("DELETE FROM api_keys WHERE id = ?", (key_id,))
+                conn.commit()
+                return len(key_ids)
+
     def insert_usage_event(
         self,
         key_id: int,

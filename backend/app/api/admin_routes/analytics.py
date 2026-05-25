@@ -2,7 +2,7 @@ from __future__ import annotations
 import base64
 import os
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
@@ -20,6 +20,21 @@ _IGNORED_FAILED_DOMAINS = {"localhost", "127.0.0.1", "ratetest.local"}
 # Use absolute path for templates
 _TEMPLATE_DIR = Path(__file__).resolve().parents[2] / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+
+
+def _is_not_expired(value: Any) -> bool:
+    if not value:
+        return True
+    if isinstance(value, datetime):
+        expires_at = value
+    else:
+        try:
+            expires_at = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except Exception:
+            return True
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return expires_at >= datetime.now(timezone.utc)
 
 async def _collect_datasets_files(container, labels_by_file: dict) -> list[dict[str, str]]:
     datasets_files: list[dict[str, str]] = []
@@ -82,17 +97,32 @@ async def admin_bootstrap(request: Request):
         _repair_approved_proposals(container)
     except Exception:
         pass
+    try:
+        container.db.delete_revoked_api_keys()
+        request.app.state.user_key_service.delete_revoked_keys()
+    except Exception:
+        pass
     usage = container.db.get_usage_summary()
     labels_by_file = container.db.get_failed_payload_labels()
-    api_keys = container.db.get_all_api_keys()
+    api_keys = [
+        key for key in container.db.get_all_api_keys()
+        if bool(key.get("enabled")) and not key.get("revoked_at") and _is_not_expired(key.get("expires_at"))
+    ]
     
     # Merge UserApiKeys from SQLAlchemy
     from app.core.db import get_session
     from app.core.models import UserApiKey, User
     session = get_session()
     try:
-        user_keys = session.query(UserApiKey).order_by(UserApiKey.issued_at.desc()).all()
+        user_keys = (
+            session.query(UserApiKey)
+            .filter(UserApiKey.status == "active")
+            .order_by(UserApiKey.issued_at.desc())
+            .all()
+        )
         for uk in user_keys:
+            if not _is_not_expired(uk.expires_at):
+                continue
             user = session.query(User).filter(User.id == uk.user_id).first()
             api_keys.append({
                 "id": f"U-{uk.id}",

@@ -196,6 +196,7 @@ async def revoke_key(request: Request, key_id: int = Form(...)):
         return denied
     container = request.app.state.container
     container.key_service.revoke_key_by_id(key_id)
+    container.key_service.delete_revoked_key_by_id(key_id)
     _write_auto_backup(container, "revoke_key")
     return RedirectResponse(url="/admin/", status_code=303)
 

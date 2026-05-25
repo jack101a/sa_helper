@@ -518,6 +518,7 @@ class Database:
     def revoke_api_key(self, *args, **kwargs): return self.api_keys.revoke_api_key(*args, **kwargs)
     def revoke_api_key_by_id(self, *args, **kwargs): return self.api_keys.revoke_api_key_by_id(*args, **kwargs)
     def delete_revoked_api_key_by_id(self, *args, **kwargs): return self.api_keys.delete_revoked_api_key_by_id(*args, **kwargs)
+    def delete_revoked_api_keys(self, *args, **kwargs): return self.api_keys.delete_revoked_api_keys(*args, **kwargs)
     def insert_usage_event(self, *args, **kwargs): return self.api_keys.insert_usage_event(*args, **kwargs)
     def get_usage_summary(self, *args, **kwargs): return self.api_keys.get_usage_summary(*args, **kwargs)
     def get_all_api_keys(self, *args, **kwargs): return self.api_keys.get_all_api_keys(*args, **kwargs)

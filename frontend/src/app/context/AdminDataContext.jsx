@@ -11,6 +11,12 @@ const AdminDataContext = createContext(null);
 
 const KEY_MEM_KEY = "tata_admin_created_keys";
 
+function isNotExpired(value) {
+  if (!value) return true;
+  const ts = new Date(value).getTime();
+  return Number.isNaN(ts) || ts >= Date.now();
+}
+
 export function AdminDataProvider({ children }) {
   const { toast, showToast } = useToast();
   const {
@@ -70,9 +76,10 @@ export function AdminDataProvider({ children }) {
   }, [rememberedKeys]);
   useEffect(() => {
     if (!apiKeys.length) return;
-    const active = apiKeys.find(k => k.enabled) || apiKeys[0];
+    const configurable = apiKeys.filter(k => k.enabled && !k.revoked_at && isNotExpired(k.expires_at) && typeof k.id !== "string");
+    const active = configurable[0];
     if (!active) return;
-    if (!settingsKeyId || !apiKeys.some(k => String(k.id) === String(settingsKeyId))) {
+    if (!settingsKeyId || !configurable.some(k => String(k.id) === String(settingsKeyId))) {
       setSettingsKeyId(String(active.id));
       setSettingsAllDomains(active.all_domains !== undefined ? Boolean(active.all_domains) : true);
       setSettingsDomainSelections(active.allowed_domains || []);
@@ -149,4 +156,3 @@ export function useAdminDataContext() {
   if (!ctx) throw new Error("useAdminDataContext must be used within AdminDataProvider");
   return ctx;
 }
-

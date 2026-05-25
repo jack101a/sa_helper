@@ -78,6 +78,7 @@ async def revoke_user_key(request: Request, user_id: int) -> Any:
         return JSONResponse({"error": "No active key found"}, status_code=404)
 
     svc.revoke_key(key.id, reason="admin_revoked")
+    svc.delete_key(key.id)
     container.audit_service.log(
         actor_type="admin", action="user_key_revoked",
         target_type="user_api_key", target_id=key.id,
