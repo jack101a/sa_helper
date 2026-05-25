@@ -138,7 +138,7 @@ async function handleLogin() {
             serverUrl: SERVER_URL,
             isMaster: false,
             keyName: resp.data.key_name || 'Generic Key',
-            expiresAt: resp.data.expires_at || null,
+            expiresAt: resp.data.subscription_expires_at || resp.data.expires_at || null,
             enabledServices: services,
             autofillEnabled: serviceAllowed(services, 'autofill'),
             captchaEnabled: serviceAllowed(services, 'captcha'),

@@ -22,6 +22,7 @@ from .utils import (
     get_request_entitlements,
     userscript_access,
     userscript_allowed_for_key,
+    userscript_string_list,
     userscript_sync_status,
 )
 
