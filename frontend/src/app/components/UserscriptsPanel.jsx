@@ -17,6 +17,7 @@ export function UserscriptsPanel({
   const [formData, setFormData] = useState({
     name: "",
     code: "",
+    enabled: true,
     accessScope: "global",
     plans: [],
     apiKeyIds: ""
@@ -67,13 +68,14 @@ export function UserscriptsPanel({
       setFormData({
         name: script.name || "",
         code: script.code || "",
+        enabled: script.enabled !== false,
         accessScope: script.accessScope || "global",
         plans: Array.isArray(script.plans) ? script.plans : [],
         apiKeyIds: Array.isArray(script.apiKeyIds) ? script.apiKeyIds.join(", ") : ""
       });
     } else {
       setEditingScript(null);
-      setFormData({ name: "", code: "", accessScope: "global", plans: [], apiKeyIds: "" });
+      setFormData({ name: "", code: "", enabled: true, accessScope: "global", plans: [], apiKeyIds: "" });
     }
     setIsModalOpen(true);
   };
@@ -140,6 +142,24 @@ export function UserscriptsPanel({
     }
   };
 
+  const handleToggleEnabled = async (script) => {
+    const nextEnabled = script.enabled === false;
+    try {
+      await apiPutJson(`/admin/api/userscripts/${script.id}`, {
+        name: script.name || "",
+        code: script.code || "",
+        enabled: nextEnabled,
+        accessScope: script.accessScope || "global",
+        plans: Array.isArray(script.plans) ? script.plans : [],
+        apiKeyIds: Array.isArray(script.apiKeyIds) ? script.apiKeyIds : [],
+      });
+      showToast(`Userscript ${nextEnabled ? "enabled" : "disabled"}`, "success");
+      await refreshUserscripts();
+    } catch (err) {
+      showToast(err.message, "error");
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className={`rounded-2xl transition-colors duration-500 overflow-hidden ${glassPanel}`}>
@@ -183,7 +203,10 @@ export function UserscriptsPanel({
               {(userscripts || []).map((script) => (
                 <tr key={script.id} className={`group ${t_rowHover}`}>
                   <td className="py-4 pr-3 font-semibold">{script.name || script.id}</td>
-                  <td className="py-4 pr-3">{script.version || "0.0.0"}</td>
+                  <td className="py-4 pr-3">
+                    <div>{script.version || "0.0.0"}</div>
+                    {script.enabled === false && <span className="mt-1 inline-block px-2 py-0.5 rounded-md text-[10px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">Disabled</span>}
+                  </td>
                   <td className="py-4 pr-3">{script.runAt || "document-idle"}</td>
                   <td className="py-4 pr-3">
                     <div className="flex flex-col gap-1">
@@ -206,6 +229,14 @@ export function UserscriptsPanel({
                   </td>
                   <td className="py-4 text-right">
                     <div className="flex justify-end gap-2">
+                      <label className={`inline-flex items-center gap-2 px-2 py-1 rounded-lg text-[10px] cursor-pointer ${script.enabled === false ? (isDark ? "bg-white/5 text-gray-400" : "bg-slate-100 text-slate-500") : (isDark ? "bg-emerald-500/10 text-emerald-300" : "bg-emerald-50 text-emerald-700")}`}>
+                        <input
+                          type="checkbox"
+                          checked={script.enabled !== false}
+                          onChange={() => handleToggleEnabled(script)}
+                        />
+                        {script.enabled === false ? "Disabled" : "Enabled"}
+                      </label>
                       <button 
                         onClick={() => openModal(script)} 
                         className={`p-2 rounded-lg transition-colors ${isDark ? "hover:bg-white/10 text-gray-400 hover:text-white" : "hover:bg-slate-100 text-slate-500 hover:text-slate-800"}`}
@@ -272,6 +303,18 @@ export function UserscriptsPanel({
                     </select>
                   </div>
                 </div>
+
+                <label className={`flex items-center justify-between gap-3 rounded-xl border px-4 py-3 ${t_borderLight}`}>
+                  <span>
+                    <span className={`block text-sm font-semibold ${t_textHeading}`}>Enable Userscript</span>
+                    <span className={`block text-[11px] ${t_textMuted}`}>Disabled scripts stay saved but are not delivered to normal user extensions.</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={formData.enabled !== false}
+                    onChange={e => setFormData({ ...formData, enabled: e.target.checked })}
+                  />
+                </label>
 
                 {formData.accessScope === "plan" && (
                   <div className="space-y-1">

@@ -145,6 +145,8 @@ def _update_index(access_updates: dict[str, dict] | None = None):
         enabled = True
         if uid in existing_entries:
             enabled = bool(existing_entries[uid].get("enabled", True))
+        if access_updates and uid in access_updates and "enabled" in access_updates[uid]:
+            enabled = bool(access_updates[uid].get("enabled"))
         access = _access_from_entry(existing_entries.get(uid))
         if access_updates and uid in access_updates:
             access = _access_from_body(access_updates[uid], access)
