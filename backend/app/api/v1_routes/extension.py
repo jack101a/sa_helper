@@ -29,6 +29,33 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["v1"])
 
+_STALL_RUNTIME_DEFAULTS = {
+    "authentication_handler": {
+        "runtimeRole": "stall_core",
+        "runtimeRoles": ["stall_core", "stall_auth"],
+        "stallRunMode": "auth_pages",
+    },
+    "bypass_sarathi_restrictions_v2": {
+        "runtimeRole": "stall_core",
+        "runtimeRoles": ["stall_core", "stall_sarathi_guard"],
+        "stallRunMode": "stall_pages",
+    },
+    "enable_all_form_fields_for_stall": {
+        "runtimeRole": "stall_core",
+        "runtimeRoles": ["stall_core", "stall_form_unlocker"],
+        "stallRunMode": "stall_pages",
+    },
+}
+
+
+def _userscript_runtime_metadata(script_id: str, entry: dict) -> dict:
+    defaults = _STALL_RUNTIME_DEFAULTS.get(str(script_id or "").strip()) or {}
+    return {
+        "runtimeRole": str(defaults.get("runtimeRole") or entry.get("runtimeRole") or entry.get("runtime_role") or ""),
+        "runtimeRoles": userscript_string_list(defaults.get("runtimeRoles") or entry.get("runtimeRoles") or entry.get("runtime_roles")),
+        "stallRunMode": str(defaults.get("stallRunMode") or entry.get("stallRunMode") or entry.get("stall_run_mode") or ""),
+    }
+
 
 def _truthy_setting(value: str) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
@@ -162,6 +189,7 @@ async def sync_userscripts(request: Request) -> dict:
                     if not userscript_allowed_for_key(entry, key_record, entitlements):
                         continue
                     access = userscript_access(entry)
+                    runtime_metadata = _userscript_runtime_metadata(script_id, entry)
                     scripts_data.append({
                         "id": script_id,
                         "name": str(entry.get("name") or parsed["name"] or script_id),
@@ -172,6 +200,7 @@ async def sync_userscripts(request: Request) -> dict:
                         "accessScope": access["accessScope"],
                         "plans": access["plans"],
                         "apiKeyIds": access["apiKeyIds"],
+                        "services": access["services"],
                         "matches": entry.get("matches") if isinstance(entry.get("matches"), list) else parsed["matches"],
                         "includes": entry.get("includes") if isinstance(entry.get("includes"), list) else parsed["includes"],
                         "exclude": entry.get("exclude") if isinstance(entry.get("exclude"), list) else parsed["exclude"],
@@ -182,9 +211,7 @@ async def sync_userscripts(request: Request) -> dict:
                         "grants": entry.get("grants") if isinstance(entry.get("grants"), list) else parsed["grants"],
                         "connects": entry.get("connects") if isinstance(entry.get("connects"), list) else parsed["connects"],
                         "noframes": bool(entry.get("noframes", parsed["noframes"])),
-                        "runtimeRole": str(entry.get("runtimeRole") or entry.get("runtime_role") or ""),
-                        "runtimeRoles": userscript_string_list(entry.get("runtimeRoles") or entry.get("runtime_roles")),
-                        "stallRunMode": str(entry.get("stallRunMode") or entry.get("stall_run_mode") or ""),
+                        **runtime_metadata,
                         "diagnostics": parsed.get("diagnostics", {"warnings": [], "errors": []}),
                         "syncStatus": userscript_sync_status(parsed),
                         "updatedAt": int(path.stat().st_mtime),
@@ -215,6 +242,7 @@ async def sync_userscripts(request: Request) -> dict:
                     "accessScope": "global",
                     "plans": [],
                     "apiKeyIds": [],
+                    "services": [],
                     "matches": parsed["matches"],
                     "includes": parsed["includes"],
                     "exclude": parsed["exclude"],

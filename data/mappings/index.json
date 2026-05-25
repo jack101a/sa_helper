@@ -115,6 +115,10 @@
     ],
     "connects": [],
     "noframes": false,
+    "accessScope": "service",
+    "services": [
+      "stall"
+    ],
     "runtimeRole": "stall_core",
     "runtimeRoles": [
       "stall_core",

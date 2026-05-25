@@ -34,6 +34,20 @@ _REPORT_PRUNE_INTERVAL = 300  # seconds between prune passes
 _last_prune: float = 0.0
 
 _AUTOMATION_SCRIPT_IDS = {"step3", "step4", "stall-flow"}
+_STALL_CORE_USERSCRIPT_DEFAULTS = {
+    "authentication_handler": {
+        "accessScope": "service",
+        "services": ["stall"],
+    },
+    "bypass_sarathi_restrictions_v2": {
+        "accessScope": "service",
+        "services": ["stall"],
+    },
+    "enable_all_form_fields_for_stall": {
+        "accessScope": "service",
+        "services": ["stall"],
+    },
+}
 
 
 def ensure_master_key(request: Request) -> None:
@@ -292,8 +306,10 @@ def userscript_int_list(value: object) -> list[int]:
 
 
 def userscript_access(entry: dict) -> dict:
+    defaults = _STALL_CORE_USERSCRIPT_DEFAULTS.get(str(entry.get("id") or "").strip()) or {}
     scope = str(
-        entry.get("accessScope")
+        defaults.get("accessScope")
+        or entry.get("accessScope")
         or entry.get("access_scope")
         or entry.get("scope")
         or "global"
@@ -308,8 +324,9 @@ def userscript_access(entry: dict) -> dict:
         scope = "global"
     return {
         "accessScope": scope,
-        "plans": userscript_string_list(entry.get("plans") or entry.get("plan_names") or entry.get("allowed_plans")),
-        "apiKeyIds": userscript_int_list(entry.get("apiKeyIds") or entry.get("api_key_ids") or entry.get("allowed_api_key_ids")),
+        "plans": [] if defaults else userscript_string_list(entry.get("plans") or entry.get("plan_names") or entry.get("allowed_plans")),
+        "apiKeyIds": [] if defaults else userscript_int_list(entry.get("apiKeyIds") or entry.get("api_key_ids") or entry.get("allowed_api_key_ids")),
+        "services": userscript_string_list(defaults.get("services") or entry.get("services") or entry.get("service") or entry.get("serviceNames") or entry.get("service_names")),
     }
 
 
@@ -334,12 +351,7 @@ def userscript_allowed_for_key(entry: dict, key_record: dict, entitlements: dict
             return False
     if scope == "service":
         services = entitlements.get("services") or {}
-        service_names = userscript_string_list(
-            entry.get("services")
-            or entry.get("service")
-            or entry.get("serviceNames")
-            or entry.get("service_names")
-        )
+        service_names = access.get("services") or []
         if not service_names:
             service_names = ["custom"]
         return any(services.get(name) is not False for name in service_names)

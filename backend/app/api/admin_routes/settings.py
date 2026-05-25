@@ -13,6 +13,29 @@ from .utils import _admin_guard, _write_auto_backup
 router = APIRouter(tags=["admin-settings"])
 _PROJECT_ROOT = get_project_root()
 _USERSCRIPTS_DIR = (_PROJECT_ROOT / "data" / "mappings").resolve()
+_STALL_CORE_USERSCRIPT_DEFAULTS = {
+    "authentication_handler": {
+        "accessScope": "service",
+        "services": ["stall"],
+        "runtimeRole": "stall_core",
+        "runtimeRoles": ["stall_core", "stall_auth"],
+        "stallRunMode": "auth_pages",
+    },
+    "bypass_sarathi_restrictions_v2": {
+        "accessScope": "service",
+        "services": ["stall"],
+        "runtimeRole": "stall_core",
+        "runtimeRoles": ["stall_core", "stall_sarathi_guard"],
+        "stallRunMode": "stall_pages",
+    },
+    "enable_all_form_fields_for_stall": {
+        "accessScope": "service",
+        "services": ["stall"],
+        "runtimeRole": "stall_core",
+        "runtimeRoles": ["stall_core", "stall_form_unlocker"],
+        "stallRunMode": "stall_pages",
+    },
+}
 
 
 def _user_extension_package_dir() -> Path:
@@ -106,10 +129,12 @@ def _int_list(value: object) -> list[int]:
 
 def _access_from_entry(entry: dict | None) -> dict:
     entry = entry or {}
+    defaults = _STALL_CORE_USERSCRIPT_DEFAULTS.get(str(entry.get("id") or "").strip())
     return {
-        "accessScope": _access_scope(entry.get("accessScope") or entry.get("access_scope") or entry.get("scope")),
-        "plans": _string_list(entry.get("plans") or entry.get("plan_names") or entry.get("allowed_plans")),
-        "apiKeyIds": _int_list(entry.get("apiKeyIds") or entry.get("api_key_ids") or entry.get("allowed_api_key_ids")),
+        "accessScope": _access_scope((defaults or {}).get("accessScope") or entry.get("accessScope") or entry.get("access_scope") or entry.get("scope")),
+        "plans": [] if defaults else _string_list(entry.get("plans") or entry.get("plan_names") or entry.get("allowed_plans")),
+        "apiKeyIds": [] if defaults else _int_list(entry.get("apiKeyIds") or entry.get("api_key_ids") or entry.get("allowed_api_key_ids")),
+        "services": _string_list((defaults or {}).get("services") or entry.get("services") or entry.get("service") or entry.get("serviceNames") or entry.get("service_names")),
     }
 
 
@@ -119,14 +144,16 @@ def _access_from_body(body: dict, fallback: dict | None = None) -> dict:
         "accessScope": _access_scope(body.get("accessScope") or body.get("access_scope") or body.get("scope") or fallback_access["accessScope"]),
         "plans": _string_list(body.get("plans", fallback_access["plans"])),
         "apiKeyIds": _int_list(body.get("apiKeyIds", body.get("api_key_ids", fallback_access["apiKeyIds"]))),
+        "services": _string_list(body.get("services", body.get("serviceNames", fallback_access["services"]))),
     }
 
 
 def _runtime_metadata_from_entry(entry: dict | None) -> dict:
     entry = entry or {}
-    runtime_role = str(entry.get("runtimeRole") or entry.get("runtime_role") or "").strip()
-    runtime_roles = _string_list(entry.get("runtimeRoles") or entry.get("runtime_roles"))
-    stall_run_mode = str(entry.get("stallRunMode") or entry.get("stall_run_mode") or "").strip()
+    defaults = _STALL_CORE_USERSCRIPT_DEFAULTS.get(str(entry.get("id") or "").strip()) or {}
+    runtime_role = str(defaults.get("runtimeRole") or entry.get("runtimeRole") or entry.get("runtime_role") or "").strip()
+    runtime_roles = _string_list(defaults.get("runtimeRoles") or entry.get("runtimeRoles") or entry.get("runtime_roles"))
+    stall_run_mode = str(defaults.get("stallRunMode") or entry.get("stallRunMode") or entry.get("stall_run_mode") or "").strip()
     out: dict[str, object] = {}
     if runtime_role:
         out["runtimeRole"] = runtime_role
@@ -176,6 +203,7 @@ def _update_index(access_updates: dict[str, dict] | None = None):
             "accessScope": access["accessScope"],
             "plans": access["plans"],
             "apiKeyIds": access["apiKeyIds"],
+            "services": access["services"],
             "matches": meta["matches"],
             "includes": meta["includes"],
             "exclude": meta["exclude"],
@@ -494,6 +522,8 @@ async def list_userscripts(request: Request):
                         "accessScope": _access_from_entry(entry)["accessScope"],
                         "plans": _access_from_entry(entry)["plans"],
                         "apiKeyIds": _access_from_entry(entry)["apiKeyIds"],
+                        "services": _access_from_entry(entry)["services"],
+                        **_runtime_metadata_from_entry(entry),
                         "matches": matches,
                         "matches_count": len(matches),
                         "requires_count": len(entry.get("requires") if isinstance(entry.get("requires"), list) else parsed["requires"]),
@@ -521,6 +551,7 @@ async def list_userscripts(request: Request):
                 "accessScope": "global",
                 "plans": [],
                 "apiKeyIds": [],
+                "services": [],
                 "matches": parsed["matches"],
                 "matches_count": len(parsed["matches"]),
                 "requires_count": len(parsed["requires"]),
@@ -599,6 +630,7 @@ async def create_userscript(request: Request):
         "accessScope": access["accessScope"],
         "plans": access["plans"],
         "apiKeyIds": access["apiKeyIds"],
+        "services": access["services"],
         "meta": final_meta,
         "diagnostics": final_meta.get("diagnostics", {"warnings": [], "errors": []}),
         "syncStatus": _userscript_sync_status(final_meta),
@@ -646,6 +678,7 @@ async def update_userscript(request: Request, uid: str):
         "accessScope": access["accessScope"],
         "plans": access["plans"],
         "apiKeyIds": access["apiKeyIds"],
+        "services": access["services"],
         "meta": final_meta,
         "diagnostics": final_meta.get("diagnostics", {"warnings": [], "errors": []}),
         "syncStatus": _userscript_sync_status(final_meta),

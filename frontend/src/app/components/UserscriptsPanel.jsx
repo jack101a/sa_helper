@@ -20,7 +20,11 @@ export function UserscriptsPanel({
     enabled: true,
     accessScope: "global",
     plans: [],
-    apiKeyIds: ""
+    apiKeyIds: "",
+    services: [],
+    runtimeRole: "",
+    runtimeRoles: [],
+    stallRunMode: ""
   });
   const [availablePlans, setAvailablePlans] = useState([]);
   const [togglingId, setTogglingId] = useState("");
@@ -94,11 +98,15 @@ export function UserscriptsPanel({
         enabled: script.enabled !== false,
         accessScope: script.accessScope || "global",
         plans: Array.isArray(script.plans) ? script.plans : [],
-        apiKeyIds: Array.isArray(script.apiKeyIds) ? script.apiKeyIds.join(", ") : ""
+        apiKeyIds: Array.isArray(script.apiKeyIds) ? script.apiKeyIds.join(", ") : "",
+        services: Array.isArray(script.services) ? script.services : [],
+        runtimeRole: script.runtimeRole || "",
+        runtimeRoles: Array.isArray(script.runtimeRoles) ? script.runtimeRoles : [],
+        stallRunMode: script.stallRunMode || ""
       });
     } else {
       setEditingScript(null);
-      setFormData({ name: "", code: "", enabled: true, accessScope: "global", plans: [], apiKeyIds: "" });
+      setFormData({ name: "", code: "", enabled: true, accessScope: "global", plans: [], apiKeyIds: "", services: [], runtimeRole: "", runtimeRoles: [], stallRunMode: "" });
     }
     setIsModalOpen(true);
   };
@@ -136,9 +144,14 @@ export function UserscriptsPanel({
         showToast("Select at least one plan for plan access.", "error");
         return;
       }
+      if (formData.accessScope === "service" && (!Array.isArray(formData.services) || formData.services.length === 0)) {
+        showToast("Enter at least one service for service access.", "error");
+        return;
+      }
       const payload = {
         ...formData,
         plans: formData.accessScope === "plan" ? selectedPlanNames : [],
+        services: formData.accessScope === "service" ? formData.services : [],
         apiKeyIds: String(formData.apiKeyIds || "").split(/[,;\n]+/).map(item => Number(item.trim())).filter(Number.isFinite),
       };
       if (editingScript) {
@@ -230,10 +243,12 @@ export function UserscriptsPanel({
                   <td className="py-4 pr-3">
                     <div className="flex flex-col gap-1">
                       <span className={`w-fit px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase ${isDark ? "bg-emerald-500/15 text-emerald-300" : "bg-emerald-50 text-emerald-700"}`}>
-                        {(script.accessScope || "global") === "global" ? "Global - all users" : script.accessScope}
+                        {(script.accessScope || "global") === "global" ? "Global - all users" : script.accessScope === "service" ? "Service entitlement" : script.accessScope}
                       </span>
                       {script.accessScope === "plan" && <span className={`text-[10px] ${t_textMuted}`}>{(script.plans || []).join(", ") || "No plans"}</span>}
+                      {script.accessScope === "service" && <span className={`text-[10px] ${t_textMuted}`}>{(script.services || []).join(", ") || "No services"}</span>}
                       {(script.accessScope === "key" || script.accessScope === "custom") && <span className={`text-[10px] ${t_textMuted}`}>{(script.apiKeyIds || []).join(", ") || "No keys"}</span>}
+                      {script.runtimeRole && <span className={`text-[10px] ${t_textMuted}`}>{script.runtimeRole}{script.stallRunMode ? ` / ${script.stallRunMode}` : ""}</span>}
                     </div>
                   </td>
                   <td className="py-4 pr-3">
@@ -314,11 +329,13 @@ export function UserscriptsPanel({
                         ...formData,
                         accessScope: e.target.value,
                         plans: e.target.value === "plan" ? formData.plans : [],
+                        services: e.target.value === "service" ? formData.services : [],
                       })}
                       className={`${glassInput} w-full text-sm`}
                     >
                       <option value="global">Global - all users</option>
                       <option value="plan">Plan</option>
+                      <option value="service">Service entitlement</option>
                       <option value="key">API key IDs</option>
                     </select>
                   </div>
@@ -383,6 +400,23 @@ export function UserscriptsPanel({
                       placeholder="12, 34, 56"
                       className={`${glassInput} w-full text-sm`}
                     />
+                  </div>
+                )}
+
+                {formData.accessScope === "service" && (
+                  <div className="space-y-1">
+                    <label className={`text-xs font-semibold ${t_textMuted}`}>Services</label>
+                    <input
+                      type="text"
+                      value={(formData.services || []).join(", ")}
+                      onChange={e => setFormData({
+                        ...formData,
+                        services: e.target.value.split(/[,;\n]+/).map(item => item.trim()).filter(Boolean),
+                      })}
+                      placeholder="stall, captcha"
+                      className={`${glassInput} w-full text-sm`}
+                    />
+                    <p className={`text-[11px] ${t_textMuted}`}>Delivered only when the user's plan or key has one of these services enabled.</p>
                   </div>
                 )}
 
