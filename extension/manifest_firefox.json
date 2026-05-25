@@ -32,6 +32,7 @@
         "<all_urls>"
       ],
       "js": [
+        "modules/copy_unlocker.js",
         "modules/userscript_matcher.js",
         "modules/userscript_runtime.js",
         "modules/userscript_engine.js"

@@ -29,6 +29,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["v1"])
 
 
+def _truthy_setting(value: str) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _pattern_list(value: str) -> list[str]:
+    out: list[str] = []
+    for raw in str(value or "").replace(",", "\n").splitlines():
+        item = raw.strip()
+        if item and item not in out:
+            out.append(item)
+    return out
+
+
 def _extension_reports_dir() -> Path:
     path = get_project_root() / "data" / "extension_error_reports"
     path.mkdir(parents=True, exist_ok=True)
@@ -79,6 +92,22 @@ def _write_extension_error_summary(events: list[dict]) -> dict:
     }
     (reports_dir / "latest_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     return summary
+
+
+@router.get("/extension/config")
+async def extension_config(request: Request) -> dict:
+    """Server-controlled extension features synced to authenticated clients."""
+    key_record = request.state.api_key_record
+    if not key_record:
+        raise HTTPException(401, "API key required")
+
+    db = request.app.state.container.db
+    return {
+        "copy_unlocker": {
+            "enabled": _truthy_setting(db.get_setting("extension.copy_unlocker.enabled", "false")),
+            "sites": _pattern_list(db.get_setting("extension.copy_unlocker.sites", "")),
+        }
+    }
 
 
 @router.get("/userscripts/sync")

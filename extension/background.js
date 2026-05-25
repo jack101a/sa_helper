@@ -336,6 +336,7 @@ const SENSITIVE_STORAGE_KEYS = [
     'userscripts',
     'normalized_userscripts',
     'userscript_logs',
+    'copyUnlockerConfig',
     'globalFieldRoutes',
     'globalLocators',
     'lastSync',
@@ -1099,9 +1100,32 @@ async function syncAuthState(source) {
             userscriptsEnabled: isMaster ? current.userscriptsEnabled !== false : isUserscriptsEntitledFrom({ enabledServices: services }),
             lastVerify: Date.now()
         });
+        await syncExtensionConfig(source);
         return { ok: true, verified: true };
     } catch (e) {
         console.warn(`[AuthSync:${source}] Verify failed:`, e.message);
+        return { ok: false, error: e.message };
+    }
+}
+
+async function syncExtensionConfig(source) {
+    try {
+        const data = await apiGet('/v1/extension/config');
+        const cfg = data?.copy_unlocker || {};
+        const sites = Array.isArray(cfg.sites)
+            ? cfg.sites.map(item => String(item || '').trim()).filter(Boolean).slice(0, 200)
+            : [];
+        await storageSet({
+            copyUnlockerConfig: {
+                enabled: cfg.enabled === true,
+                sites,
+                syncedAt: Date.now()
+            }
+        });
+        console.log(`[Sync:${source}] Extension config synced — copy unlocker ${cfg.enabled === true ? 'enabled' : 'disabled'}, ${sites.length} site(s)`);
+        return { ok: true, copyUnlockerSites: sites.length };
+    } catch (e) {
+        console.warn('[Sync] Extension config failed:', e.message);
         return { ok: false, error: e.message };
     }
 }

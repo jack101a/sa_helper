@@ -62,6 +62,7 @@ function DashboardPage() {
         allPayloadSelected={ctx.allPayloadSelected}
         datasetsDir={ctx.datasetsDir}
         loading={ctx.loading}
+        showToast={ctx.showToast}
         {...ctx.modelHandlers}
       />
 

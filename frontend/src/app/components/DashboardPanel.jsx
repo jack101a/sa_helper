@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import PropTypes from "prop-types";
-import { FileX2, Trash2, Download, Inbox } from "lucide-react";
+import { FileX2, Trash2, Download, Inbox, Save, ShieldCheck, Loader2 } from "lucide-react";
 import { useThemeContext } from "../context/ThemeContext";
+import { apiGet, apiPostJson } from "../../api/client";
 import { EmptyState } from "./EmptyState";
 import { SkeletonTableRow } from "./Skeleton";
 
@@ -17,8 +18,52 @@ export function DashboardPanel({
   handleIgnorePayload,
   handleBulkSavePayloads,
   handleBulkIgnorePayloads,
+  showToast,
 }) {
   const { isDark, t_textHeading, t_textMuted, t_borderLight, t_rowHover, glassPanel, glassButton, glassInput } = useThemeContext();
+  const [copyUnlockerEnabled, setCopyUnlockerEnabled] = useState(false);
+  const [copyUnlockerSites, setCopyUnlockerSites] = useState("");
+  const [copyUnlockerLoading, setCopyUnlockerLoading] = useState(true);
+  const [copyUnlockerSaving, setCopyUnlockerSaving] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    Promise.all([
+      apiGet("/admin/api/settings/extension.copy_unlocker.enabled").catch(() => ({ value: "false" })),
+      apiGet("/admin/api/settings/extension.copy_unlocker.sites").catch(() => ({ value: "" })),
+    ]).then(([enabled, sites]) => {
+      if (!alive) return;
+      setCopyUnlockerEnabled(String(enabled.value || "").toLowerCase() === "true");
+      setCopyUnlockerSites(sites.value || "");
+    }).finally(() => {
+      if (alive) setCopyUnlockerLoading(false);
+    });
+    return () => { alive = false; };
+  }, []);
+
+  const saveCopyUnlockerConfig = async () => {
+    setCopyUnlockerSaving(true);
+    try {
+      const normalizedSites = String(copyUnlockerSites || "")
+        .split(/[\n,]+/)
+        .map(item => item.trim())
+        .filter(Boolean)
+        .join("\n");
+      await apiPostJson("/admin/api/settings/bulk", {
+        settings: {
+          "extension.copy_unlocker.enabled": copyUnlockerEnabled ? "true" : "false",
+          "extension.copy_unlocker.sites": normalizedSites,
+        }
+      });
+      setCopyUnlockerSites(normalizedSites);
+      showToast("Copy/right-click unlocker settings saved.");
+    } catch (e) {
+      showToast("Failed to save unlocker settings: " + e.message, "error");
+    } finally {
+      setCopyUnlockerSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className={`rounded-2xl p-5 border backdrop-blur-md ${glassPanel} ${t_borderLight}`}>
@@ -51,6 +96,60 @@ export function DashboardPanel({
               <span className="text-white/20">|</span>
               <a href="/admin/api/extension/download?format=xpi&variant=user" className="text-xs font-bold text-orange-500 hover:underline">XPI</a>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div className={`rounded-2xl p-5 border backdrop-blur-md ${glassPanel} ${t_borderLight}`}>
+        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-5">
+          <div className="flex items-start gap-4">
+            <div className="p-3 bg-emerald-500/20 text-emerald-500 rounded-2xl shadow-inner">
+              <ShieldCheck size={24} />
+            </div>
+            <div>
+              <h3 className={`text-lg font-bold ${t_textHeading}`}>Copy & Right Click Unlocker</h3>
+              <p className={`text-xs mt-1 ${t_textMuted}`}>
+                Admin-controlled restore for right-click, text selection, copy, and normal paste on approved websites only.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={saveCopyUnlockerConfig}
+            disabled={copyUnlockerLoading || copyUnlockerSaving}
+            className={glassButton}
+          >
+            {copyUnlockerSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            {copyUnlockerSaving ? "Saving..." : "Save"}
+          </button>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 lg:grid-cols-[18rem_1fr] gap-4">
+          <label className={`flex items-center justify-between gap-3 rounded-xl border px-4 py-3 ${t_borderLight}`}>
+            <span>
+              <span className={`block text-sm font-semibold ${t_textHeading}`}>Enable Feature</span>
+              <span className={`block text-[11px] ${t_textMuted}`}>Only applies to listed websites.</span>
+            </span>
+            <input
+              type="checkbox"
+              checked={copyUnlockerEnabled}
+              onChange={(e) => setCopyUnlockerEnabled(e.target.checked)}
+              disabled={copyUnlockerLoading}
+            />
+          </label>
+          <div>
+            <label className={`text-xs block mb-1 ${t_textMuted}`}>Allowed Websites</label>
+            <textarea
+              className={`${glassInput} min-h-28 font-mono text-xs leading-relaxed`}
+              value={copyUnlockerSites}
+              onChange={(e) => setCopyUnlockerSites(e.target.value)}
+              disabled={copyUnlockerLoading}
+              placeholder={"example.com\n*.example.org\nhttps://example.net/articles/*"}
+              spellCheck={false}
+            />
+            <p className={`text-[11px] mt-2 ${t_textMuted}`}>
+              One domain or URL pattern per line. The extension ignores all other websites.
+            </p>
           </div>
         </div>
       </div>
@@ -134,4 +233,5 @@ DashboardPanel.propTypes = {
   handleIgnorePayload: PropTypes.func.isRequired,
   handleBulkSavePayloads: PropTypes.func.isRequired,
   handleBulkIgnorePayloads: PropTypes.func.isRequired,
+  showToast: PropTypes.func.isRequired,
 };
