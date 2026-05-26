@@ -46,7 +46,14 @@ def _serialize_subscription(sub: UserSubscription, plan: SubscriptionPlan | None
         data["plan_name"] = plan.name
         data["plan_code"] = plan.code
         data["plan_duration_days"] = plan.duration_days
+        data["plan_monthly_limit"] = plan.monthly_limit
+        data["plan_rate_limit_rpm"] = plan.rate_limit_rpm
+        data["plan_rate_limit_burst"] = plan.rate_limit_burst
     return data
+
+
+def _serialize_active_key(key: UserApiKey | None) -> dict | None:
+    return key.to_dict() if key else None
 
 
 def _ensure_usage_cycle(session, user_id: int, subscription_id: int, plan: SubscriptionPlan, now: datetime) -> None:
@@ -136,16 +143,39 @@ async def list_users(
                 plan = session.query(SubscriptionPlan).filter(SubscriptionPlan.id == sub.plan_id).first()
                 cycle = session.query(UsageCycle).filter(
                     UsageCycle.user_id == u.id,
+                    UsageCycle.subscription_id == sub.id,
                 ).order_by(UsageCycle.cycle_start_at.desc()).first()
+                active_key = (
+                    session.query(UserApiKey)
+                    .filter(UserApiKey.user_id == u.id, UserApiKey.status == "active")
+                    .order_by(UserApiKey.issued_at.desc())
+                    .first()
+                )
                 d["plan_name"] = plan.name if plan else None
                 d["plan_monthly_limit"] = plan.monthly_limit if plan else None
+                d["plan_rate_limit_rpm"] = plan.rate_limit_rpm if plan else None
+                d["plan_rate_limit_burst"] = plan.rate_limit_burst if plan else None
                 d["subscription_expiry"] = sub.end_at.isoformat() if sub.end_at else None
                 d["usage_used"] = cycle.used_count if cycle else 0
+                d["quota_used"] = cycle.used_count if cycle else 0
+                d["quota_limit"] = cycle.monthly_limit if cycle else (plan.monthly_limit if plan else 0)
+                d["active_key_id"] = active_key.id if active_key else None
+                d["active_key_prefix"] = active_key.key_prefix_display if active_key else None
+                d["key_usage_count"] = active_key.usage_count if active_key else 0
+                d["key_last_used_at"] = active_key.last_used_at.isoformat() if active_key and active_key.last_used_at else None
             else:
                 d["plan_name"] = None
                 d["plan_monthly_limit"] = None
+                d["plan_rate_limit_rpm"] = None
+                d["plan_rate_limit_burst"] = None
                 d["subscription_expiry"] = None
                 d["usage_used"] = 0
+                d["quota_used"] = 0
+                d["quota_limit"] = 0
+                d["active_key_id"] = None
+                d["active_key_prefix"] = None
+                d["key_usage_count"] = 0
+                d["key_last_used_at"] = None
             user_dicts.append(d)
     finally:
         session.close()
@@ -208,7 +238,28 @@ async def get_user(request: Request, user_id: int) -> Any:
             _serialize_subscription(active_sub, plans.get(active_sub.plan_id)) if active_sub else None
         )
         data["subscriptions"] = [_serialize_subscription(s, plans.get(s.plan_id)) for s in subs]
-        data["active_key"] = active_key.to_dict() if active_key else None
+        usage = None
+        if active_sub:
+            cycle = (
+                session.query(UsageCycle)
+                .filter(UsageCycle.user_id == user.id, UsageCycle.subscription_id == active_sub.id)
+                .order_by(UsageCycle.cycle_start_at.desc())
+                .first()
+            )
+            plan = plans.get(active_sub.plan_id)
+            usage = {
+                "quota_used": cycle.used_count if cycle else 0,
+                "quota_limit": cycle.monthly_limit if cycle else (plan.monthly_limit if plan else 0),
+                "cycle_start": cycle.cycle_start_at.isoformat() if cycle and cycle.cycle_start_at else None,
+                "cycle_end": cycle.cycle_end_at.isoformat() if cycle and cycle.cycle_end_at else None,
+            }
+
+        data["active_key"] = _serialize_active_key(active_key)
+        data["usage"] = usage or {"quota_used": 0, "quota_limit": 0, "cycle_start": None, "cycle_end": None}
+        data["rate_limit"] = {
+            "requests_per_minute": plans.get(active_sub.plan_id).rate_limit_rpm if active_sub and plans.get(active_sub.plan_id) else None,
+            "burst": plans.get(active_sub.plan_id).rate_limit_burst if active_sub and plans.get(active_sub.plan_id) else None,
+        }
         data["devices"] = [
             {
                 "id": d.id,

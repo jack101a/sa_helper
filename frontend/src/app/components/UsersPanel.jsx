@@ -51,6 +51,10 @@ function formatDate(value) {
   return value ? new Date(value).toLocaleDateString() : "--";
 }
 
+function formatCount(value) {
+  return Number(value || 0).toLocaleString();
+}
+
 function planDuration(plans, planId) {
   const plan = plans.find((p) => String(p.id) === String(planId));
   return plan?.duration_days || 30;
@@ -324,6 +328,8 @@ export function UsersPanel({ showToast }) {
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Mobile</th>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Telegram ID</th>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Plan</th>
+                  <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Key Usage</th>
+                  <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Rate</th>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Expiry</th>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Status</th>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Created</th>
@@ -338,8 +344,16 @@ export function UsersPanel({ showToast }) {
                     <td className={`p-3 font-mono text-xs ${t_textMuted}`}>{u.telegram_user_id || "--"}</td>
                     <td className={`p-3 ${t_textHeading}`}>
                       {u.plan_name ? (
-                        <span>{u.plan_name}<br/><span className={`text-xs ${t_textMuted}`}>{u.usage_used || 0}/{u.plan_monthly_limit || "?"} used</span></span>
+                        <span>{u.plan_name}<br/><span className={`text-xs ${t_textMuted}`}>Quota {formatCount(u.quota_used ?? u.usage_used)}/{formatCount(u.quota_limit ?? u.plan_monthly_limit)}</span></span>
                       ) : <span className={t_textMuted}>--</span>}
+                    </td>
+                    <td className={`p-3 ${t_textHeading}`}>
+                      {u.active_key_id ? (
+                        <span>{formatCount(u.key_usage_count)} requests<br/><span className={`text-xs ${t_textMuted}`}>{u.active_key_prefix || "--"} · last {formatDate(u.key_last_used_at)}</span></span>
+                      ) : <span className={t_textMuted}>No key</span>}
+                    </td>
+                    <td className={`p-3 ${t_textMuted}`}>
+                      {u.plan_rate_limit_rpm ? `${u.plan_rate_limit_rpm} RPM / +${u.plan_rate_limit_burst || 0}` : "--"}
                     </td>
                     <td className={`p-3 ${t_textMuted}`}>{formatDate(u.subscription_expiry)}</td>
                     <td className="p-3">
@@ -464,6 +478,14 @@ export function UsersPanel({ showToast }) {
                   <div className={`text-xs mb-3 ${t_textMuted}`}>
                     Current: {userDetails?.active_subscription?.plan_name || "--"} · Expires {formatDate(userDetails?.active_subscription?.end_at)}
                   </div>
+                  <div className={`grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs mb-3 ${t_textMuted}`}>
+                    <div>
+                      <span className={t_textHeading}>Plan quota:</span> {formatCount(userDetails?.usage?.quota_used)}/{formatCount(userDetails?.usage?.quota_limit)}
+                    </div>
+                    <div>
+                      <span className={t_textHeading}>Rate limit:</span> {userDetails?.rate_limit?.requests_per_minute || "--"} RPM / +{userDetails?.rate_limit?.burst || 0}
+                    </div>
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     <button type="button" className={glassButton} disabled={saving} onClick={() => handleSubscriptionAction("change-plan")}>
                       <RefreshCw size={14} /> Change Plan
@@ -481,7 +503,7 @@ export function UsersPanel({ showToast }) {
                   <h4 className={`text-sm font-semibold mb-3 ${t_textHeading}`}>User API Key</h4>
                   <div className={`text-xs mb-3 ${t_textMuted}`}>
                     {userDetails?.active_key ? (
-                      <>Active: <span className="font-mono">{userDetails.active_key.key_prefix_display}</span> · v{userDetails.active_key.key_version} · Devices {userDetails.devices?.filter((d) => d.status === "active").length || 0}</>
+                      <>Active: <span className="font-mono">{userDetails.active_key.key_prefix_display}</span> · v{userDetails.active_key.key_version} · {formatCount(userDetails.active_key.usage_count)} requests · last {formatDate(userDetails.active_key.last_used_at)} · Devices {userDetails.devices?.filter((d) => d.status === "active").length || 0}</>
                     ) : "No active user-linked key"}
                   </div>
                   <div className="flex flex-wrap gap-2">
