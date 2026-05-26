@@ -399,6 +399,19 @@
         return false;
     }
 
+    async function resolveStallWorkspaceActive(storedData) {
+        if (storedData.stallWorkspaceActive === true || storedData._automationState?.active === true) return true;
+        if (!isStallRelatedUrl(location.href) || !chrome.runtime?.id) return false;
+        try {
+            const resp = await chrome.runtime.sendMessage({ type: 'GET_STALL_STATE' });
+            if (resp?.ok && resp.state?.active) {
+                chrome.storage.local.set({ stallWorkspaceActive: true }, () => void chrome.runtime.lastError);
+                return true;
+            }
+        } catch (_) {}
+        return false;
+    }
+
     function buildWrappedCode(scriptData) {
         const meta = scriptData.parsedMeta || {};
         const id = scriptData.id || scriptData.name || 'unknown';
@@ -516,7 +529,7 @@ ${scriptData.rawCode || ''}
             return;
         }
         let data = await chrome.storage.local.get(['normalized_userscripts', 'userscriptsEnabled', '_automationState', 'stallWorkspaceActive']);
-        const stallWorkspaceActive = data.stallWorkspaceActive === true || data._automationState?.active === true;
+        const stallWorkspaceActive = await resolveStallWorkspaceActive(data);
         if (data.userscriptsEnabled === false) {
             console.log('[Userscript Engine] Global userscripts toggle is disabled.');
             return;

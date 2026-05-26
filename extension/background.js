@@ -1770,8 +1770,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
 
     if (msg.type === 'GET_STALL_STATE') {
-        sendResponse({ ok: true, state: automationState });
-        return false;
+        _stateReady
+            .then(() => sendResponse({ ok: true, state: automationState }))
+            .catch(() => sendResponse({ ok: true, state: automationState }));
+        return true;
     }
 
     if (msg.type === 'FETCH_STALL_PAYLOAD') {
