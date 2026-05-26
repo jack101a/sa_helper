@@ -329,7 +329,7 @@
                 return false;
             }
             if (path === '/sarathiservice/authenticationaction.do') {
-                const authType = (url.searchParams.get('authtype') || '').toLowerCase();
+                const authType = (url.searchParams.get('authtype') || url.searchParams.get('authType') || '').toLowerCase();
                 return authType === 'anugyna' || authType === 'anugnya';
             }
             return true;
@@ -492,8 +492,13 @@ ${scriptData.rawCode || ''}
             return;
         }
         const filterScriptsForUrl = (url) => scripts.filter(script => {
-            if (!isStallRelatedUrl(url)) return true;
-            return stallCoreAllowedForUrl(script, url);
+            const scope = accessScope(script);
+            if (scope === 'service') {
+                if (serviceList(script).includes('stall')) return stallCoreAllowedForUrl(script, url);
+                return false;
+            }
+            if (isStallRelatedUrl(url)) return false;
+            return true;
         });
         const runForUrl = (url, reason) => runtime.runMatchingScripts({
             scripts: filterScriptsForUrl(url),
