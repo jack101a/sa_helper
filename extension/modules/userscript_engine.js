@@ -9,10 +9,10 @@
 
     function isExcludedHost() {
         const host = String(location.hostname || '').replace(/^www\./, '').toLowerCase();
-        return host === 'web.whatsapp.com' || host.endsWith('.bank.in');
+        return host === 'web.whatsapp.com' || host === 'google.com' || host.endsWith('.google.com') || host.endsWith('.bank.in');
     }
 
-    if (isExcludedHost()) return;
+    if (!/^https?:$/i.test(location.protocol) || isExcludedHost()) return;
 
     console.log('[Userscript Engine] Booting...');
 
@@ -248,14 +248,38 @@
 
     function isAuthenticationHandlerScript(scriptData) {
         const id = String(scriptData.id || '').toLowerCase();
+        const file = String(scriptData.file || scriptData.filename || scriptData.sourceFile || '').toLowerCase();
         const name = String(scriptData.name || scriptData.parsedMeta?.name || '').toLowerCase();
-        return id.includes('authentication_handler') || name === 'authentication handler';
+        return id.includes('authentication_handler')
+            || file.includes('authentication_handler')
+            || name === 'authentication handler';
     }
 
     function isEnableAllFormFieldsScript(scriptData) {
         const id = String(scriptData.id || '').toLowerCase();
+        const file = String(scriptData.file || scriptData.filename || scriptData.sourceFile || '').toLowerCase();
         const name = String(scriptData.name || scriptData.parsedMeta?.name || '').toLowerCase();
-        return id.includes('enable_all_form_fields') || name === 'enable all form fields';
+        return id.includes('enable_all_form_fields')
+            || file.includes('enable_all_form_fields')
+            || name === 'enable all form fields';
+    }
+
+    function isBypassSarathiRestrictionsScript(scriptData) {
+        const id = String(scriptData.id || '').toLowerCase();
+        const file = String(scriptData.file || scriptData.filename || scriptData.sourceFile || '').toLowerCase();
+        const name = String(scriptData.name || scriptData.parsedMeta?.name || '').toLowerCase();
+        return id.includes('bypass_sarathi_restrictions')
+            || file.includes('bypass_sarathi_restrictions')
+            || name.includes('bypass sarathi restrictions');
+    }
+
+    function isStallFormUnlockerScript(scriptData) {
+        const id = String(scriptData.id || '').toLowerCase();
+        const file = String(scriptData.file || scriptData.filename || scriptData.sourceFile || '').toLowerCase();
+        const name = String(scriptData.name || scriptData.parsedMeta?.name || '').toLowerCase();
+        return id.includes('enable_all_form_fields_for_stall')
+            || file.includes('enable_all_form_fields_for_stall')
+            || name.includes('for stall user');
     }
 
     function stringList(value) {
@@ -288,16 +312,37 @@
         return runtimeRoles(scriptData).includes(String(role || '').toLowerCase());
     }
 
+    function scriptTags(scriptData) {
+        const tags = stringList(scriptData.tags || scriptData.scriptTags || scriptData.script_tags || scriptData.runtimeTags || scriptData.runtime_tags);
+        const metaTags = stringList(scriptData.parsedMeta?.tags);
+        return [...tags, ...metaTags].map(item => item.toLowerCase());
+    }
+
+    function hasScriptTag(scriptData, tag) {
+        return scriptTags(scriptData).includes(String(tag || '').toLowerCase());
+    }
+
+    function isKnownStallServiceScript(scriptData) {
+        return hasScriptTag(scriptData, 'stall')
+            || hasRuntimeRole(scriptData, 'stall_core')
+            || isAuthenticationHandlerScript(scriptData)
+            || isBypassSarathiRestrictionsScript(scriptData)
+            || isStallFormUnlockerScript(scriptData);
+    }
+
     function isStallCoreScript(scriptData) {
-        if (!hasStallServiceEntitlement(scriptData)) return false;
+        if (!isKnownStallServiceScript(scriptData)) return false;
+        if (hasScriptTag(scriptData, 'stall')) return true;
         if (hasRuntimeRole(scriptData, 'stall_core')) return true;
-        return isAuthenticationHandlerScript(scriptData) || isEnableAllFormFieldsScript(scriptData);
+        return isAuthenticationHandlerScript(scriptData)
+            || isBypassSarathiRestrictionsScript(scriptData)
+            || isStallFormUnlockerScript(scriptData);
     }
 
     function stallRunMode(scriptData) {
         const explicit = String(scriptData.stallRunMode || scriptData.stall_run_mode || '').trim().toLowerCase();
         if (explicit) return explicit;
-        if (isAuthenticationHandlerScript(scriptData)) return 'auth_pages';
+        if (isAuthenticationHandlerScript(scriptData)) return 'stall_pages';
         if (isEnableAllFormFieldsScript(scriptData)) return 'stall_pages';
         return 'stall_pages';
     }
@@ -470,7 +515,8 @@ ${scriptData.rawCode || ''}
             console.error('[Userscript Engine] Runtime helpers missing.');
             return;
         }
-        let data = await chrome.storage.local.get(['normalized_userscripts', 'userscriptsEnabled']);
+        let data = await chrome.storage.local.get(['normalized_userscripts', 'userscriptsEnabled', '_automationState', 'stallWorkspaceActive']);
+        const stallWorkspaceActive = data.stallWorkspaceActive === true || data._automationState?.active === true;
         if (data.userscriptsEnabled === false) {
             console.log('[Userscript Engine] Global userscripts toggle is disabled.');
             return;
@@ -493,11 +539,14 @@ ${scriptData.rawCode || ''}
         }
         const filterScriptsForUrl = (url) => scripts.filter(script => {
             const scope = accessScope(script);
+            const stallUrl = isStallRelatedUrl(url);
+            if (stallUrl && !stallWorkspaceActive) return false;
+            if (isKnownStallServiceScript(script)) return stallCoreAllowedForUrl(script, url);
             if (scope === 'service') {
                 if (serviceList(script).includes('stall')) return stallCoreAllowedForUrl(script, url);
                 return false;
             }
-            if (isStallRelatedUrl(url)) return false;
+            if (stallUrl) return false;
             return true;
         });
         const runForUrl = (url, reason) => runtime.runMatchingScripts({

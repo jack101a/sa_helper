@@ -34,27 +34,35 @@ _STALL_RUNTIME_DEFAULTS = {
     "authentication_handler": {
         "runtimeRole": "stall_core",
         "runtimeRoles": ["stall_core", "stall_auth"],
-        "stallRunMode": "auth_pages",
+        "stallRunMode": "stall_pages",
+        "tags": ["stall"],
     },
     "bypass_sarathi_restrictions_v2": {
         "runtimeRole": "stall_core",
         "runtimeRoles": ["stall_core", "stall_sarathi_guard"],
         "stallRunMode": "stall_pages",
+        "tags": ["stall"],
     },
     "enable_all_form_fields_for_stall": {
         "runtimeRole": "stall_core",
         "runtimeRoles": ["stall_core", "stall_form_unlocker"],
         "stallRunMode": "stall_pages",
+        "tags": ["stall"],
     },
 }
 
 
 def _userscript_runtime_metadata(script_id: str, entry: dict) -> dict:
     defaults = _STALL_RUNTIME_DEFAULTS.get(str(script_id or "").strip()) or {}
+    tags = userscript_string_list(defaults.get("tags"))
+    for tag in userscript_string_list(entry.get("tags") or entry.get("scriptTags") or entry.get("script_tags") or entry.get("runtimeTags") or entry.get("runtime_tags")):
+        if tag not in tags:
+            tags.append(tag)
     return {
         "runtimeRole": str(defaults.get("runtimeRole") or entry.get("runtimeRole") or entry.get("runtime_role") or ""),
         "runtimeRoles": userscript_string_list(defaults.get("runtimeRoles") or entry.get("runtimeRoles") or entry.get("runtime_roles")),
         "stallRunMode": str(defaults.get("stallRunMode") or entry.get("stallRunMode") or entry.get("stall_run_mode") or ""),
+        "tags": tags,
     }
 
 
@@ -191,8 +199,11 @@ async def sync_userscripts(request: Request) -> dict:
                         continue
                     access = userscript_access(entry)
                     runtime_metadata = _userscript_runtime_metadata(script_id, entry)
+                    if not runtime_metadata["tags"]:
+                        runtime_metadata["tags"] = userscript_string_list(parsed.get("tags", []))
                     scripts_data.append({
                         "id": script_id,
+                        "file": file_name,
                         "name": str(entry.get("name") or parsed["name"] or script_id),
                         "version": str(entry.get("version") or parsed["version"]),
                         "description": str(entry.get("description") or parsed["description"]),
@@ -253,6 +264,7 @@ async def sync_userscripts(request: Request) -> dict:
                     "resources": parsed["resources"],
                     "grants": parsed["grants"],
                     "connects": parsed["connects"],
+                    "tags": parsed.get("tags", []),
                     "noframes": parsed["noframes"],
                     "runtimeRole": "",
                     "runtimeRoles": [],

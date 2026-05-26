@@ -22,6 +22,7 @@ export function UserscriptsPanel({
     plans: [],
     apiKeyIds: "",
     services: [],
+    tags: [],
     runtimeRole: "",
     runtimeRoles: [],
     stallRunMode: ""
@@ -69,7 +70,7 @@ export function UserscriptsPanel({
   }, []);
 
   const parseMeta = (code) => {
-    const meta = { name: "", version: "0.0.0", matches: [], runAt: "document-idle" };
+    const meta = { name: "", version: "0.0.0", matches: [], runAt: "document-idle", tags: [] };
     const blockMatch = code.match(/\/\/ ==UserScript==([\s\S]*?)\/\/ ==\/UserScript==/);
     if (!blockMatch) return meta;
     
@@ -83,6 +84,7 @@ export function UserscriptsPanel({
       else if (key === "version") meta.version = val;
       else if (key === "run-at") meta.runAt = val;
       else if (key === "match" || key === "include") meta.matches.push(val);
+      else if (key === "tag") meta.tags.push(...val.split(/[,;\s]+/).map(item => item.trim()).filter(Boolean));
     });
     return meta;
   };
@@ -100,13 +102,14 @@ export function UserscriptsPanel({
         plans: Array.isArray(script.plans) ? script.plans : [],
         apiKeyIds: Array.isArray(script.apiKeyIds) ? script.apiKeyIds.join(", ") : "",
         services: Array.isArray(script.services) ? script.services : [],
+        tags: Array.isArray(script.tags) ? script.tags : [],
         runtimeRole: script.runtimeRole || "",
         runtimeRoles: Array.isArray(script.runtimeRoles) ? script.runtimeRoles : [],
         stallRunMode: script.stallRunMode || ""
       });
     } else {
       setEditingScript(null);
-      setFormData({ name: "", code: "", enabled: true, accessScope: "global", plans: [], apiKeyIds: "", services: [], runtimeRole: "", runtimeRoles: [], stallRunMode: "" });
+      setFormData({ name: "", code: "", enabled: true, accessScope: "global", plans: [], apiKeyIds: "", services: [], tags: [], runtimeRole: "", runtimeRoles: [], stallRunMode: "" });
     }
     setIsModalOpen(true);
   };
@@ -249,6 +252,9 @@ export function UserscriptsPanel({
                       {script.accessScope === "service" && <span className={`text-[10px] ${t_textMuted}`}>{(script.services || []).join(", ") || "No services"}</span>}
                       {(script.accessScope === "key" || script.accessScope === "custom") && <span className={`text-[10px] ${t_textMuted}`}>{(script.apiKeyIds || []).join(", ") || "No keys"}</span>}
                       {script.runtimeRole && <span className={`text-[10px] ${t_textMuted}`}>{script.runtimeRole}{script.stallRunMode ? ` / ${script.stallRunMode}` : ""}</span>}
+                      {Array.isArray(script.tags) && script.tags.length > 0 && (
+                        <span className={`text-[10px] ${t_textMuted}`}>{script.tags.join(", ")}</span>
+                      )}
                     </div>
                   </td>
                   <td className="py-4 pr-3">
@@ -419,6 +425,21 @@ export function UserscriptsPanel({
                     <p className={`text-[11px] ${t_textMuted}`}>Delivered only when the user's plan or key has one of these services enabled.</p>
                   </div>
                 )}
+
+                <div className="space-y-1">
+                  <label className={`text-xs font-semibold ${t_textMuted}`}>Runtime Tags</label>
+                  <input
+                    type="text"
+                    value={(formData.tags || []).join(", ")}
+                    onChange={e => setFormData({
+                      ...formData,
+                      tags: e.target.value.split(/[,;\n\s]+/).map(item => item.trim()).filter(Boolean),
+                    })}
+                    placeholder="stall"
+                    className={`${glassInput} w-full text-sm`}
+                  />
+                  <p className={`text-[11px] ${t_textMuted}`}>Use stall for scripts that should run only when STALL mode creates its isolated workspace.</p>
+                </div>
 
                 <div className="p-4 rounded-2xl bg-indigo-500/5 border border-indigo-500/20 space-y-3">
                 <div className="flex items-center gap-2 mb-2">

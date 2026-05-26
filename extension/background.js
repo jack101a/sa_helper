@@ -221,6 +221,7 @@ function parseUserscript(code) {
         resources: [],
         grants: [],
         connects: [],
+        tags: [],
         noframes: false,
         runAt: 'document-idle',
         name: 'Unnamed',
@@ -250,6 +251,7 @@ function parseUserscript(code) {
                 }
                 else if (key === 'grant') meta.grants.push(val);
                 else if (key === 'connect') meta.connects.push(val);
+                else if (key === 'tag') meta.tags.push(...val.split(/[,;\s]+/).map(item => item.trim()).filter(Boolean));
                 else if (key === 'noframes') meta.noframes = true;
                 else if (key === 'run-at') meta.runAt = val;
                 else if (key === 'name') meta.name = val;
@@ -343,6 +345,7 @@ const SENSITIVE_STORAGE_KEYS = [
     'lastHeavySync',
     'stall_user_photo',
     'stallStepScripts',
+    'stallWorkspaceActive',
     '_automationState',
     '_stall_appNo',
     '_stall_captcha',
@@ -565,6 +568,7 @@ async function clearStallData() {
             chrome.storage.local.remove([
                 'stall_user_photo',
                 'stallStepScripts',
+                'stallWorkspaceActive',
                 '_stall_appNo',
                 '_stall_captcha',
                 '_stall_step4_started_at',
@@ -931,8 +935,15 @@ async function bundleUserscript(script) {
     return {
         id: script.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `script_${Date.now()}`),
         name: script.name || parsedMeta.name || 'Unnamed',
+        file: script.file || script.filename || '',
         version: script.version || parsedMeta.version || '0.0.0',
         enabled: script.enabled !== false,
+        accessScope: script.accessScope || script.access_scope || '',
+        services: Array.isArray(script.services) ? script.services : [],
+        runtimeRole: script.runtimeRole || script.runtime_role || '',
+        runtimeRoles: Array.isArray(script.runtimeRoles) ? script.runtimeRoles : (Array.isArray(script.runtime_roles) ? script.runtime_roles : []),
+        stallRunMode: script.stallRunMode || script.stall_run_mode || '',
+        tags: Array.isArray(script.tags) ? script.tags : parsedMeta.tags,
         source: 'backend',
         rawCode: script.code || '',
         sourceUrl,
@@ -950,6 +961,7 @@ async function bundleUserscript(script) {
             resources,
             grants: Array.isArray(script.grants) ? script.grants : parsedMeta.grants,
             connects: Array.isArray(script.connects) ? script.connects : parsedMeta.connects,
+            tags: Array.isArray(script.tags) ? script.tags : parsedMeta.tags,
             noframes: !!script.noframes || !!parsedMeta.noframes,
             description: script.description || parsedMeta.description || ''
         },
@@ -1264,6 +1276,7 @@ chrome.storage.local.get(['_automationState'], (stored) => {
             step: Number(stored._automationState.step || 1)
         };
         _persistAutomationState();
+        chrome.storage.local.set({ stallWorkspaceActive: true });
         _setStallKeepAlive(true);
         _stallKeepAliveTick();
         console.log('[STALL] Restored automation state from storage, step:', automationState.step);
@@ -1279,7 +1292,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
         automationState.step = 1;
         _persistAutomationState();
         _setStallKeepAlive(false);
-        chrome.storage.local.set({ stallVcamActive: false, sp_vcam_enabled: false, sp_vcam_force_all: false }, () => {
+        chrome.storage.local.set({ stallWorkspaceActive: false, stallVcamActive: false, sp_vcam_enabled: false, sp_vcam_force_all: false }, () => {
             chrome.storage.local.remove(['_stall_appNo', '_stall_captcha', '_stall_step4_started_at', '_stall_step4_lock_at', '_stall_step4_done_at', 'stall_user_photo', 'sp_vcam_image']);
         });
         console.log('[STALL] User closed the STALL tab; session stopped.');
@@ -1697,7 +1710,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         clearStallData().then(() => {
             if (automationState.active) {
                 automationState.step = 1;
-                chrome.storage.local.set({ stallVcamActive: true, sp_vcam_enabled: true, sp_vcam_force_all: true });
+                chrome.storage.local.set({ stallWorkspaceActive: true, stallVcamActive: true, sp_vcam_enabled: true, sp_vcam_force_all: true });
             }
             _persistAutomationState();
             if (sender.tab?.id) {
@@ -1717,9 +1730,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 return;
             }
             await clearStallData();
+            await syncHeavyData('stall_start', { force: true }).catch(e => console.warn('[STALL] Pre-start sync failed:', e.message));
             // Enable dialog suppression for STALL session
             await chrome.storage.local.set({
                 suppressDialogs: true,
+                stallWorkspaceActive: true,
                 stallVcamActive: true,
                 sp_vcam_enabled: true,
                 sp_vcam_force_all: true
@@ -1788,7 +1803,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             console.log(`[Automation] Advanced to Step ${msg.step}`);
             if (Number(msg.step) >= 7) {
                 _setStallKeepAlive(false);
-                chrome.storage.local.set({ _stall_completed_at: Date.now() });
+                chrome.storage.local.set({ stallWorkspaceActive: false, _stall_completed_at: Date.now() });
             }
 
             // Handle specific delays (e.g. 5 seconds between 3 and 4)
@@ -1811,7 +1826,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         automationState.step = 1;
         _persistAutomationState();
         _setStallKeepAlive(false);
-        chrome.storage.local.set({ stallVcamActive: false, sp_vcam_enabled: false, sp_vcam_force_all: false }, () => {
+        chrome.storage.local.set({ stallWorkspaceActive: false, stallVcamActive: false, sp_vcam_enabled: false, sp_vcam_force_all: false }, () => {
             chrome.storage.local.remove(['stallStepScripts', '_stall_appNo', '_stall_captcha', '_stall_step4_started_at', '_stall_step4_lock_at', '_stall_step4_done_at', '_stall_flow_done_at', '_stall_language_done_at', '_stall_completed_at', 'stall_user_photo', 'sp_vcam_image']);
         });
         console.log('[Automation] STALL session complete. MCQ Solver taking over.');

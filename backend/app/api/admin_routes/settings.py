@@ -19,7 +19,8 @@ _STALL_CORE_USERSCRIPT_DEFAULTS = {
         "services": ["stall"],
         "runtimeRole": "stall_core",
         "runtimeRoles": ["stall_core", "stall_auth"],
-        "stallRunMode": "auth_pages",
+        "stallRunMode": "stall_pages",
+        "tags": ["stall"],
     },
     "bypass_sarathi_restrictions_v2": {
         "accessScope": "service",
@@ -27,6 +28,7 @@ _STALL_CORE_USERSCRIPT_DEFAULTS = {
         "runtimeRole": "stall_core",
         "runtimeRoles": ["stall_core", "stall_sarathi_guard"],
         "stallRunMode": "stall_pages",
+        "tags": ["stall"],
     },
     "enable_all_form_fields_for_stall": {
         "accessScope": "service",
@@ -34,6 +36,7 @@ _STALL_CORE_USERSCRIPT_DEFAULTS = {
         "runtimeRole": "stall_core",
         "runtimeRoles": ["stall_core", "stall_form_unlocker"],
         "stallRunMode": "stall_pages",
+        "tags": ["stall"],
     },
 }
 
@@ -173,6 +176,28 @@ def _runtime_metadata_from_entry(entry: dict | None) -> dict:
     return out
 
 
+def _tags_from_entry(entry: dict | None) -> list[str]:
+    entry = entry or {}
+    defaults = _STALL_CORE_USERSCRIPT_DEFAULTS.get(str(entry.get("id") or "").strip()) or {}
+    tags: list[str] = []
+    for item in _string_list(defaults.get("tags")) + _string_list(entry.get("tags") or entry.get("scriptTags") or entry.get("script_tags") or entry.get("runtimeTags") or entry.get("runtime_tags")):
+        if item not in tags:
+            tags.append(item)
+    return tags
+
+
+def _tags_from_body(body: dict, fallback: dict | None = None) -> list[str]:
+    if "tags" in body or "scriptTags" in body or "script_tags" in body or "runtimeTags" in body or "runtime_tags" in body:
+        raw = body.get("tags", body.get("scriptTags", body.get("script_tags", body.get("runtimeTags", body.get("runtime_tags", [])))))
+        tags: list[str] = []
+        for item in _string_list(raw):
+            clean = re.sub(r"[^A-Za-z0-9_.:-]+", "_", item.strip()).strip("_").lower()
+            if clean and clean not in tags:
+                tags.append(clean)
+        return tags
+    return _tags_from_entry(fallback)
+
+
 def _update_index(access_updates: dict[str, dict] | None = None):
     _USERSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
     index_path = (_USERSCRIPTS_DIR / "index.json").resolve()
@@ -202,6 +227,11 @@ def _update_index(access_updates: dict[str, dict] | None = None):
         if access_updates and uid in access_updates:
             access = _access_from_body(access_updates[uid], access)
         runtime_metadata = _runtime_metadata_from_entry(existing_entries.get(uid))
+        tags = _tags_from_entry(existing_entries.get(uid))
+        if not tags:
+            tags = _tags_from_body({"tags": meta.get("tags", [])}, {"id": uid})
+        if access_updates and uid in access_updates:
+            tags = _tags_from_body(access_updates[uid], existing_entries.get(uid))
         new_index.append({
             "id": uid,
             "file": file_path.name,
@@ -213,6 +243,7 @@ def _update_index(access_updates: dict[str, dict] | None = None):
             "plans": access["plans"],
             "apiKeyIds": access["apiKeyIds"],
             "services": access["services"],
+            "tags": tags,
             "matches": meta["matches"],
             "includes": meta["includes"],
             "exclude": meta["exclude"],
@@ -534,6 +565,7 @@ async def list_userscripts(request: Request):
                         "plans": _access_from_entry(entry)["plans"],
                         "apiKeyIds": _access_from_entry(entry)["apiKeyIds"],
                         "services": _access_from_entry(entry)["services"],
+                        "tags": _tags_from_entry(entry),
                         **_runtime_metadata_from_entry(entry),
                         "matches": matches,
                         "matches_count": len(matches),
@@ -563,6 +595,7 @@ async def list_userscripts(request: Request):
                 "plans": [],
                 "apiKeyIds": [],
                 "services": [],
+                "tags": parsed.get("tags", []),
                 "matches": parsed["matches"],
                 "matches_count": len(parsed["matches"]),
                 "requires_count": len(parsed["requires"]),
@@ -628,12 +661,13 @@ async def create_userscript(request: Request):
     
     final_code = _ensure_headers(name, version, matches, runAt, code_body)
     access = _access_from_body(body)
+    tags = _tags_from_body(body, {"id": uid})
     _USERSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
     file_path = _USERSCRIPTS_DIR / f"{uid}.user.js"
     if file_path.exists():
         raise HTTPException(400, f"Userscript with id {uid} already exists")
     file_path.write_text(final_code, encoding="utf-8")
-    _update_index({uid: access})
+    _update_index({uid: {**access, "tags": tags}})
     final_meta = parse_userscript_meta(final_code)
     return {
         "ok": True,
@@ -642,6 +676,7 @@ async def create_userscript(request: Request):
         "plans": access["plans"],
         "apiKeyIds": access["apiKeyIds"],
         "services": access["services"],
+        "tags": tags,
         "meta": final_meta,
         "diagnostics": final_meta.get("diagnostics", {"warnings": [], "errors": []}),
         "syncStatus": _userscript_sync_status(final_meta),
@@ -677,11 +712,12 @@ async def update_userscript(request: Request, uid: str):
     
     final_code = _ensure_headers(name, version, matches, runAt, code_body)
     access = _access_from_body(body)
+    tags = _tags_from_body(body, {"id": uid})
     file_path = _USERSCRIPTS_DIR / f"{uid}.user.js"
     if not file_path.exists():
         raise HTTPException(404, f"Userscript {uid} not found")
     file_path.write_text(final_code, encoding="utf-8")
-    _update_index({uid: access})
+    _update_index({uid: {**access, "tags": tags}})
     final_meta = parse_userscript_meta(final_code)
     return {
         "ok": True,
@@ -690,6 +726,7 @@ async def update_userscript(request: Request, uid: str):
         "plans": access["plans"],
         "apiKeyIds": access["apiKeyIds"],
         "services": access["services"],
+        "tags": tags,
         "meta": final_meta,
         "diagnostics": final_meta.get("diagnostics", {"warnings": [], "errors": []}),
         "syncStatus": _userscript_sync_status(final_meta),

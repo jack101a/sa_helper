@@ -23,12 +23,15 @@
     "services": [
       "stall"
     ],
+    "tags": [
+      "stall"
+    ],
     "runtimeRole": "stall_core",
     "runtimeRoles": [
       "stall_core",
       "stall_auth"
     ],
-    "stallRunMode": "auth_pages"
+    "stallRunMode": "stall_pages"
   },
   {
     "id": "bypass_sarathi_restrictions_v2",
@@ -50,6 +53,9 @@
     "noframes": false,
     "accessScope": "service",
     "services": [
+      "stall"
+    ],
+    "tags": [
       "stall"
     ],
     "runtimeRole": "stall_core",
@@ -100,7 +106,7 @@
   {
     "id": "enable_all_form_fields_for_stall",
     "file": "enable_all_form_fields_for_stall.user.js",
-    "name": "Enable All Form Fields",
+    "name": "Enable All Form Fields (for stall user)",
     "version": "1.0",
     "enabled": true,
     "matches": [
@@ -117,6 +123,9 @@
     "noframes": false,
     "accessScope": "service",
     "services": [
+      "stall"
+    ],
+    "tags": [
       "stall"
     ],
     "runtimeRole": "stall_core",

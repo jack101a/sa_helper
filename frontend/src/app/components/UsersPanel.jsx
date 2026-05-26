@@ -344,7 +344,7 @@ export function UsersPanel({ showToast }) {
                     <td className={`p-3 font-mono text-xs ${t_textMuted}`}>{u.telegram_user_id || "--"}</td>
                     <td className={`p-3 ${t_textHeading}`}>
                       {u.plan_name ? (
-                        <span>{u.plan_name}<br/><span className={`text-xs ${t_textMuted}`}>Quota {formatCount(u.quota_used ?? u.usage_used)}/{formatCount(u.quota_limit ?? u.plan_monthly_limit)}</span></span>
+                        <span>{u.plan_name}<br/><span className={`text-xs ${t_textMuted}`}>Usage {formatCount(u.plan_usage_used ?? u.key_usage_count ?? u.quota_used ?? u.usage_used)}/{formatCount(u.quota_limit ?? u.plan_monthly_limit)}</span></span>
                       ) : <span className={t_textMuted}>--</span>}
                     </td>
                     <td className={`p-3 ${t_textHeading}`}>
@@ -480,7 +480,7 @@ export function UsersPanel({ showToast }) {
                   </div>
                   <div className={`grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs mb-3 ${t_textMuted}`}>
                     <div>
-                      <span className={t_textHeading}>Plan quota:</span> {formatCount(userDetails?.usage?.quota_used)}/{formatCount(userDetails?.usage?.quota_limit)}
+                      <span className={t_textHeading}>Plan usage:</span> {formatCount(userDetails?.usage?.plan_usage_used ?? userDetails?.key_usage?.total_usage_count ?? userDetails?.usage?.quota_used)}/{formatCount(userDetails?.usage?.quota_limit)}
                     </div>
                     <div>
                       <span className={t_textHeading}>Rate limit:</span> {userDetails?.rate_limit?.requests_per_minute || "--"} RPM / +{userDetails?.rate_limit?.burst || 0}
@@ -503,7 +503,7 @@ export function UsersPanel({ showToast }) {
                   <h4 className={`text-sm font-semibold mb-3 ${t_textHeading}`}>User API Key</h4>
                   <div className={`text-xs mb-3 ${t_textMuted}`}>
                     {userDetails?.active_key ? (
-                      <>Active: <span className="font-mono">{userDetails.active_key.key_prefix_display}</span> · v{userDetails.active_key.key_version} · {formatCount(userDetails.active_key.usage_count)} requests · last {formatDate(userDetails.active_key.last_used_at)} · Devices {userDetails.devices?.filter((d) => d.status === "active").length || 0}</>
+                      <>Active: <span className="font-mono">{userDetails.active_key.key_prefix_display}</span> · v{userDetails.active_key.key_version} · {formatCount(userDetails?.key_usage?.total_usage_count ?? userDetails.active_key.usage_count)} requests · last {formatDate(userDetails?.key_usage?.last_used_at || userDetails.active_key.last_used_at)} · Devices {userDetails.devices?.filter((d) => d.status === "active").length || 0}</>
                     ) : "No active user-linked key"}
                   </div>
                   <div className="flex flex-wrap gap-2">

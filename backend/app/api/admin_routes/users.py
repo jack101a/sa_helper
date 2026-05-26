@@ -56,6 +56,20 @@ def _serialize_active_key(key: UserApiKey | None) -> dict | None:
     return key.to_dict() if key else None
 
 
+def _user_key_usage_summary(session, user_id: int) -> dict:
+    keys = (
+        session.query(UserApiKey)
+        .filter(UserApiKey.user_id == user_id)
+        .all()
+    )
+    total = sum(int(key.usage_count or 0) for key in keys)
+    last_used = max((key.last_used_at for key in keys if key.last_used_at), default=None)
+    return {
+        "total_usage_count": total,
+        "last_used_at": last_used.isoformat() if last_used else None,
+    }
+
+
 def _ensure_usage_cycle(session, user_id: int, subscription_id: int, plan: SubscriptionPlan, now: datetime) -> None:
     existing = (
         session.query(UsageCycle)
@@ -151,6 +165,8 @@ async def list_users(
                     .order_by(UserApiKey.issued_at.desc())
                     .first()
                 )
+                key_usage = _user_key_usage_summary(session, int(u.id))
+                plan_usage_used = max(int(cycle.used_count if cycle else 0), int(key_usage["total_usage_count"]))
                 d["plan_name"] = plan.name if plan else None
                 d["plan_monthly_limit"] = plan.monthly_limit if plan else None
                 d["plan_rate_limit_rpm"] = plan.rate_limit_rpm if plan else None
@@ -159,10 +175,13 @@ async def list_users(
                 d["usage_used"] = cycle.used_count if cycle else 0
                 d["quota_used"] = cycle.used_count if cycle else 0
                 d["quota_limit"] = cycle.monthly_limit if cycle else (plan.monthly_limit if plan else 0)
+                d["plan_usage_used"] = plan_usage_used
+                d["request_usage_count"] = key_usage["total_usage_count"]
                 d["active_key_id"] = active_key.id if active_key else None
                 d["active_key_prefix"] = active_key.key_prefix_display if active_key else None
-                d["key_usage_count"] = active_key.usage_count if active_key else 0
-                d["key_last_used_at"] = active_key.last_used_at.isoformat() if active_key and active_key.last_used_at else None
+                d["key_usage_count"] = key_usage["total_usage_count"]
+                d["active_key_usage_count"] = active_key.usage_count if active_key else 0
+                d["key_last_used_at"] = key_usage["last_used_at"]
             else:
                 d["plan_name"] = None
                 d["plan_monthly_limit"] = None
@@ -172,9 +191,12 @@ async def list_users(
                 d["usage_used"] = 0
                 d["quota_used"] = 0
                 d["quota_limit"] = 0
+                d["plan_usage_used"] = 0
+                d["request_usage_count"] = 0
                 d["active_key_id"] = None
                 d["active_key_prefix"] = None
                 d["key_usage_count"] = 0
+                d["active_key_usage_count"] = 0
                 d["key_last_used_at"] = None
             user_dicts.append(d)
     finally:
@@ -239,6 +261,7 @@ async def get_user(request: Request, user_id: int) -> Any:
         )
         data["subscriptions"] = [_serialize_subscription(s, plans.get(s.plan_id)) for s in subs]
         usage = None
+        key_usage = _user_key_usage_summary(session, int(user.id))
         if active_sub:
             cycle = (
                 session.query(UsageCycle)
@@ -247,15 +270,26 @@ async def get_user(request: Request, user_id: int) -> Any:
                 .first()
             )
             plan = plans.get(active_sub.plan_id)
+            quota_used = int(cycle.used_count if cycle else 0)
             usage = {
-                "quota_used": cycle.used_count if cycle else 0,
+                "quota_used": quota_used,
                 "quota_limit": cycle.monthly_limit if cycle else (plan.monthly_limit if plan else 0),
+                "plan_usage_used": max(quota_used, int(key_usage["total_usage_count"])),
+                "request_usage_count": key_usage["total_usage_count"],
                 "cycle_start": cycle.cycle_start_at.isoformat() if cycle and cycle.cycle_start_at else None,
                 "cycle_end": cycle.cycle_end_at.isoformat() if cycle and cycle.cycle_end_at else None,
             }
 
         data["active_key"] = _serialize_active_key(active_key)
-        data["usage"] = usage or {"quota_used": 0, "quota_limit": 0, "cycle_start": None, "cycle_end": None}
+        data["key_usage"] = key_usage
+        data["usage"] = usage or {
+            "quota_used": 0,
+            "quota_limit": 0,
+            "plan_usage_used": key_usage["total_usage_count"],
+            "request_usage_count": key_usage["total_usage_count"],
+            "cycle_start": None,
+            "cycle_end": None,
+        }
         data["rate_limit"] = {
             "requests_per_minute": plans.get(active_sub.plan_id).rate_limit_rpm if active_sub and plans.get(active_sub.plan_id) else None,
             "burst": plans.get(active_sub.plan_id).rate_limit_burst if active_sub and plans.get(active_sub.plan_id) else None,

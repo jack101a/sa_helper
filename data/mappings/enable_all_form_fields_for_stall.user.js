@@ -1,9 +1,10 @@
 // ==UserScript==
-// @name         Enable All Form Fields
+// @name         Enable All Form Fields (for stall user)
 // @namespace    http://tampermonkey.net/
 // @version      1.0
 // @description  Remove disabled and readonly from all inputs/selects/textareas
 // @match        https://sarathi.parivahan.gov.in/*
+// @tag          stall
 // @grant        none
 // ==/UserScript==
 
@@ -23,7 +24,17 @@
     }
 
 
-    // dynamic AJAX से नया HTML आए तो भी apply हो जाए
-    const observer = new MutationObserver(enableAll);
-    observer.observe(document.body, { childList: true, subtree: true });
+    function start() {
+        enableAll();
+        const target = document.body || document.documentElement;
+        if (!target) return;
+        const observer = new MutationObserver(enableAll);
+        observer.observe(target, { childList: true, subtree: true });
+    }
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", start, { once: true });
+    } else {
+        start();
+    }
 })();

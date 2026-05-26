@@ -21,6 +21,7 @@ def parse_userscript_meta(code: str) -> dict:
         "resources": [],
         "grants": [],
         "connects": [],
+        "tags": [],
         "noframes": False,
         "runAt": "document-idle",
         "diagnostics": {
@@ -84,6 +85,9 @@ def parse_userscript_meta(code: str) -> dict:
         elif key == "connect":
             if val:
                 meta["connects"].append(val)
+        elif key == "tag":
+            if val:
+                meta["tags"].extend(item.strip() for item in re.split(r"[,;\s]+", val) if item.strip())
         elif key == "noframes":
             meta["noframes"] = True
         elif key == "run-at":

@@ -6,6 +6,7 @@
 // @author       You
 // @match        *://sarathi.parivahan.gov.in/*
 // @run-at       document-start
+// @tag          stall
 // @grant        none
 // ==/UserScript==
 
