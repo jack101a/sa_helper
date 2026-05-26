@@ -73,6 +73,15 @@ def _user_extension_artifact_path(filename: str) -> Path:
     return artifact_path
 
 
+def _extension_artifact_path(container, filename: str, variant: str) -> Path:
+    if variant == "user":
+        service_dir = getattr(container.extension_service, "user_output_dir", None)
+        if service_dir:
+            return (Path(service_dir) / filename).resolve()
+        return _user_extension_artifact_path(filename)
+    return container.extension_service.output_dir / filename
+
+
 def _ensure_headers(name: str, version: str, matches: list[str], runAt: str, code: str) -> str:
     if "==UserScript==" in code:
         return code
@@ -454,7 +463,7 @@ async def repack_extension(request: Request):
 
 @router.get("/api/extension/download")
 async def download_extension(request: Request, format: str = "zip", variant: str = "admin"):
-    """Download admin extension or prebuilt user extension artifact."""
+    """Package and download admin or user extension artifacts."""
     denied = _admin_guard(request)
     if denied:
         return denied
@@ -464,12 +473,14 @@ async def download_extension(request: Request, format: str = "zip", variant: str
     filename = _extension_filename_for_format(format, normalized_variant)  # validate format/variant before work
 
     if normalized_variant == "user":
-        artifact_path = _user_extension_artifact_path(filename)
+        success = container.extension_service.package_user_extension()
+        if not success:
+            raise HTTPException(500, "Failed to package user extension. Check backend logs.")
+        artifact_path = _extension_artifact_path(container, filename, normalized_variant)
         if not artifact_path.exists():
             raise HTTPException(
-                404,
-                f"User extension package not found: {filename}. "
-                "Run scripts/pack_user_extension_release.sh and place the artifact in data/extension_packages.",
+                500,
+                f"Packaged user extension file not found: {filename}",
             )
         media_type = "application/zip" if filename.endswith(".zip") else "application/octet-stream"
         return FileResponse(path=artifact_path, media_type=media_type, filename=filename)

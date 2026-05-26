@@ -43,6 +43,13 @@ MODULE_ALIASES = {
     "modules/vcam_controller.js": "modules/Zeus.js",
     "modules/vcam_inject.js": "modules/Nyx.js",
 }
+USER_EXCLUDED_MODULES = {
+    "modules/mock_trainer.js",
+}
+ACTIVE_MODULE_ALIASES = {
+    source: alias for source, alias in MODULE_ALIASES.items()
+    if source not in USER_EXCLUDED_MODULES
+}
 
 
 def fail(message: str) -> None:
@@ -109,7 +116,7 @@ def walk_json_strings(value, mapper):
 
 
 def rewrite_path_text(text: str) -> str:
-    for source, alias in MODULE_ALIASES.items():
+    for source, alias in ACTIVE_MODULE_ALIASES.items():
         text = text.replace(source, alias)
     return text
 
@@ -119,6 +126,12 @@ def apply_user_manifest_profile(manifest_path: Path) -> None:
     manifest.pop("options_page", None)
     manifest["name"] = "ta-ta User"
     manifest["description"] = "Browser assistant synced by your ta-ta account"
+    for content_script in manifest.get("content_scripts") or []:
+        if isinstance(content_script, dict):
+            content_script["js"] = [
+                item for item in (content_script.get("js") or [])
+                if item not in USER_EXCLUDED_MODULES
+            ]
     manifest = walk_json_strings(manifest, rewrite_path_text)
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
@@ -147,7 +160,12 @@ def apply_user_release_profile(dist_dir: Path) -> None:
             if next_text != text:
                 path.write_text(next_text, encoding="utf-8")
 
-    for source, alias in MODULE_ALIASES.items():
+    for source in USER_EXCLUDED_MODULES:
+        path = dist_dir / source
+        if path.exists():
+            path.unlink()
+
+    for source, alias in ACTIVE_MODULE_ALIASES.items():
         src = dist_dir / source
         dst = dist_dir / alias
         if not src.is_file():
@@ -165,9 +183,19 @@ def validate_user_profile(dist_dir: Path) -> None:
             fail(f"{manifest_name} must not contain options_page in the user package")
     if (dist_dir / "options").exists():
         fail("options directory must not be included in the user package")
-    for source in MODULE_ALIASES:
+    for source in ACTIVE_MODULE_ALIASES:
         if (dist_dir / source).exists():
             fail(f"original module filename still present in package: {source}")
+    for source in USER_EXCLUDED_MODULES:
+        alias = MODULE_ALIASES.get(source)
+        if (dist_dir / source).exists() or (alias and (dist_dir / alias).exists()):
+            fail(f"excluded module present in user package: {source}")
+        for manifest_name in ("manifest.json", "manifest_firefox.json"):
+            manifest_path = dist_dir / manifest_name
+            if manifest_path.exists():
+                refs = collect_manifest_refs(dist_dir, manifest_name)
+                if source in refs or (alias and alias in refs):
+                    fail(f"excluded module referenced by {manifest_name}: {source}")
     popup_text = (dist_dir / "popup" / "popup.html").read_text(encoding="utf-8")
     blocked_tokens = [
         "view-master",
@@ -312,8 +340,9 @@ def main() -> None:
         "source": str(SRC_DIR),
         "output_dir": str(OUT_DIR),
         "package_base": PKG_BASE,
-        "js_files_renamed": len(MODULE_ALIASES),
-        "file_aliases": MODULE_ALIASES,
+        "js_files_renamed": len(ACTIVE_MODULE_ALIASES),
+        "file_aliases": ACTIVE_MODULE_ALIASES,
+        "excluded_modules": sorted(USER_EXCLUDED_MODULES),
         "references_validated": ref_count,
         "minifier": esbuild,
         "protection": {
@@ -344,6 +373,7 @@ Packaging policy:
 - Copied extension source into a temporary release directory.
 - Applied the user release profile in the temporary release directory only.
 - Removed options_page and excluded the options directory.
+- Excluded admin-only mock trainer module from the user package.
 - Replaced the popup with the user-only popup.
 - Renamed module JavaScript files to coded filenames and stored the source-to-package map in build metadata.
 - Minified JavaScript with esbuild.

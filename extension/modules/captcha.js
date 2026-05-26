@@ -26,6 +26,10 @@
             return normHost(window.location.hostname) === 'sarathi.parivahan.gov.in';
         }
 
+        function isStallExamSelectUrl() {
+            return isSarathiHost() && window.location.pathname.toLowerCase() === '/sarathiservice/examselectaction.do';
+        }
+
         function hasConfiguredTarget(data) {
             const host = normHost(window.location.hostname);
             const globalRoutes = data.globalFieldRoutes?.[host]
@@ -245,6 +249,24 @@
             async activate() {
                 const data = await window.up_getStorage(['globalFieldRoutes', 'domainFieldRoutes', 'globalLocators', 'customLocators', 'captchaEnabled']);
                 if (data.captchaEnabled === false) return;
+                if (isStallExamSelectUrl()) {
+                    const host = normHost(window.location.hostname);
+                    const globalRoutes = data.globalFieldRoutes?.[host]
+                                      || data.globalFieldRoutes?.['www.' + host]
+                                      || [];
+                    const localRoutes = (data.domainFieldRoutes || []).filter(route => {
+                        const routeDomain = normHost(route.domain);
+                        return routeDomain === host || routeDomain === `www.${host}`;
+                    });
+                    const locators = { ...(data.globalLocators || {}), ...(data.customLocators || {}) };
+                    const visiblePair = findImagePairFromRoutes([...globalRoutes, ...localRoutes])
+                                     || findPairFromLocators(locators)
+                                     || findPairHeuristic();
+                    if (!visiblePair) {
+                        console.debug('[Captcha] Module skipped on STALL exam select (no visible captcha target)');
+                        return;
+                    }
+                }
                 if (!isSarathiHost() && !hasConfiguredTarget(data) && !findPairHeuristic()) {
                     console.debug('[Captcha] Module skipped (no route or visible captcha target)');
                     return;

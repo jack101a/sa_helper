@@ -1,4 +1,5 @@
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 import logging
@@ -9,8 +10,11 @@ class ExtensionService:
     """Handles packaging and serving of browser extensions."""
 
     def __init__(self, root_dir: Path, output_dir: Path):
+        self.root_dir = root_dir
         self.extension_dir = root_dir / "extension"
         self.output_dir = output_dir
+        self.user_output_dir = root_dir / "data" / "extension_packages"
+        self.user_pack_script = root_dir / "scripts" / "pack_user_extension_release.sh"
 
     def _prepare_source_dir(self) -> tempfile.TemporaryDirectory:
         """Copy source extension without transforming files."""
@@ -27,6 +31,61 @@ class ExtensionService:
         shutil.copy2(zip_path, crx_path)
         shutil.copy2(zip_path, xpi_path)
         return True
+
+    def package_user_extension(self):
+        """Build the protected user extension release package on demand."""
+        try:
+            if not self.user_pack_script.exists():
+                logger.error(
+                    "User extension pack script not found",
+                    extra={"context": {"script": str(self.user_pack_script)}},
+                )
+                return False
+
+            logger.info(
+                "Packaging user extension",
+                extra={"context": {"script": str(self.user_pack_script), "output_dir": str(self.user_output_dir)}},
+            )
+            result = subprocess.run(
+                [str(self.user_pack_script)],
+                cwd=str(self.root_dir),
+                text=True,
+                capture_output=True,
+                timeout=120,
+                check=False,
+            )
+            if result.returncode != 0:
+                logger.error(
+                    "User extension packaging failed",
+                    extra={"context": {
+                        "returncode": result.returncode,
+                        "stdout": result.stdout[-4000:],
+                        "stderr": result.stderr[-4000:],
+                    }},
+                )
+                return False
+
+            required = (
+                self.user_output_dir / "mcq_solver_extension_user.zip",
+                self.user_output_dir / "mcq_solver_extension_user.crx",
+                self.user_output_dir / "mcq_solver_extension_user.xpi",
+            )
+            missing = [str(path) for path in required if not path.exists()]
+            if missing:
+                logger.error("User extension packaging did not create all artifacts", extra={"context": {"missing": missing}})
+                return False
+
+            logger.info(
+                "User extension packaging successful",
+                extra={"context": {"output_dir": str(self.user_output_dir)}},
+            )
+            return True
+        except Exception as e:
+            logger.exception(
+                "Failed to package user extension",
+                extra={"context": {"error": str(e), "script": str(self.user_pack_script)}},
+            )
+            return False
         
     def package_extension(self):
         """Package the original/admin extension into ZIP, CRX, and XPI formats."""

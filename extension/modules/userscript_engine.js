@@ -262,6 +262,21 @@
         return Array.isArray(value) ? value.map(item => String(item || '').trim()).filter(Boolean) : [];
     }
 
+    function accessScope(scriptData) {
+        return String(scriptData.accessScope || scriptData.access_scope || scriptData.access || '').trim().toLowerCase();
+    }
+
+    function serviceList(scriptData) {
+        const raw = scriptData.services || scriptData.serviceNames || scriptData.service_names || scriptData.service || [];
+        if (Array.isArray(raw)) return raw.map(item => String(item || '').trim().toLowerCase()).filter(Boolean);
+        const single = String(raw || '').trim().toLowerCase();
+        return single ? [single] : [];
+    }
+
+    function hasStallServiceEntitlement(scriptData) {
+        return accessScope(scriptData) === 'service' && serviceList(scriptData).includes('stall');
+    }
+
     function runtimeRoles(scriptData) {
         const roles = stringList(scriptData.runtimeRoles || scriptData.runtime_roles);
         const role = String(scriptData.runtimeRole || scriptData.runtime_role || '').trim();
@@ -274,6 +289,7 @@
     }
 
     function isStallCoreScript(scriptData) {
+        if (!hasStallServiceEntitlement(scriptData)) return false;
         if (hasRuntimeRole(scriptData, 'stall_core')) return true;
         return isAuthenticationHandlerScript(scriptData) || isEnableAllFormFieldsScript(scriptData);
     }

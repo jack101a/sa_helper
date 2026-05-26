@@ -104,6 +104,12 @@
         const getQImageEl = () => document.querySelector('img[name="qframe"]') || null;
         const getQImage  = () => getQImageEl()?.src || null;
         const getOptImgEls = () => [1,2,3,4].map(i => document.getElementById('choice' + i)).filter(Boolean);
+        const hasStrictQuestionDom = () => !!(
+            getQImageEl()
+            && getOptImgEls().length >= 2
+            && document.querySelector('input[type="radio"][id^="stallradio"]')
+            && document.getElementById('confirmbut')
+        );
         const parseScore = () => {
             const txt = getScore();
             const m = txt.match(/\d+/);
@@ -470,6 +476,14 @@
                         return;
                     }
 
+                    const fallbackSettings = await window.up_getStorage(['examRandomFallbackEnabled']);
+                    if (fallbackSettings.examRandomFallbackEnabled !== true) {
+                        setStatus('No match', 'fail');
+                        setResult('Server returned no match. Not clicking.');
+                        state.processing = false;
+                        return;
+                    }
+
                     await waitForRandomFallbackWindow();
 
                     const optCount = optImgs.length || 3;
@@ -501,7 +515,9 @@
 
         return {
             activate() {
-                const isExam = /stallexamaction|examselectaction/i.test(window.location.href);
+                const path = window.location.pathname.toLowerCase();
+                const isExam = path === '/sarathiservice/stallexamaction.do'
+                    || (path === '/sarathiservice/examselectaction.do' && hasStrictQuestionDom());
                 if (!isExam) return;
                 // createPanel() is now called lazily in mainLoop()
                 window.up_getStorage(['solverEnabled', 'learningEnabled', 'isMaster']).then(d => {

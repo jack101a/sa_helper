@@ -329,7 +329,7 @@
         async function tick() {
             if (processing || !isMockPage()) return;
             const settings = await window.up_getStorage(['solverEnabled', 'learningEnabled', 'mockTrainingEnabled', 'isMaster']);
-            if (settings.isMaster !== true || settings.solverEnabled === false || settings.learningEnabled === false || settings.mockTrainingEnabled === false) return;
+            if (settings.isMaster !== true || settings.solverEnabled === false || settings.learningEnabled === false || settings.mockTrainingEnabled !== true) return;
             if (!isMockExamPage()) {
                 await fillMockLogin();
                 return;
@@ -340,10 +340,13 @@
         return {
             activate() {
                 if (!isSarathiHost()) return;
-                if (interval) clearInterval(interval);
-                interval = setInterval(() => tick().catch(e => console.warn('[MockTrainer] tick failed:', e.message)), CFG.POLL_MS);
-                setTimeout(() => tick().catch(() => {}), 500);
-                console.log('[MockTrainer] active on Sarathi mock test');
+                window.up_getStorage(['isMaster', 'mockTrainingEnabled']).then(settings => {
+                    if (settings.isMaster !== true || settings.mockTrainingEnabled !== true) return;
+                    if (interval) clearInterval(interval);
+                    interval = setInterval(() => tick().catch(e => console.warn('[MockTrainer] tick failed:', e.message)), CFG.POLL_MS);
+                    setTimeout(() => tick().catch(() => {}), 500);
+                    console.log('[MockTrainer] active on Sarathi mock test');
+                });
             }
         };
     })();

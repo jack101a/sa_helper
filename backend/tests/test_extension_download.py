@@ -62,6 +62,30 @@ class ExtensionDownloadTests(unittest.TestCase):
             self.assertFalse((output_dir / "mcq_solver_extension_user.crx").exists())
             self.assertFalse((output_dir / "mcq_solver_extension_user.xpi").exists())
 
+    def test_package_user_extension_runs_release_script(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output_dir = root / "backend" / "app" / "static" / "extensions"
+            script_path = root / "scripts" / "pack_user_extension_release.sh"
+            package_dir = root / "data" / "extension_packages"
+            script_path.parent.mkdir(parents=True, exist_ok=True)
+            script_path.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                "mkdir -p data/extension_packages\n"
+                "printf user-zip > data/extension_packages/mcq_solver_extension_user.zip\n"
+                "printf user-crx > data/extension_packages/mcq_solver_extension_user.crx\n"
+                "printf user-xpi > data/extension_packages/mcq_solver_extension_user.xpi\n",
+                encoding="utf-8",
+            )
+            script_path.chmod(0o755)
+
+            service = ExtensionService(root_dir=root, output_dir=output_dir)
+            self.assertTrue(service.package_user_extension())
+            self.assertEqual((package_dir / "mcq_solver_extension_user.zip").read_bytes(), b"user-zip")
+            self.assertEqual((package_dir / "mcq_solver_extension_user.crx").read_bytes(), b"user-crx")
+            self.assertEqual((package_dir / "mcq_solver_extension_user.xpi").read_bytes(), b"user-xpi")
+
     def test_extension_format_mapping(self):
         self.assertEqual(_extension_filename_for_format("zip"), "mcq_solver_extension.zip")
         self.assertEqual(_extension_filename_for_format("CRX"), "mcq_solver_extension.crx")
@@ -92,17 +116,23 @@ class ExtensionDownloadTests(unittest.TestCase):
             (output_dir / "mcq_solver_extension.zip").write_bytes(b"zip")
             (output_dir / "mcq_solver_extension.crx").write_bytes(b"crx")
             (output_dir / "mcq_solver_extension.xpi").write_bytes(b"xpi")
-            (user_package_dir / "mcq_solver_extension_user.zip").write_bytes(b"user-zip")
-            (user_package_dir / "mcq_solver_extension_user.crx").write_bytes(b"user-crx")
-            (user_package_dir / "mcq_solver_extension_user.xpi").write_bytes(b"user-xpi")
 
             class DummyExtensionService:
                 def __init__(self):
                     self.output_dir = output_dir
+                    self.user_output_dir = user_package_dir
                     self.calls = 0
+                    self.user_calls = 0
 
                 def package_extension(self):
                     self.calls += 1
+                    return True
+
+                def package_user_extension(self):
+                    self.user_calls += 1
+                    (user_package_dir / "mcq_solver_extension_user.zip").write_bytes(b"user-zip")
+                    (user_package_dir / "mcq_solver_extension_user.crx").write_bytes(b"user-crx")
+                    (user_package_dir / "mcq_solver_extension_user.xpi").write_bytes(b"user-xpi")
                     return True
 
             dummy = DummyExtensionService()
@@ -131,21 +161,29 @@ class ExtensionDownloadTests(unittest.TestCase):
                     self.assertIn(expected_name, resp.headers.get("content-disposition", ""))
 
             self.assertEqual(dummy.calls, 3)
+            self.assertEqual(dummy.user_calls, 3)
 
-    def test_user_download_missing_prebuilt_package_returns_404(self):
+    def test_user_download_failed_package_returns_500(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             output_dir = root / "out"
+            user_package_dir = root / "data" / "extension_packages"
             output_dir.mkdir(parents=True, exist_ok=True)
 
             class DummyExtensionService:
                 def __init__(self):
                     self.output_dir = output_dir
+                    self.user_output_dir = user_package_dir
                     self.calls = 0
+                    self.user_calls = 0
 
                 def package_extension(self):
                     self.calls += 1
                     return True
+
+                def package_user_extension(self):
+                    self.user_calls += 1
+                    return False
 
             dummy = DummyExtensionService()
             app = FastAPI()
@@ -156,9 +194,10 @@ class ExtensionDownloadTests(unittest.TestCase):
                  patch.object(settings_routes, "_PROJECT_ROOT", root):
                 client = TestClient(app)
                 resp = client.get("/admin/api/extension/download?format=zip&variant=user")
-                self.assertEqual(resp.status_code, 404)
+                self.assertEqual(resp.status_code, 500)
 
             self.assertEqual(dummy.calls, 0)
+            self.assertEqual(dummy.user_calls, 1)
 
     def test_download_endpoint_rejects_unsupported_format(self):
         with tempfile.TemporaryDirectory() as tmp:

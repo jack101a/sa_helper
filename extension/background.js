@@ -1724,7 +1724,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 sp_vcam_enabled: true,
                 sp_vcam_force_all: true
             });
-            await chrome.storage.local.remove(['stallStepScripts', '_stall_appNo', '_stall_captcha', '_stall_step4_started_at', '_stall_step4_lock_at', '_stall_step4_done_at', '_stall_flow_done_at']);
+            await chrome.storage.local.remove(['stallStepScripts', '_stall_appNo', '_stall_captcha', '_stall_step4_started_at', '_stall_step4_lock_at', '_stall_step4_done_at', '_stall_flow_done_at', '_stall_language_done_at', '_stall_completed_at']);
 
             // Set up state for semi-auto mode
             automationState = {
@@ -1781,8 +1781,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'UPDATE_STALL_STEP') {
         if (automationState.active && automationState.tabId === sender.tab?.id) {
             automationState.step = msg.step;
+            if (Number(msg.step) >= 7) {
+                automationState.active = false;
+            }
             _persistAutomationState();
             console.log(`[Automation] Advanced to Step ${msg.step}`);
+            if (Number(msg.step) >= 7) {
+                _setStallKeepAlive(false);
+                chrome.storage.local.set({ _stall_completed_at: Date.now() });
+            }
 
             // Handle specific delays (e.g. 5 seconds between 3 and 4)
             if (msg.step === 4) {
@@ -1805,7 +1812,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         _persistAutomationState();
         _setStallKeepAlive(false);
         chrome.storage.local.set({ stallVcamActive: false, sp_vcam_enabled: false, sp_vcam_force_all: false }, () => {
-            chrome.storage.local.remove(['stallStepScripts', '_stall_appNo', '_stall_captcha', '_stall_step4_started_at', '_stall_step4_lock_at', '_stall_step4_done_at', '_stall_flow_done_at', 'stall_user_photo', 'sp_vcam_image']);
+            chrome.storage.local.remove(['stallStepScripts', '_stall_appNo', '_stall_captcha', '_stall_step4_started_at', '_stall_step4_lock_at', '_stall_step4_done_at', '_stall_flow_done_at', '_stall_language_done_at', '_stall_completed_at', 'stall_user_photo', 'sp_vcam_image']);
         });
         console.log('[Automation] STALL session complete. MCQ Solver taking over.');
         sendResponse({ ok: true });

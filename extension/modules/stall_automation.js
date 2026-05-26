@@ -22,6 +22,8 @@
     const STEP4_LOCK_KEY = '_stall_step4_lock_at';
     const STEP4_DONE_KEY = '_stall_step4_done_at';
     const STALL_FLOW_DONE_KEY = '_stall_flow_done_at';
+    const STALL_LANGUAGE_DONE_KEY = '_stall_language_done_at';
+    const STALL_COMPLETED_KEY = '_stall_completed_at';
     const STEP4_FALLBACK_DELAY_MS = 5000;
     const STEP4_LOCK_TTL_MS = 20000;
 
@@ -137,13 +139,36 @@
             `);
         },
 
+        async completeFlow(source = 'local') {
+            if (this._finishing === 'done') return;
+            this._finishing = 'done';
+            await chrome.storage.local.set({
+                [STALL_LANGUAGE_DONE_KEY]: Date.now(),
+                [STALL_COMPLETED_KEY]: Date.now()
+            });
+            await sendMessage({ type: 'UPDATE_STALL_STEP', step: 7 });
+            console.log(`[Automation] STALL page automation completed via ${source}`);
+            this.stop();
+        },
+
         async runStallPageUserscriptWatcher() {
             const resp = await sendMessage({ type: 'GET_STALL_STATE' });
-            if (!resp?.ok || !resp.state?.active) return;
+            if (!resp?.ok || !resp.state?.active) {
+                this.stop();
+                return;
+            }
+            if (Number(resp.state.step || 0) >= 7) {
+                await this.completeFlow('watcher-state');
+                return;
+            }
 
             const url = location.href;
             if (url.includes('/sarathiservice/authenticationaction.do')) {
-                const flowData = await chrome.storage.local.get([STALL_FLOW_DONE_KEY, STEP4_DONE_KEY]);
+                const flowData = await chrome.storage.local.get([STALL_FLOW_DONE_KEY, STEP4_DONE_KEY, STALL_COMPLETED_KEY]);
+                if (flowData[STALL_COMPLETED_KEY]) {
+                    this.stop();
+                    return;
+                }
                 if (!flowData[STALL_FLOW_DONE_KEY] && !flowData[STEP4_DONE_KEY]) return;
                 const result = await this.runExactContinueSnippet('watcher');
                 if (result?.ok !== false && result?.missing !== true) {
@@ -155,7 +180,7 @@
             if (url.includes('/sarathiservice/instruction.do')) {
                 const result = await this.runExactLanguageSnippet('watcher');
                 if (result?.ok !== false && result?.missing !== true) {
-                    await sendMessage({ type: 'UPDATE_STALL_STEP', step: 7 });
+                    await this.completeFlow('watcher-language');
                 }
             }
         },
@@ -323,7 +348,7 @@
                     _stall_appNo: fields.appNo,
                     _stall_captcha: fields.captcha
                 });
-                await chrome.storage.local.remove([STEP4_STARTED_KEY, STEP4_LOCK_KEY, STEP4_DONE_KEY, STALL_FLOW_DONE_KEY]);
+                await chrome.storage.local.remove([STEP4_STARTED_KEY, STEP4_LOCK_KEY, STEP4_DONE_KEY, STALL_FLOW_DONE_KEY, STALL_LANGUAGE_DONE_KEY, STALL_COMPLETED_KEY]);
 
                 if (btn) {
                     btn.disabled = true;
@@ -508,6 +533,11 @@
                 const { state } = resp;
                 const url = location.href;
 
+                if (Number(state.step || 0) >= 7) {
+                    await this.completeFlow('tick-state');
+                    return;
+                }
+
                 if (now - this._loadStartedAt < 3000) return; // Wait 3s
 
                 this.handlePopups();
@@ -546,7 +576,7 @@
                         this.setStartNowStatus('Selecting Hindi and continuing...', 'ok');
                         const resp = await this.runExactLanguageSnippet('step6');
                         if (resp?.ok !== false && resp?.missing !== true) {
-                            await sendMessage({ type: 'UPDATE_STALL_STEP', step: 7 });
+                            await this.completeFlow('step6-language');
                         } else {
                             this._finishing = false;
                         }

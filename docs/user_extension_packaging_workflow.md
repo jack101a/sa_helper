@@ -1,12 +1,12 @@
 # User Extension Packaging Workflow
 
-This workflow separates debug packaging from release packaging.
+This workflow separates on-demand release packaging from debug packaging.
 
 ## Why
 
-The backend must not build the user extension automatically during admin downloads. User packages are manually prepared, verified, and placed in `data/extension_packages`, which should be mounted as Docker volume data. The Docker image should not contain the generated user package.
+The backend builds the user extension automatically when an admin downloads `variant=user`. The generated package is still written to `data/extension_packages`, but admins do not need to copy files there manually.
 
-The original/admin extension download stays source-based and can still be rebuilt by the backend. The user extension download serves only prebuilt files:
+The original/admin extension download stays source-based and is rebuilt by the backend. The user extension download runs `scripts/pack_user_extension_release.sh` first, then serves:
 
 - `data/extension_packages/mcq_solver_extension_user.zip`
 - `data/extension_packages/mcq_solver_extension_user.crx`
@@ -36,7 +36,13 @@ Important current behavior:
 
 ## Release Packaging Policy
 
-Use `scripts/pack_user_extension_release.sh` for distribution.
+Use `scripts/pack_user_extension_release.sh` for distribution. The admin download endpoint runs this script automatically for user packages:
+
+```text
+/admin/api/extension/download?format=zip&variant=user
+/admin/api/extension/download?format=crx&variant=user
+/admin/api/extension/download?format=xpi&variant=user
+```
 
 The release script:
 
@@ -54,11 +60,11 @@ The release script:
 - Validates that the packaged user popup does not contain admin controls.
 - Creates ZIP, CRX, and XPI artifacts under `data/extension_packages/`.
 - Writes `mcq_solver_extension_user.SHA256SUMS`, `mcq_solver_extension_user.build.json`, and `mcq_solver_extension_user.report.txt`.
-- Does not call backend `ExtensionService.package_extension()`.
+- Is called by backend `ExtensionService.package_user_extension()` during user package download.
 - Does not write the user package into `backend/app/static/extensions/`.
 - Does not place generated user artifacts in the Docker image.
 
-Command:
+Manual command for local verification:
 
 ```bash
 ./scripts/pack_user_extension_release.sh
@@ -97,7 +103,7 @@ Debug command:
 
 1. Confirm git revision with `git rev-parse --short HEAD`.
 2. Run `find extension -name '*.js' -print0 | xargs -0 -n1 node --check`.
-3. Run `./scripts/pack_user_extension_release.sh`.
+3. Download `/admin/api/extension/download?format=zip&variant=user`, or run `./scripts/pack_user_extension_release.sh` manually for local verification.
 4. Verify `data/extension_packages/mcq_solver_extension_user.SHA256SUMS`.
 5. Load the generated ZIP/unpacked contents on desktop Chromium first.
 6. Test the same package on Kiwi or Lemur Android.
@@ -109,4 +115,4 @@ Debug command:
 - Do not rename files directly inside `extension/`; user filename coding belongs in the release packaging transform.
 - Do not package from stale generated artifacts.
 - Do not change source behavior while only trying to create a user package.
-- Do not reintroduce backend automatic user package building.
+- Do not bypass the release packer when serving user downloads.

@@ -108,6 +108,11 @@
             return false;
         }
 
+        function isStallExamSelectUrl() {
+            return window.location.hostname === 'sarathi.parivahan.gov.in'
+                && window.location.pathname.toLowerCase() === '/sarathiservice/examselectaction.do';
+        }
+
         function currentPageKey() {
             return `${window.location.hostname}${window.location.pathname}${window.location.search}`;
         }
@@ -387,6 +392,10 @@
             async activate() {
                 const gate = await window.up_getStorage(['isRecording', 'isMaster', 'rules']);
                 _recording = !!gate.isRecording && !!gate.isMaster;
+                if (isStallExamSelectUrl() && !_recording) {
+                    console.debug('[Autofill] Module skipped on STALL exam select');
+                    return;
+                }
                 const hasMatchedRule = (gate.rules || []).some(matchRule);
                 if (!_recording && !hasMatchedRule) {
                     console.debug('[Autofill] Module skipped (no matching rule and recording off)');

@@ -49,7 +49,24 @@
         return host === clean || host.endsWith(`.${clean}`);
     }
 
+    function isStallRelatedUrl() {
+        try {
+            const url = new URL(location.href);
+            if (url.hostname !== 'sarathi.parivahan.gov.in') return false;
+            const path = url.pathname.toLowerCase();
+            return path === '/sarathiservice/authenticationaction.do'
+                || path === '/sarathiservice/instruction.do'
+                || path === '/sarathiservice/examselectaction.do'
+                || path === '/sarathiservice/stallexam.do'
+                || path === '/sarathiservice/stallexamaction.do'
+                || path === '/sarathiservice/stallloginsubmit.do';
+        } catch (_) {
+            return false;
+        }
+    }
+
     function isEnabledForCurrentPage(config) {
+        if (isStallRelatedUrl()) return false;
         if (!config || config.enabled !== true) return false;
         const sites = Array.isArray(config.sites) ? config.sites : [];
         return sites.some(urlMatchesPattern);
