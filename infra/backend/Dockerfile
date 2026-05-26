@@ -1,3 +1,10 @@
+# Stage 1: collect the standalone esbuild binary used by user-extension packaging.
+FROM node:20-slim AS frontend-builder
+WORKDIR /frontend
+COPY frontend/package*.json ./
+RUN npm install
+RUN cp "$(readlink -f node_modules/.bin/esbuild)" /tmp/esbuild
+
 # Use an official Python runtime as a parent image
 FROM python:3.11-slim
 
@@ -28,13 +35,19 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the backend code
 COPY backend/ /app/backend/
+COPY extension/ /app/extension/
+COPY scripts/pack_user_extension_release.sh /app/scripts/pack_user_extension_release.sh
+COPY scripts/user_extension_templates/ /app/scripts/user_extension_templates/
 COPY data/ /opt/sa-helper-seed/data/
 COPY backend/config/ /opt/sa-helper-seed/backend/config/
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+COPY --from=frontend-builder /tmp/esbuild /usr/local/bin/esbuild
 
 # Create necessary directories
 RUN cp -a /opt/sa-helper-seed/data /app/data && \
     mkdir -p /app/backend/logs /app/backend/datasets && \
+    chmod +x /usr/local/bin/esbuild && \
+    chmod +x /app/scripts/pack_user_extension_release.sh && \
     chmod +x /usr/local/bin/docker-entrypoint.sh
 
 ENV PYTHONPATH=/app/backend \

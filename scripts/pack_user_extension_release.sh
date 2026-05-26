@@ -82,8 +82,17 @@ def resolve_esbuild() -> str:
     fail("esbuild not found. Install frontend dependencies or set ESBUILD_BIN.")
 
 
-def node_check(js_path: Path) -> None:
-    run(["node", "--check", str(js_path)])
+def node_check(js_path: Path, esbuild: str) -> None:
+    node_bin = shutil.which("node")
+    if node_bin:
+        run([node_bin, "--check", str(js_path)])
+        return
+    run([
+        esbuild,
+        str(js_path),
+        "--log-level=error",
+        "--outfile=/dev/null",
+    ])
 
 
 def load_json(path: Path) -> dict:
@@ -302,16 +311,16 @@ def main() -> None:
             load_json(dist_dir / "manifest_firefox.json")
         validate_user_profile(dist_dir)
         for js_path in sorted(dist_dir.rglob("*.js")):
-            node_check(js_path)
+            node_check(js_path, esbuild)
 
         for js_path in sorted(dist_dir.rglob("*.js")):
             minify_js(js_path, esbuild)
-            node_check(js_path)
+            node_check(js_path, esbuild)
 
         ref_count = validate_refs(dist_dir)
         validate_user_profile(dist_dir)
         for js_path in sorted(dist_dir.rglob("*.js")):
-            node_check(js_path)
+            node_check(js_path, esbuild)
 
         zip_path = OUT_DIR / f"{PKG_BASE}.zip"
         crx_path = OUT_DIR / f"{PKG_BASE}.crx"
@@ -326,7 +335,7 @@ def main() -> None:
         validate_refs(check_dir)
         validate_user_profile(check_dir)
         for js_path in sorted(check_dir.rglob("*.js")):
-            node_check(js_path)
+            node_check(js_path, esbuild)
 
     revision = git_value("rev-parse", "--short", "HEAD")
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
