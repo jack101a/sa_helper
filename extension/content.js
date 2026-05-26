@@ -11,7 +11,17 @@
 
     function isExcludedSite() {
         const host = normalizedHost();
-        return host === 'web.whatsapp.com' || host.endsWith('.bank.in');
+        const blockedHosts = [
+            'paypal.com', 'stripe.com', 'razorpay.com', 'paytm.com', 'phonepe.com',
+            'hdfcbank.com', 'icicibank.com', 'axisbank.com', 'kotak.com',
+            'sbi.co.in', 'onlinesbi.sbi', 'bankofbaroda.in', 'unionbankofindia.co.in',
+            'yesbank.in', 'idfcfirstbank.com', 'indusind.com', 'aubank.in',
+            'canarabank.com', 'pnbindia.in', 'centralbankofindia.co.in', 'indianbank.in'
+        ];
+        return host === 'web.whatsapp.com'
+            || host.endsWith('.bank.in')
+            || host.includes('netbanking')
+            || blockedHosts.some(domain => host === domain || host.endsWith('.' + domain));
     }
 
     function isSarathiHost() {
@@ -40,8 +50,9 @@
         const services = data.enabledServices && typeof data.enabledServices === 'object' && !Array.isArray(data.enabledServices)
             ? data.enabledServices
             : {};
-        const stallEntitled = services.stall !== false;
-        const solverEntitled = data.solverEnabled !== false && services.solver !== false;
+        const masterEntitled = data.isMaster === true;
+        const stallEntitled = masterEntitled || services.exam === true;
+        const solverEntitled = masterEntitled || (data.solverEnabled !== false && services.solver === true);
 
         // 1. Initialize Sarathi Hardening & Image Detector (Runs immediately)
         if (window.SarathiHarden) window.SarathiHarden.init();

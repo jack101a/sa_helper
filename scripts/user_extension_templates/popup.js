@@ -44,11 +44,11 @@ function servicesFromAuth(data) {
 }
 
 function serviceAllowed(services, name) {
-    return services[name] !== false;
+    return services[name] === true;
 }
 
 function stallAllowed(services) {
-    return serviceAllowed(services, 'stall');
+    return serviceAllowed(services, 'exam');
 }
 
 function solverAllowed(services) {

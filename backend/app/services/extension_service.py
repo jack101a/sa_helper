@@ -21,7 +21,23 @@ class ExtensionService:
         tmp = tempfile.TemporaryDirectory(prefix="sa_helper_extension_")
         dist_dir = Path(tmp.name) / "extension"
         shutil.copytree(self.extension_dir, dist_dir)
+        self._inject_payload_public_key(dist_dir)
         return tmp
+
+    def _inject_payload_public_key(self, dist_dir: Path) -> None:
+        from app.services.payload_signing_service import ensure_public_key_b64
+
+        public_key = ensure_public_key_b64()
+        placeholder = "__PAYLOAD_SIGNING_PUBLIC_KEY_B64__"
+        replaced = False
+        for path in dist_dir.rglob("*.js"):
+            text = path.read_text(encoding="utf-8")
+            if placeholder not in text:
+                continue
+            path.write_text(text.replace(placeholder, public_key), encoding="utf-8")
+            replaced = True
+        if not replaced and (dist_dir / "background.js").exists():
+            raise RuntimeError("Payload signing public key placeholder was not found in extension source")
 
     def _write_archive_set(self, zip_base: Path, zip_path: Path, crx_path: Path, xpi_path: Path, source_dir: Path) -> bool:
         shutil.make_archive(str(zip_base), "zip", source_dir)

@@ -62,6 +62,7 @@ data/payment_screenshots/
 data/telegram_user_states.json
 data/extension_error_reports/
 data/extension_packages/
+data/security/
 
 # Internal operator scratch docs (not for production branch)
 AGENTS.md

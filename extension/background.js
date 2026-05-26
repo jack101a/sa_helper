@@ -4,6 +4,50 @@
 
 
 const gmXhrControllers = new Map();
+const PAYLOAD_SIGNING_PUBLIC_KEY_B64 = "__PAYLOAD_SIGNING_PUBLIC_KEY_B64__";
+
+function canonicalJson(value) {
+    if (value === null || typeof value !== 'object') return JSON.stringify(value);
+    if (Array.isArray(value)) return '[' + value.map(canonicalJson).join(',') + ']';
+    return '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonicalJson(value[key])).join(',') + '}';
+}
+
+function b64ToBytes(value) {
+    const binary = atob(String(value || ''));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+}
+
+async function importPayloadSigningKey() {
+    const key = String(PAYLOAD_SIGNING_PUBLIC_KEY_B64 || '').trim();
+    if (!key || key.includes('__PAYLOAD_SIGNING_PUBLIC_KEY_B64__')) {
+        throw new Error('Payload signing public key is not configured.');
+    }
+    return crypto.subtle.importKey(
+        'spki',
+        b64ToBytes(key),
+        { name: 'ECDSA', namedCurve: 'P-256' },
+        false,
+        ['verify']
+    );
+}
+
+async function verifySignedPayload(kind, payload, signature) {
+    if (!signature || signature.alg !== 'ECDSA-P256-SHA256' || signature.kind !== kind || !signature.signature) {
+        throw new Error(`Missing or invalid ${kind} signature.`);
+    }
+    const publicKey = await importPayloadSigningKey();
+    const bytes = new TextEncoder().encode(canonicalJson({ kind, payload }));
+    const ok = await crypto.subtle.verify(
+        { name: 'ECDSA', hash: 'SHA-256' },
+        publicKey,
+        b64ToBytes(signature.signature),
+        bytes
+    );
+    if (!ok) throw new Error(`${kind} signature verification failed.`);
+    return true;
+}
 
 async function handleGMCall(msg) {
     const { action, key, value, defaultValue, details, requestId, scriptId } = msg;
@@ -600,18 +644,20 @@ function serviceMapFrom(data) {
 }
 
 function isServiceAllowed(services, name) {
-    if (!services || typeof services !== 'object') return true;
-    return services[name] !== false;
+    return !!(services && typeof services === 'object' && services[name] === true);
+}
+
+function isEntitledFrom(data, name) {
+    if (data && data.isMaster === true) return true;
+    return isServiceAllowed(serviceMapFrom(data), name);
 }
 
 function isStallEntitledFrom(data) {
-    const services = serviceMapFrom(data);
-    return isServiceAllowed(services, 'stall');
+    return isEntitledFrom(data, 'exam');
 }
 
 function isSolverEntitledFrom(data) {
-    const services = serviceMapFrom(data);
-    return isServiceAllowed(services, 'solver');
+    return isEntitledFrom(data, 'solver');
 }
 
 function isUserscriptsEntitledFrom() {
@@ -619,12 +665,12 @@ function isUserscriptsEntitledFrom() {
 }
 
 async function hasStallEntitlement() {
-    const data = await storageGet(['enabledServices']);
+    const data = await storageGet(['enabledServices', 'isMaster']);
     return isStallEntitledFrom(data);
 }
 
 async function hasSolverEntitlement() {
-    const data = await storageGet(['enabledServices', 'solverEnabled']);
+    const data = await storageGet(['enabledServices', 'solverEnabled', 'isMaster']);
     return data.solverEnabled !== false && isSolverEntitledFrom(data);
 }
 
@@ -718,7 +764,9 @@ async function fetchServerStallPayload(stepId) {
         throw new Error('Invalid STALL step id');
     }
     const data = await apiGet(`/v1/automation/payload/${cleanStepId}`);
-    return String(data?.payload || '');
+    const payload = String(data?.payload || '');
+    await verifySignedPayload('stall_payload', { step_id: cleanStepId, payload }, data?.signature);
+    return payload;
 }
 
 function normalizeDomain(value) {
@@ -730,6 +778,20 @@ function normalizeDomain(value) {
     token = token.split('/', 1)[0].split(':', 1)[0].replace(/\.$/, '');
     if (token.startsWith('www.')) token = token.slice(4);
     return token;
+}
+
+function isSensitiveFinancialUrl(value) {
+    const host = normalizeDomain(value);
+    const blockedHosts = [
+        'paypal.com', 'stripe.com', 'razorpay.com', 'paytm.com', 'phonepe.com',
+        'hdfcbank.com', 'icicibank.com', 'axisbank.com', 'kotak.com',
+        'sbi.co.in', 'onlinesbi.sbi', 'bankofbaroda.in', 'unionbankofindia.co.in',
+        'yesbank.in', 'idfcfirstbank.com', 'indusind.com', 'aubank.in',
+        'canarabank.com', 'pnbindia.in', 'centralbankofindia.co.in', 'indianbank.in'
+    ];
+    return host.endsWith('.bank.in')
+        || host.includes('netbanking')
+        || blockedHosts.some(domain => host === domain || host.endsWith('.' + domain));
 }
 
 async function getDeviceId() {
@@ -971,6 +1033,23 @@ async function bundleUserscript(script) {
     };
 }
 
+function userscriptSignaturePayload(script) {
+    return {
+        id: script.id || '',
+        file: script.file || '',
+        version: script.version || '',
+        matches: Array.isArray(script.matches) ? script.matches : [],
+        includes: Array.isArray(script.includes) ? script.includes : [],
+        exclude: Array.isArray(script.exclude) ? script.exclude : [],
+        excludeMatches: Array.isArray(script.excludeMatches) ? script.excludeMatches : [],
+        runAt: script.runAt || '',
+        requires: Array.isArray(script.requires) ? script.requires : [],
+        resources: Array.isArray(script.resources) ? script.resources : [],
+        noframes: script.noframes === true,
+        code: script.code || ''
+    };
+}
+
 async function startLocate(targetField) {
     let [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     if (!tab || !tab.url || !/^https?:/i.test(tab.url)) {
@@ -1106,9 +1185,9 @@ async function syncAuthState(source) {
             mobile: d.mobile || d.phone || '',
             telegramId: d.telegram_id || d.tg_id || '',
             enabledServices: services,
-            autofillEnabled: services.autofill === false ? false : current.autofillEnabled !== false,
-            captchaEnabled: services.captcha === false ? false : current.captchaEnabled !== false,
-            solverEnabled: isSolverEntitledFrom({ enabledServices: services }) ? current.solverEnabled !== false : false,
+            autofillEnabled: isEntitledFrom({ enabledServices: services, isMaster }, 'autofill') ? current.autofillEnabled !== false : false,
+            captchaEnabled: isEntitledFrom({ enabledServices: services, isMaster }, 'captcha') ? current.captchaEnabled !== false : false,
+            solverEnabled: isSolverEntitledFrom({ enabledServices: services, isMaster }) ? current.solverEnabled !== false : false,
             userscriptsEnabled: isMaster ? current.userscriptsEnabled !== false : isUserscriptsEntitledFrom({ enabledServices: services }),
             lastVerify: Date.now()
         });
@@ -1202,6 +1281,7 @@ async function syncHeavyData(source, options = {}) {
         if (data && data.scripts) {
             const normalized = [];
             for (const script of data.scripts) {
+                await verifySignedPayload('userscript', userscriptSignaturePayload(script), script.signature);
                 const bundled = await bundleUserscript(script);
                 normalized.push(bundled);
                 if (bundled.requireErrors.length) {
@@ -1416,9 +1496,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                     mobile: d.mobile || d.phone || d.mobile_no || '',
                     telegramId: d.telegram_id || d.tg_id || '',
                     enabledServices: services,
-                    autofillEnabled: services.autofill === false ? false : current.autofillEnabled !== false,
-                    captchaEnabled: services.captcha === false ? false : current.captchaEnabled !== false,
-                    solverEnabled: isSolverEntitledFrom({ enabledServices: services }) ? current.solverEnabled !== false : false,
+                    autofillEnabled: isEntitledFrom({ enabledServices: services, isMaster }, 'autofill') ? current.autofillEnabled !== false : false,
+                    captchaEnabled: isEntitledFrom({ enabledServices: services, isMaster }, 'captcha') ? current.captchaEnabled !== false : false,
+                    solverEnabled: isSolverEntitledFrom({ enabledServices: services, isMaster }) ? current.solverEnabled !== false : false,
                     userscriptsEnabled: isMaster ? current.userscriptsEnabled !== false : isUserscriptsEntitledFrom({ enabledServices: services }),
                     lastVerify: Date.now()
                 });
@@ -1778,10 +1858,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     if (msg.type === 'FETCH_STALL_PAYLOAD') {
         const stepId = String(msg.stepId || '');
-        const entitlementCheck = stepId === 'step3' ? hasStallEntitlement() : hasSolverEntitlement();
+        const entitlementCheck = stepId === 'step3'
+            ? hasStallEntitlement()
+            : Promise.all([hasStallEntitlement(), hasSolverEntitlement()]).then(([stallAllowed, solverAllowed]) => stallAllowed && solverAllowed);
         entitlementCheck
             .then(allowed => {
-                if (!allowed) throw new Error(stepId === 'step3' ? 'STALL is not enabled for this API key.' : 'Solver is not enabled for this API key.');
+                if (!allowed) throw new Error(stepId === 'step3' ? 'STALL is not enabled for this API key.' : 'STALL solver is not enabled for this API key.');
                 return fetchServerStallPayload(stepId);
             })
             .then(payload => sendResponse({ ok: true, payload }))
@@ -1842,6 +1924,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const tabId = sender?.tab?.id;
         if (!tabId) {
             sendResponse({ ok: false, error: 'No tab ID' });
+            return false;
+        }
+        if (isSensitiveFinancialUrl(sender?.tab?.url || '')) {
+            sendResponse({ ok: false, error: 'Extension script execution is blocked on banking/payment sites.' });
             return false;
         }
         const frameId = Number.isInteger(sender?.frameId) ? sender.frameId : undefined;

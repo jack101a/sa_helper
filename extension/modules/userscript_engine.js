@@ -9,7 +9,19 @@
 
     function isExcludedHost() {
         const host = String(location.hostname || '').replace(/^www\./, '').toLowerCase();
-        return host === 'web.whatsapp.com' || host === 'google.com' || host.endsWith('.google.com') || host.endsWith('.bank.in');
+        const blockedHosts = [
+            'paypal.com', 'stripe.com', 'razorpay.com', 'paytm.com', 'phonepe.com',
+            'hdfcbank.com', 'icicibank.com', 'axisbank.com', 'kotak.com',
+            'sbi.co.in', 'onlinesbi.sbi', 'bankofbaroda.in', 'unionbankofindia.co.in',
+            'yesbank.in', 'idfcfirstbank.com', 'indusind.com', 'aubank.in',
+            'canarabank.com', 'pnbindia.in', 'centralbankofindia.co.in', 'indianbank.in'
+        ];
+        return host === 'web.whatsapp.com'
+            || host === 'google.com'
+            || host.endsWith('.google.com')
+            || host.endsWith('.bank.in')
+            || host.includes('netbanking')
+            || blockedHosts.some(domain => host === domain || host.endsWith('.' + domain));
     }
 
     if (!/^https?:$/i.test(location.protocol) || isExcludedHost()) return;

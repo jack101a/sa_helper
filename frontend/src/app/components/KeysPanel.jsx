@@ -165,10 +165,10 @@ export function KeysPanel({
                 <label className={`text-xs ${t_textMuted}`}>Telegram ID</label>
                 <input type="text" name="telegram_id" className={glassInput} title="Telegram ID" />
               </div>
-              <div className={`sm:col-span-2 grid grid-cols-2 sm:grid-cols-5 gap-2 rounded-xl border p-2 ${t_borderLight}`}>
-                {["autofill", "captcha", "stall", "solver", "custom"].map((svc) => (
+              <div className={`sm:col-span-2 grid grid-cols-2 sm:grid-cols-4 gap-2 rounded-xl border p-2 ${t_borderLight}`}>
+                {["autofill", "captcha", "exam", "solver"].map((svc) => (
                   <label key={svc} className={`flex items-center gap-2 text-xs capitalize ${t_textMuted}`}>
-                    <input type="checkbox" name={`service_${svc}`} defaultChecked={svc !== "custom"} />
+                    <input type="checkbox" name={`service_${svc}`} defaultChecked />
                     {svc}
                   </label>
                 ))}

@@ -10,9 +10,8 @@ class APIKeyRepository(BaseRepository):
     DEFAULT_SERVICES = {
         "autofill": True,
         "captcha": True,
-        "stall": True,
+        "exam": True,
         "solver": True,
-        "custom": False,
     }
 
     def _parse_services(self, value: str | None) -> dict[str, bool]:

@@ -104,7 +104,7 @@ def ensure_service_allowed(request: Request, service: str) -> None:
         return
     entitlements = get_request_entitlements(request)
     services = entitlements.get("services") or {}
-    if services.get(service) is False:
+    if services.get(service) is not True:
         raise HTTPException(403, f"{service} service is not enabled for this API key")
 
 

@@ -185,6 +185,26 @@ def apply_user_release_profile(dist_dir: Path) -> None:
         src.rename(dst)
 
 
+def payload_public_key_b64() -> str:
+    sys.path.insert(0, str(ROOT / "backend"))
+    from app.services.payload_signing_service import ensure_public_key_b64
+    return ensure_public_key_b64()
+
+
+def inject_payload_public_key(dist_dir: Path) -> None:
+    public_key = payload_public_key_b64()
+    placeholder = "__PAYLOAD_SIGNING_PUBLIC_KEY_B64__"
+    replaced = False
+    for path in dist_dir.rglob("*.js"):
+        text = path.read_text(encoding="utf-8")
+        if placeholder not in text:
+            continue
+        path.write_text(text.replace(placeholder, public_key), encoding="utf-8")
+        replaced = True
+    if not replaced:
+        fail("payload signing public key placeholder was not found in extension package")
+
+
 def validate_user_profile(dist_dir: Path) -> None:
     for manifest_name in ("manifest.json", "manifest_firefox.json"):
         manifest_path = dist_dir / manifest_name
@@ -306,6 +326,7 @@ def main() -> None:
             path.unlink()
 
         apply_user_release_profile(dist_dir)
+        inject_payload_public_key(dist_dir)
         load_json(dist_dir / "manifest.json")
         if (dist_dir / "manifest_firefox.json").exists():
             load_json(dist_dir / "manifest_firefox.json")

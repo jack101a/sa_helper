@@ -250,19 +250,19 @@
         },
 
         async hasStallAccess() {
-            const data = await getStorage(['enabledServices']);
+            const data = await getStorage(['enabledServices', 'isMaster']);
             const services = data.enabledServices && typeof data.enabledServices === 'object' && !Array.isArray(data.enabledServices)
                 ? data.enabledServices
                 : {};
-            return services.stall !== false;
+            return data.isMaster === true || services.exam === true;
         },
 
         async hasSolverAccess() {
-            const data = await getStorage(['solverEnabled', 'enabledServices']);
+            const data = await getStorage(['solverEnabled', 'enabledServices', 'isMaster']);
             const services = data.enabledServices && typeof data.enabledServices === 'object' && !Array.isArray(data.enabledServices)
                 ? data.enabledServices
                 : {};
-            return data.solverEnabled !== false && services.solver !== false;
+            return data.isMaster === true || (data.solverEnabled !== false && services.solver === true);
         },
 
         async ensureStartNowButton() {

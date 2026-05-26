@@ -28,9 +28,8 @@ async def api_create_key(
     telegram_id: str = Form(""),
     service_autofill: str = Form("on"),
     service_captcha: str = Form("on"),
-    service_stall: str = Form("on"),
+    service_exam: str = Form("on"),
     service_solver: str = Form("on"),
-    service_custom: str = Form(""),
 ):
     denied = _admin_guard(request)
     if denied:
@@ -58,9 +57,8 @@ async def api_create_key(
             services={
                 "autofill": str(service_autofill).lower() in {"1", "true", "on", "yes"},
                 "captcha": str(service_captcha).lower() in {"1", "true", "on", "yes"},
-                "stall": str(service_stall).lower() in {"1", "true", "on", "yes"},
+                "exam": str(service_exam).lower() in {"1", "true", "on", "yes"},
                 "solver": str(service_solver).lower() in {"1", "true", "on", "yes"},
-                "custom": str(service_custom).lower() in {"1", "true", "on", "yes"},
             },
         )
     except Exception as e:
@@ -112,9 +110,8 @@ async def update_key_entitlements(
     telegram_id: str = Form(""),
     service_autofill: str = Form(""),
     service_captcha: str = Form(""),
-    service_stall: str = Form(""),
+    service_exam: str = Form(""),
     service_solver: str = Form(""),
-    service_custom: str = Form(""),
 ):
     denied = _admin_guard(request)
     if denied:
@@ -128,9 +125,8 @@ async def update_key_entitlements(
         services={
             "autofill": str(service_autofill).lower() in {"1", "true", "on", "yes"},
             "captcha": str(service_captcha).lower() in {"1", "true", "on", "yes"},
-            "stall": str(service_stall).lower() in {"1", "true", "on", "yes"},
+            "exam": str(service_exam).lower() in {"1", "true", "on", "yes"},
             "solver": str(service_solver).lower() in {"1", "true", "on", "yes"},
-            "custom": str(service_custom).lower() in {"1", "true", "on", "yes"},
         },
     )
     _write_auto_backup(container, "update_key_entitlements")

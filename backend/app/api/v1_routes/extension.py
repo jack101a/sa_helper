@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Request
 from app.core.paths import get_project_root
 from app.core.userscript_utils import parse_userscript_meta
 from app.core.automation_method_utils import validate_automation_method_payload, compose_dynamic_stall_flow
+from app.services.payload_signing_service import sign_payload
 
 from .utils import (
     _AUTOMATION_SCRIPT_IDS,
@@ -212,7 +213,7 @@ async def sync_userscripts(request: Request) -> dict:
                     runtime_metadata = _userscript_runtime_metadata(script_id, entry)
                     if not runtime_metadata["tags"]:
                         runtime_metadata["tags"] = userscript_string_list(parsed.get("tags", []))
-                    scripts_data.append({
+                    script_payload = {
                         "id": script_id,
                         "file": file_name,
                         "name": str(entry.get("name") or parsed["name"] or script_id),
@@ -239,7 +240,22 @@ async def sync_userscripts(request: Request) -> dict:
                         "syncStatus": userscript_sync_status(parsed),
                         "updatedAt": int(path.stat().st_mtime),
                         "code": code,
+                    }
+                    script_payload["signature"] = sign_payload("userscript", {
+                        "id": script_payload["id"],
+                        "file": script_payload["file"],
+                        "version": script_payload["version"],
+                        "matches": script_payload["matches"],
+                        "includes": script_payload["includes"],
+                        "exclude": script_payload["exclude"],
+                        "excludeMatches": script_payload["excludeMatches"],
+                        "runAt": script_payload["runAt"],
+                        "requires": script_payload["requires"],
+                        "resources": script_payload["resources"],
+                        "noframes": script_payload["noframes"],
+                        "code": script_payload["code"],
                     })
+                    scripts_data.append(script_payload)
                 except Exception as e:
                     logger.exception("Failed userscript entry %s: %s", file_name, e)
         except Exception as e:
@@ -255,7 +271,7 @@ async def sync_userscripts(request: Request) -> dict:
                 entry = {"enabled": True, "accessScope": "global", "plans": [], "apiKeyIds": []}
                 if not userscript_allowed_for_key(entry, key_record, entitlements):
                     continue
-                scripts_data.append({
+                script_payload = {
                     "id": script_id,
                     "name": parsed["name"] or script_id,
                     "version": parsed["version"],
@@ -284,7 +300,22 @@ async def sync_userscripts(request: Request) -> dict:
                     "syncStatus": userscript_sync_status(parsed),
                     "updatedAt": int(filepath.stat().st_mtime),
                     "code": code,
+                }
+                script_payload["signature"] = sign_payload("userscript", {
+                    "id": script_payload["id"],
+                    "file": "",
+                    "version": script_payload["version"],
+                    "matches": script_payload["matches"],
+                    "includes": script_payload["includes"],
+                    "exclude": script_payload["exclude"],
+                    "excludeMatches": script_payload["excludeMatches"],
+                    "runAt": script_payload["runAt"],
+                    "requires": script_payload["requires"],
+                    "resources": script_payload["resources"],
+                    "noframes": script_payload["noframes"],
+                    "code": script_payload["code"],
                 })
+                scripts_data.append(script_payload)
             except Exception as e:
                 logger.exception("Failed to read userscript %s: %s", filepath.name, e)
 
@@ -352,12 +383,14 @@ async def get_automation_payload(request: Request, step_id: str) -> dict:
     """Serve stateless automation scripts for STALL payloads."""
     from .utils import ensure_service_allowed
 
-    ensure_service_allowed(request, "stall")
     container = request.app.state.container
     # Key validation is already handled by AuthMiddleware.
     # We only allow specific step_ids to prevent arbitrary file reading.
     if step_id not in _AUTOMATION_SCRIPT_IDS:
         raise HTTPException(400, "Invalid step_id")
+    ensure_service_allowed(request, "exam")
+    if step_id in {"step4", "stall-flow"}:
+        ensure_service_allowed(request, "solver")
 
     try:
         payload = None
@@ -387,7 +420,11 @@ async def get_automation_payload(request: Request, step_id: str) -> dict:
             # For other steps (step3/step4 individually), always use file-based for now
             payload = read_automation_script(step_id)
 
-        return {"step_id": step_id, "payload": payload}
+        signed_payload = {"step_id": step_id, "payload": payload}
+        return {
+            **signed_payload,
+            "signature": sign_payload("stall_payload", signed_payload),
+        }
     except HTTPException:
         raise
     except Exception as error:
