@@ -56,3 +56,4 @@ node --check extension/popup/popup.js
 - Primary runtime compose: `docker-compose.yml`
 - Production overrides: `docker-compose.prod.yml`
 - CI validates compose configuration for both files merged.
+- User extension release packages are generated into `data/extension_packages/`.
