@@ -36,16 +36,16 @@ _last_prune: float = 0.0
 _AUTOMATION_SCRIPT_IDS = {"step3", "step4", "stall-flow"}
 _STALL_CORE_USERSCRIPT_DEFAULTS = {
     "authentication_handler": {
-        "accessScope": "service",
-        "services": ["stall"],
+        "accessScope": "global",
+        "services": [],
     },
     "bypass_sarathi_restrictions_v2": {
-        "accessScope": "service",
-        "services": ["stall"],
+        "accessScope": "global",
+        "services": [],
     },
     "enable_all_form_fields_for_stall": {
-        "accessScope": "service",
-        "services": ["stall"],
+        "accessScope": "global",
+        "services": [],
     },
 }
 
@@ -344,7 +344,7 @@ def userscript_allowed_for_key(entry: dict, key_record: dict, entitlements: dict
         allowed_plans = {normalize_userscript_plan(item) for item in access["plans"]}
         current_plan = normalize_userscript_plan(entitlements.get("plan_name") or "")
         return bool(current_plan and current_plan in allowed_plans)
-    if scope in {"key", "custom"}:
+    if scope == "key":
         try:
             return int(key_record["id"]) in set(access["apiKeyIds"])
         except (KeyError, TypeError, ValueError):
@@ -354,7 +354,22 @@ def userscript_allowed_for_key(entry: dict, key_record: dict, entitlements: dict
         service_names = access.get("services") or []
         if not service_names:
             service_names = ["custom"]
-        return any(services.get(name) is not False for name in service_names)
+        return any(name in services and services.get(name) is not False for name in service_names)
+    if scope == "custom":
+        matched = False
+        allowed_plans = {normalize_userscript_plan(item) for item in access["plans"]}
+        current_plan = normalize_userscript_plan(entitlements.get("plan_name") or "")
+        if current_plan and current_plan in allowed_plans:
+            matched = True
+        try:
+            if int(key_record["id"]) in set(access["apiKeyIds"]):
+                matched = True
+        except (KeyError, TypeError, ValueError):
+            pass
+        services = entitlements.get("services") or {}
+        if any(name in services and services.get(name) is not False for name in (access.get("services") or [])):
+            matched = True
+        return matched
     return False
 
 

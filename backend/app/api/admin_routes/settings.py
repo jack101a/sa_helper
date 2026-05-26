@@ -15,24 +15,24 @@ _PROJECT_ROOT = get_project_root()
 _USERSCRIPTS_DIR = (_PROJECT_ROOT / "data" / "mappings").resolve()
 _STALL_CORE_USERSCRIPT_DEFAULTS = {
     "authentication_handler": {
-        "accessScope": "service",
-        "services": ["stall"],
+        "accessScope": "global",
+        "services": [],
         "runtimeRole": "stall_core",
         "runtimeRoles": ["stall_core", "stall_auth"],
         "stallRunMode": "stall_pages",
         "tags": ["stall"],
     },
     "bypass_sarathi_restrictions_v2": {
-        "accessScope": "service",
-        "services": ["stall"],
+        "accessScope": "global",
+        "services": [],
         "runtimeRole": "stall_core",
         "runtimeRoles": ["stall_core", "stall_sarathi_guard"],
         "stallRunMode": "stall_pages",
         "tags": ["stall"],
     },
     "enable_all_form_fields_for_stall": {
-        "accessScope": "service",
-        "services": ["stall"],
+        "accessScope": "global",
+        "services": [],
         "runtimeRole": "stall_core",
         "runtimeRoles": ["stall_core", "stall_form_unlocker"],
         "stallRunMode": "stall_pages",

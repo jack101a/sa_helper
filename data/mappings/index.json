@@ -19,10 +19,8 @@
     ],
     "connects": [],
     "noframes": false,
-    "accessScope": "service",
-    "services": [
-      "stall"
-    ],
+    "accessScope": "global",
+    "services": [],
     "tags": [
       "stall"
     ],
@@ -51,10 +49,8 @@
     ],
     "connects": [],
     "noframes": false,
-    "accessScope": "service",
-    "services": [
-      "stall"
-    ],
+    "accessScope": "global",
+    "services": [],
     "tags": [
       "stall"
     ],
@@ -121,10 +117,8 @@
     ],
     "connects": [],
     "noframes": false,
-    "accessScope": "service",
-    "services": [
-      "stall"
-    ],
+    "accessScope": "global",
+    "services": [],
     "tags": [
       "stall"
     ],

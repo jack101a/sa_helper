@@ -140,6 +140,37 @@ export function UserscriptsPanel({
     return selectedPlanNames.filter(name => !known.has(name));
   }, [activePlans, selectedPlanNames]);
 
+  const serviceOptions = React.useMemo(() => {
+    const names = new Set(["captcha", "solver", "autofill", "exam"]);
+    activePlans.forEach(plan => {
+      Object.entries(plan.allowed_services || {}).forEach(([name, enabled]) => {
+        if (enabled !== false && name) names.add(name);
+      });
+    });
+    return Array.from(names).sort();
+  }, [activePlans]);
+
+  const selectedServiceNames = React.useMemo(
+    () => Array.isArray(formData.services) ? formData.services : [],
+    [formData.services],
+  );
+
+  const legacySelectedServices = React.useMemo(() => {
+    const known = new Set(serviceOptions);
+    return selectedServiceNames.filter(name => !known.has(name));
+  }, [serviceOptions, selectedServiceNames]);
+
+  const toggleServiceSelection = (serviceName) => {
+    setFormData(prev => {
+      const current = Array.isArray(prev.services) ? prev.services : [];
+      const exists = current.includes(serviceName);
+      return {
+        ...prev,
+        services: exists ? current.filter(item => item !== serviceName) : [...current, serviceName],
+      };
+    });
+  };
+
   const handleSave = async (e) => {
     e.preventDefault();
     try {
@@ -147,15 +178,20 @@ export function UserscriptsPanel({
         showToast("Select at least one plan for plan access.", "error");
         return;
       }
-      if (formData.accessScope === "service" && (!Array.isArray(formData.services) || formData.services.length === 0)) {
-        showToast("Enter at least one service for service access.", "error");
+      if (formData.accessScope === "service" && selectedServiceNames.length === 0) {
+        showToast("Select at least one service for service access.", "error");
+        return;
+      }
+      const apiKeyIds = String(formData.apiKeyIds || "").split(/[,;\n]+/).map(item => Number(item.trim())).filter(Number.isFinite);
+      if (formData.accessScope === "custom" && selectedPlanNames.length === 0 && selectedServiceNames.length === 0 && apiKeyIds.length === 0) {
+        showToast("Select at least one plan, service, or API key for custom access.", "error");
         return;
       }
       const payload = {
         ...formData,
-        plans: formData.accessScope === "plan" ? selectedPlanNames : [],
-        services: formData.accessScope === "service" ? formData.services : [],
-        apiKeyIds: String(formData.apiKeyIds || "").split(/[,;\n]+/).map(item => Number(item.trim())).filter(Number.isFinite),
+        plans: ["plan", "custom"].includes(formData.accessScope) ? selectedPlanNames : [],
+        services: ["service", "custom"].includes(formData.accessScope) ? selectedServiceNames : [],
+        apiKeyIds,
       };
       if (editingScript) {
         await apiPutJson(`/admin/api/userscripts/${editingScript.id}`, payload);
@@ -246,10 +282,10 @@ export function UserscriptsPanel({
                   <td className="py-4 pr-3">
                     <div className="flex flex-col gap-1">
                       <span className={`w-fit px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase ${isDark ? "bg-emerald-500/15 text-emerald-300" : "bg-emerald-50 text-emerald-700"}`}>
-                        {(script.accessScope || "global") === "global" ? "Global - all users" : script.accessScope === "service" ? "Service entitlement" : script.accessScope}
+                        {(script.accessScope || "global") === "global" ? "Global - all users" : script.accessScope === "service" ? "Service entitlement" : script.accessScope === "custom" ? "Custom access" : script.accessScope}
                       </span>
-                      {script.accessScope === "plan" && <span className={`text-[10px] ${t_textMuted}`}>{(script.plans || []).join(", ") || "No plans"}</span>}
-                      {script.accessScope === "service" && <span className={`text-[10px] ${t_textMuted}`}>{(script.services || []).join(", ") || "No services"}</span>}
+                      {(script.accessScope === "plan" || script.accessScope === "custom") && <span className={`text-[10px] ${t_textMuted}`}>{(script.plans || []).join(", ") || "No plans"}</span>}
+                      {(script.accessScope === "service" || script.accessScope === "custom") && <span className={`text-[10px] ${t_textMuted}`}>{(script.services || []).join(", ") || "No services"}</span>}
                       {(script.accessScope === "key" || script.accessScope === "custom") && <span className={`text-[10px] ${t_textMuted}`}>{(script.apiKeyIds || []).join(", ") || "No keys"}</span>}
                       {script.runtimeRole && <span className={`text-[10px] ${t_textMuted}`}>{script.runtimeRole}{script.stallRunMode ? ` / ${script.stallRunMode}` : ""}</span>}
                       {Array.isArray(script.tags) && script.tags.length > 0 && (
@@ -331,18 +367,22 @@ export function UserscriptsPanel({
                     <label className={`text-xs font-semibold ${t_textMuted}`}>Access</label>
                     <select
                       value={formData.accessScope}
-                      onChange={e => setFormData({
-                        ...formData,
-                        accessScope: e.target.value,
-                        plans: e.target.value === "plan" ? formData.plans : [],
-                        services: e.target.value === "service" ? formData.services : [],
-                      })}
+                      onChange={e => {
+                        const nextScope = e.target.value;
+                        setFormData({
+                          ...formData,
+                          accessScope: nextScope,
+                          plans: ["plan", "custom"].includes(nextScope) ? formData.plans : [],
+                          services: ["service", "custom"].includes(nextScope) ? formData.services : [],
+                        });
+                      }}
                       className={`${glassInput} w-full text-sm`}
                     >
                       <option value="global">Global - all users</option>
                       <option value="plan">Plan</option>
                       <option value="service">Service entitlement</option>
                       <option value="key">API key IDs</option>
+                      <option value="custom">Custom</option>
                     </select>
                   </div>
                 </div>
@@ -359,9 +399,9 @@ export function UserscriptsPanel({
                   />
                 </label>
 
-                {formData.accessScope === "plan" && (
+                {(formData.accessScope === "plan" || formData.accessScope === "custom") && (
                   <div className="space-y-1">
-                    <label className={`text-xs font-semibold ${t_textMuted}`}>Activate For Plans</label>
+                    <label className={`text-xs font-semibold ${t_textMuted}`}>Plans</label>
                     <div className={`rounded-xl border p-3 ${t_borderLight}`}>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                         {activePlans.map(plan => (
@@ -396,7 +436,7 @@ export function UserscriptsPanel({
                   </div>
                 )}
 
-                {formData.accessScope === "key" && (
+                {(formData.accessScope === "key" || formData.accessScope === "custom") && (
                   <div className="space-y-1">
                     <label className={`text-xs font-semibold ${t_textMuted}`}>API Key IDs</label>
                     <input
@@ -409,19 +449,37 @@ export function UserscriptsPanel({
                   </div>
                 )}
 
-                {formData.accessScope === "service" && (
+                {(formData.accessScope === "service" || formData.accessScope === "custom") && (
                   <div className="space-y-1">
                     <label className={`text-xs font-semibold ${t_textMuted}`}>Services</label>
-                    <input
-                      type="text"
-                      value={(formData.services || []).join(", ")}
-                      onChange={e => setFormData({
-                        ...formData,
-                        services: e.target.value.split(/[,;\n]+/).map(item => item.trim()).filter(Boolean),
-                      })}
-                      placeholder="stall, captcha"
-                      className={`${glassInput} w-full text-sm`}
-                    />
+                    <div className={`rounded-xl border p-3 ${t_borderLight}`}>
+                      <div className="flex flex-wrap gap-2">
+                        {serviceOptions.map(serviceName => (
+                          <button
+                            key={serviceName}
+                            type="button"
+                            onClick={() => toggleServiceSelection(serviceName)}
+                            className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                              selectedServiceNames.includes(serviceName)
+                                ? "bg-emerald-500/15 border-emerald-400/50 text-emerald-400"
+                                : isDark ? "border-white/10 text-gray-400 hover:bg-white/5" : "border-slate-200 text-slate-500 hover:bg-slate-50"
+                            }`}
+                          >
+                            {serviceName}
+                          </button>
+                        ))}
+                        {legacySelectedServices.map(serviceName => (
+                          <button
+                            key={serviceName}
+                            type="button"
+                            onClick={() => toggleServiceSelection(serviceName)}
+                            className={`px-3 py-1.5 rounded-lg border text-xs font-semibold ${isDark ? "bg-amber-500/10 border-amber-400/30 text-amber-300" : "bg-amber-50 border-amber-200 text-amber-700"}`}
+                          >
+                            {serviceName}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <p className={`text-[11px] ${t_textMuted}`}>Delivered only when the user's plan or key has one of these services enabled.</p>
                   </div>
                 )}
