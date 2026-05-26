@@ -308,10 +308,10 @@ def userscript_int_list(value: object) -> list[int]:
 def userscript_access(entry: dict) -> dict:
     defaults = _STALL_CORE_USERSCRIPT_DEFAULTS.get(str(entry.get("id") or "").strip()) or {}
     scope = str(
-        defaults.get("accessScope")
-        or entry.get("accessScope")
+        entry.get("accessScope")
         or entry.get("access_scope")
         or entry.get("scope")
+        or defaults.get("accessScope")
         or "global"
     ).strip().lower()
     if scope in {"all", "public"}:
@@ -324,9 +324,9 @@ def userscript_access(entry: dict) -> dict:
         scope = "global"
     return {
         "accessScope": scope,
-        "plans": [] if defaults else userscript_string_list(entry.get("plans") or entry.get("plan_names") or entry.get("allowed_plans")),
-        "apiKeyIds": [] if defaults else userscript_int_list(entry.get("apiKeyIds") or entry.get("api_key_ids") or entry.get("allowed_api_key_ids")),
-        "services": userscript_string_list(defaults.get("services") or entry.get("services") or entry.get("service") or entry.get("serviceNames") or entry.get("service_names")),
+        "plans": userscript_string_list(entry.get("plans") or entry.get("plan_names") or entry.get("allowed_plans")),
+        "apiKeyIds": userscript_int_list(entry.get("apiKeyIds") or entry.get("api_key_ids") or entry.get("allowed_api_key_ids")),
+        "services": userscript_string_list(entry.get("services") or entry.get("service") or entry.get("serviceNames") or entry.get("service_names") or defaults.get("services")),
     }
 
 

@@ -54,14 +54,25 @@ _STALL_RUNTIME_DEFAULTS = {
 
 def _userscript_runtime_metadata(script_id: str, entry: dict) -> dict:
     defaults = _STALL_RUNTIME_DEFAULTS.get(str(script_id or "").strip()) or {}
-    tags = userscript_string_list(defaults.get("tags"))
-    for tag in userscript_string_list(entry.get("tags") or entry.get("scriptTags") or entry.get("script_tags") or entry.get("runtimeTags") or entry.get("runtime_tags")):
+    raw_tags = entry.get("tags")
+    if raw_tags is None:
+        raw_tags = entry.get("scriptTags")
+    if raw_tags is None:
+        raw_tags = entry.get("script_tags")
+    if raw_tags is None:
+        raw_tags = entry.get("runtimeTags")
+    if raw_tags is None:
+        raw_tags = entry.get("runtime_tags")
+    if raw_tags is None:
+        raw_tags = defaults.get("tags")
+    tags: list[str] = []
+    for tag in userscript_string_list(raw_tags):
         if tag not in tags:
             tags.append(tag)
     return {
-        "runtimeRole": str(defaults.get("runtimeRole") or entry.get("runtimeRole") or entry.get("runtime_role") or ""),
-        "runtimeRoles": userscript_string_list(defaults.get("runtimeRoles") or entry.get("runtimeRoles") or entry.get("runtime_roles")),
-        "stallRunMode": str(defaults.get("stallRunMode") or entry.get("stallRunMode") or entry.get("stall_run_mode") or ""),
+        "runtimeRole": str(entry.get("runtimeRole") or entry.get("runtime_role") or defaults.get("runtimeRole") or ""),
+        "runtimeRoles": userscript_string_list(entry.get("runtimeRoles") or entry.get("runtime_roles") or defaults.get("runtimeRoles")),
+        "stallRunMode": str(entry.get("stallRunMode") or entry.get("stall_run_mode") or defaults.get("stallRunMode") or ""),
         "tags": tags,
     }
 

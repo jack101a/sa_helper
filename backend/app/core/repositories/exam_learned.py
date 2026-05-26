@@ -545,6 +545,240 @@ class ExamLearnedRepository(BaseRepository):
                     **(cluster_update or {}),
                 }
 
+    def import_learned_record(
+        self,
+        *,
+        question_hash: str,
+        question_phash: str = "",
+        question_text: str = "",
+        options: list[str] | tuple[str, ...] | None = None,
+        correct_option: int,
+        correct_option_hash: str = "",
+        correct_option_phash: str = "",
+        correct_option_text: str = "",
+        confidence: float = 0.8,
+        seen_count: int = 1,
+        verified_count: int = 1,
+        wrong_count: int = 0,
+        status: str = "training",
+        source: str = "exam_offline_import",
+        learning_mode: str = "hash_based",
+        ocr_quality: str = "unverified",
+        ocr_preview_unreliable: bool = True,
+        first_seen: str | None = None,
+        last_seen: str | None = None,
+        last_verified_at: str | None = None,
+    ) -> dict[str, Any]:
+        """Idempotently import a learned question from an offline dataset."""
+        clean_hash = str(question_hash or "").strip()
+        if not clean_hash:
+            return {"action": "invalid", "reason": "missing_question_hash"}
+        try:
+            clean_correct = int(correct_option)
+        except (TypeError, ValueError):
+            return {"action": "invalid", "reason": "invalid_correct_option"}
+        if clean_correct not in {1, 2, 3, 4}:
+            return {"action": "invalid", "reason": "invalid_correct_option"}
+
+        raw_options = list(options or [])
+        padded_options = [(str(raw_options[idx]) if idx < len(raw_options) else "") for idx in range(4)]
+        clean_status = str(status or "training").strip().lower()
+        if clean_status not in {"training", "verified", "conflict", "rejected"}:
+            clean_status = "training"
+        if clean_status in {"conflict", "rejected"}:
+            return {"action": "skipped", "reason": f"status_{clean_status}"}
+
+        try:
+            clean_confidence = max(0.0, min(1.0, float(confidence)))
+        except (TypeError, ValueError):
+            clean_confidence = 0.8
+        try:
+            clean_seen = max(1, int(seen_count))
+        except (TypeError, ValueError):
+            clean_seen = 1
+        try:
+            clean_verified = max(0, int(verified_count))
+        except (TypeError, ValueError):
+            clean_verified = 1
+        try:
+            clean_wrong = max(0, int(wrong_count))
+        except (TypeError, ValueError):
+            clean_wrong = 0
+
+        now = datetime.now(timezone.utc).isoformat()
+        clean_first_seen = str(first_seen or now)
+        clean_last_seen = str(last_seen or clean_first_seen)
+        clean_last_verified_at = str(last_verified_at or clean_last_seen)
+
+        def strength(item: dict[str, Any]) -> tuple[int, int, float, int, int]:
+            status_rank = {"training": 1, "verified": 2}.get(str(item.get("status") or "training").lower(), 0)
+            return (
+                status_rank,
+                int(item.get("verified_count") or 0),
+                float(item.get("confidence") or 0.0),
+                int(item.get("seen_count") or 0),
+                -int(item.get("wrong_count") or 0),
+            )
+
+        imported_score = strength({
+            "status": clean_status,
+            "verified_count": clean_verified,
+            "confidence": clean_confidence,
+            "seen_count": clean_seen,
+            "wrong_count": clean_wrong,
+        })
+        question_text_norm = self._clean_identity_text(question_text)
+        correct_option_text_norm = self._clean_identity_text(correct_option_text)
+        option_signature = self._option_signature(*padded_options)
+
+        with self._lock:
+            with self.connect() as conn:
+                existing_row = conn.execute(
+                    "SELECT * FROM exam_learned WHERE question_hash = ?",
+                    (clean_hash,),
+                ).fetchone()
+                existing = dict(existing_row) if existing_row else None
+                if existing and strength(existing) >= imported_score:
+                    return {"action": "skipped", "reason": "existing_not_weaker", "id": int(existing["id"])}
+
+                cluster_id: int | None = int(existing["cluster_id"]) if existing and existing.get("cluster_id") else None
+                if not cluster_id:
+                    cluster = self._find_matching_cluster(
+                        conn,
+                        str(question_phash or ""),
+                        question_text_norm,
+                        option_signature,
+                        str(correct_option_hash or ""),
+                        str(correct_option_phash or ""),
+                        correct_option_text_norm,
+                    )
+                    cluster_id = int(cluster["id"]) if cluster else None
+
+                if cluster_id:
+                    self._update_cluster(
+                        conn,
+                        cluster_id,
+                        clean_last_seen,
+                        clean_hash,
+                        str(question_phash or ""),
+                        str(question_text or ""),
+                        question_text_norm,
+                        option_signature,
+                        str(correct_option_hash or ""),
+                        str(correct_option_phash or ""),
+                        str(correct_option_text or ""),
+                        correct_option_text_norm,
+                        is_conflict=False,
+                        new_variant=not bool(existing),
+                        confidence_delta=0.0,
+                        seen_delta=clean_seen,
+                        verified_delta=clean_verified or 1,
+                    )
+                else:
+                    cluster_id = self._create_cluster(
+                        conn,
+                        clean_last_seen,
+                        clean_hash,
+                        str(question_phash or ""),
+                        str(question_text or ""),
+                        question_text_norm,
+                        option_signature,
+                        str(correct_option_hash or ""),
+                        str(correct_option_phash or ""),
+                        str(correct_option_text or ""),
+                        correct_option_text_norm,
+                        confidence=clean_confidence,
+                        seen_count=clean_seen,
+                        verified_count=clean_verified or 1,
+                        wrong_count=clean_wrong,
+                    )
+
+                if existing:
+                    row_confidence = max(clean_confidence, float(existing.get("confidence") or 0.0))
+                    row_seen = max(clean_seen, int(existing.get("seen_count") or 0))
+                    row_verified = max(clean_verified, int(existing.get("verified_count") or 0))
+                    existing_wrong = existing.get("wrong_count")
+                    row_wrong = min(clean_wrong, int(existing_wrong if existing_wrong is not None else clean_wrong))
+                    conn.execute(
+                        """
+                        UPDATE exam_learned
+                        SET cluster_id = ?, question_phash = ?, question_text = ?,
+                            option_1 = ?, option_2 = ?, option_3 = ?, option_4 = ?,
+                            correct_option_hash = ?, correct_option_phash = ?, correct_option_text = ?,
+                            correct_option = ?, confidence = ?, seen_count = ?, wrong_count = ?,
+                            last_seen = ?, source = ?, learning_mode = ?, ocr_quality = ?,
+                            ocr_preview_unreliable = ?, verified_count = ?, last_verified_at = ?, status = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            cluster_id,
+                            str(question_phash or existing.get("question_phash") or ""),
+                            str(question_text or existing.get("question_text") or ""),
+                            padded_options[0] or str(existing.get("option_1") or ""),
+                            padded_options[1] or str(existing.get("option_2") or ""),
+                            padded_options[2] or str(existing.get("option_3") or ""),
+                            padded_options[3] or str(existing.get("option_4") or ""),
+                            str(correct_option_hash or existing.get("correct_option_hash") or ""),
+                            str(correct_option_phash or existing.get("correct_option_phash") or ""),
+                            str(correct_option_text or existing.get("correct_option_text") or ""),
+                            clean_correct,
+                            row_confidence,
+                            row_seen,
+                            row_wrong,
+                            clean_last_seen,
+                            source,
+                            learning_mode,
+                            ocr_quality,
+                            1 if ocr_preview_unreliable else 0,
+                            row_verified,
+                            clean_last_verified_at,
+                            clean_status,
+                            int(existing["id"]),
+                        ),
+                    )
+                    conn.commit()
+                    return {"action": "updated", "id": int(existing["id"]), "cluster_id": int(cluster_id)}
+
+                cursor = conn.execute(
+                    """
+                    INSERT INTO exam_learned
+                        (cluster_id, question_hash, question_phash, question_text, option_1, option_2, option_3, option_4,
+                         correct_option_hash, correct_option_phash, correct_option_text,
+                         correct_option, confidence, seen_count, first_seen, last_seen, source,
+                         learning_mode, ocr_quality, ocr_preview_unreliable,
+                         verified_count, wrong_count, last_verified_at, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        cluster_id,
+                        clean_hash,
+                        str(question_phash or ""),
+                        str(question_text or ""),
+                        padded_options[0],
+                        padded_options[1],
+                        padded_options[2],
+                        padded_options[3],
+                        str(correct_option_hash or ""),
+                        str(correct_option_phash or ""),
+                        str(correct_option_text or ""),
+                        clean_correct,
+                        clean_confidence,
+                        clean_seen,
+                        clean_first_seen,
+                        clean_last_seen,
+                        source,
+                        learning_mode,
+                        ocr_quality,
+                        1 if ocr_preview_unreliable else 0,
+                        clean_verified,
+                        clean_wrong,
+                        clean_last_verified_at,
+                        clean_status,
+                    ),
+                )
+                conn.commit()
+                return {"action": "inserted", "id": int(cursor.lastrowid), "cluster_id": int(cluster_id)}
+
     def record_wrong(self, question_hash: str, selected_option: int | None = None, confidence_delta: float = 0.2) -> dict[str, Any] | None:
         """Penalize a learned row when its stored option is proven wrong."""
         if not question_hash:

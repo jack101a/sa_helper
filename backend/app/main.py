@@ -215,6 +215,13 @@ async def lifespan(application: FastAPI):
     # Auto-package extension on start
     container.extension_service.package_extension()
 
+    try:
+        result = container.exam_offline_import_service.import_available()
+        if result.get("inserted") or result.get("updated") or result.get("errors"):
+            logger.info("exam_offline_import_startup", extra={"context": result})
+    except Exception as e:
+        logger.warning("exam_offline_import_startup_failed", extra={"context": {"error": str(e)}})
+
     # Wire user key service for auth middleware (from container)
     application.state.user_key_service = container.user_key_service
 

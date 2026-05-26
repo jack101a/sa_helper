@@ -15,6 +15,7 @@ from app.services.autofill_service import AutofillService
 from app.services.cache_service import CacheService
 from app.services.exam_service import ExamService
 from app.services.exam_merge_service import ExamMergeService
+from app.services.exam_offline_import_service import ExamOfflineImportService
 from app.services.key_service import KeyService
 from app.services.model_router import ModelRouter
 from app.services.payment_service import PaymentService
@@ -47,6 +48,7 @@ class Container:
     # ── Exam Module ────────────────────────────────────────────────────
     exam_service: ExamService          # MCQ solver (config from DB)
     exam_merge_service: ExamMergeService
+    exam_offline_import_service: ExamOfflineImportService
 
     # ── Autofill Module ────────────────────────────────────────────────
     autofill_service: AutofillService  # form autofill
@@ -112,6 +114,11 @@ def build_container(settings: Settings) -> Container:
         data_dir=data_dir,
         exam_service=exam_service,
     )
+    exam_offline_import_service = ExamOfflineImportService(
+        db=db,
+        data_dir=data_dir,
+        exam_service=exam_service,
+    )
 
     # Autofill service
     autofill_service = AutofillService(db=db)
@@ -142,6 +149,7 @@ def build_container(settings: Settings) -> Container:
         solver_service=solver,
         exam_service=exam_service,
         exam_merge_service=exam_merge_service,
+        exam_offline_import_service=exam_offline_import_service,
         autofill_service=autofill_service,
         alert_service=alert_service,
         extension_service=extension_service,

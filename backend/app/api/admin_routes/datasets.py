@@ -145,3 +145,14 @@ async def export_datasets_metadata(request: Request):
         media_type="application/json",
         headers={"Content-Disposition": 'attachment; filename="datasets-metadata-export.json"'},
     )
+
+
+@router.post("/exam-offline/import")
+async def import_exam_offline_dataset(request: Request):
+    """Import data/exam_offline and exam_offline*.zip metadata into the learned exam bank."""
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    container = request.app.state.container
+    result = container.exam_offline_import_service.import_available()
+    return {"ok": result.get("errors", 0) == 0, **result}

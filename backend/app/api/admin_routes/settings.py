@@ -143,10 +143,10 @@ def _access_from_entry(entry: dict | None) -> dict:
     entry = entry or {}
     defaults = _STALL_CORE_USERSCRIPT_DEFAULTS.get(str(entry.get("id") or "").strip())
     return {
-        "accessScope": _access_scope((defaults or {}).get("accessScope") or entry.get("accessScope") or entry.get("access_scope") or entry.get("scope")),
-        "plans": [] if defaults else _string_list(entry.get("plans") or entry.get("plan_names") or entry.get("allowed_plans")),
-        "apiKeyIds": [] if defaults else _int_list(entry.get("apiKeyIds") or entry.get("api_key_ids") or entry.get("allowed_api_key_ids")),
-        "services": _string_list((defaults or {}).get("services") or entry.get("services") or entry.get("service") or entry.get("serviceNames") or entry.get("service_names")),
+        "accessScope": _access_scope(entry.get("accessScope") or entry.get("access_scope") or entry.get("scope") or (defaults or {}).get("accessScope")),
+        "plans": _string_list(entry.get("plans") or entry.get("plan_names") or entry.get("allowed_plans")),
+        "apiKeyIds": _int_list(entry.get("apiKeyIds") or entry.get("api_key_ids") or entry.get("allowed_api_key_ids")),
+        "services": _string_list(entry.get("services") or entry.get("service") or entry.get("serviceNames") or entry.get("service_names") or (defaults or {}).get("services")),
     }
 
 
@@ -163,9 +163,9 @@ def _access_from_body(body: dict, fallback: dict | None = None) -> dict:
 def _runtime_metadata_from_entry(entry: dict | None) -> dict:
     entry = entry or {}
     defaults = _STALL_CORE_USERSCRIPT_DEFAULTS.get(str(entry.get("id") or "").strip()) or {}
-    runtime_role = str(defaults.get("runtimeRole") or entry.get("runtimeRole") or entry.get("runtime_role") or "").strip()
-    runtime_roles = _string_list(defaults.get("runtimeRoles") or entry.get("runtimeRoles") or entry.get("runtime_roles"))
-    stall_run_mode = str(defaults.get("stallRunMode") or entry.get("stallRunMode") or entry.get("stall_run_mode") or "").strip()
+    runtime_role = str(entry.get("runtimeRole") or entry.get("runtime_role") or defaults.get("runtimeRole") or "").strip()
+    runtime_roles = _string_list(entry.get("runtimeRoles") or entry.get("runtime_roles") or defaults.get("runtimeRoles"))
+    stall_run_mode = str(entry.get("stallRunMode") or entry.get("stall_run_mode") or defaults.get("stallRunMode") or "").strip()
     out: dict[str, object] = {}
     if runtime_role:
         out["runtimeRole"] = runtime_role
@@ -179,11 +179,32 @@ def _runtime_metadata_from_entry(entry: dict | None) -> dict:
 def _tags_from_entry(entry: dict | None) -> list[str]:
     entry = entry or {}
     defaults = _STALL_CORE_USERSCRIPT_DEFAULTS.get(str(entry.get("id") or "").strip()) or {}
+    raw_tags = entry.get("tags")
+    if raw_tags is None:
+        raw_tags = entry.get("scriptTags")
+    if raw_tags is None:
+        raw_tags = entry.get("script_tags")
+    if raw_tags is None:
+        raw_tags = entry.get("runtimeTags")
+    if raw_tags is None:
+        raw_tags = entry.get("runtime_tags")
+    if raw_tags is None:
+        raw_tags = defaults.get("tags")
     tags: list[str] = []
-    for item in _string_list(defaults.get("tags")) + _string_list(entry.get("tags") or entry.get("scriptTags") or entry.get("script_tags") or entry.get("runtimeTags") or entry.get("runtime_tags")):
+    for item in _string_list(raw_tags):
         if item not in tags:
             tags.append(item)
     return tags
+
+
+def _runtime_metadata_from_body(body: dict, fallback: dict | None = None) -> dict:
+    if any(key in body for key in ("runtimeRole", "runtime_role", "runtimeRoles", "runtime_roles", "stallRunMode", "stall_run_mode")):
+        merged = {**(fallback or {})}
+        for key in ("runtimeRole", "runtime_role", "runtimeRoles", "runtime_roles", "stallRunMode", "stall_run_mode"):
+            if key in body:
+                merged[key] = body[key]
+        return _runtime_metadata_from_entry(merged)
+    return _runtime_metadata_from_entry(fallback)
 
 
 def _tags_from_body(body: dict, fallback: dict | None = None) -> list[str]:
@@ -232,6 +253,7 @@ def _update_index(access_updates: dict[str, dict] | None = None):
             tags = _tags_from_body({"tags": meta.get("tags", [])}, {"id": uid})
         if access_updates and uid in access_updates:
             tags = _tags_from_body(access_updates[uid], existing_entries.get(uid))
+            runtime_metadata = _runtime_metadata_from_body(access_updates[uid], existing_entries.get(uid))
         new_index.append({
             "id": uid,
             "file": file_path.name,
@@ -667,7 +689,8 @@ async def create_userscript(request: Request):
     if file_path.exists():
         raise HTTPException(400, f"Userscript with id {uid} already exists")
     file_path.write_text(final_code, encoding="utf-8")
-    _update_index({uid: {**access, "tags": tags}})
+    runtime_metadata = _runtime_metadata_from_body(body, {"id": uid})
+    _update_index({uid: {**access, "tags": tags, **runtime_metadata}})
     final_meta = parse_userscript_meta(final_code)
     return {
         "ok": True,
@@ -677,6 +700,7 @@ async def create_userscript(request: Request):
         "apiKeyIds": access["apiKeyIds"],
         "services": access["services"],
         "tags": tags,
+        **runtime_metadata,
         "meta": final_meta,
         "diagnostics": final_meta.get("diagnostics", {"warnings": [], "errors": []}),
         "syncStatus": _userscript_sync_status(final_meta),
@@ -717,7 +741,8 @@ async def update_userscript(request: Request, uid: str):
     if not file_path.exists():
         raise HTTPException(404, f"Userscript {uid} not found")
     file_path.write_text(final_code, encoding="utf-8")
-    _update_index({uid: {**access, "tags": tags}})
+    runtime_metadata = _runtime_metadata_from_body(body, {"id": uid})
+    _update_index({uid: {**access, "tags": tags, **runtime_metadata}})
     final_meta = parse_userscript_meta(final_code)
     return {
         "ok": True,
@@ -727,6 +752,7 @@ async def update_userscript(request: Request, uid: str):
         "apiKeyIds": access["apiKeyIds"],
         "services": access["services"],
         "tags": tags,
+        **runtime_metadata,
         "meta": final_meta,
         "diagnostics": final_meta.get("diagnostics", {"warnings": [], "errors": []}),
         "syncStatus": _userscript_sync_status(final_meta),
