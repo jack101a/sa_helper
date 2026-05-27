@@ -53,6 +53,7 @@ services:
     init: true
     command: ["uvicorn", "app.signer_app:app", "--host", "0.0.0.0", "--port", "8091", "--workers", "1"]
     environment:
+      - RUN_MIGRATIONS=false
       - PAYLOAD_SIGNER_TOKEN=${PAYLOAD_SIGNER_TOKEN:-}
       - PAYLOAD_SIGNING_PRIVATE_KEY_PATH=/run/sa-helper-signing/payload_signing_private.pem
       - PAYLOAD_SIGNING_PUBLIC_KEY_PATH=/run/sa-helper-signing/payload_signing_public.spki.b64
