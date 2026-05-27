@@ -4,11 +4,30 @@
     "file": "authentication_handler.user.js",
     "name": "Authentication Handler",
     "version": "1.0",
+    "sourceUrl": "",
     "enabled": true,
+    "accessScope": "custom",
+    "plans": [
+      "MAX",
+      "STANDARD"
+    ],
+    "apiKeyIds": [
+      0
+    ],
+    "services": [
+      "stall",
+      "solver",
+      "exam"
+    ],
+    "tags": [
+      "stall"
+    ],
     "matches": [
       "*://*/*"
     ],
+    "includes": [],
     "exclude": [],
+    "excludeMatches": [],
     "runAt": "document-idle",
     "requires": [
       "https://cdnjs.cloudflare.com/ajax/libs/js-sha256/0.9.0/sha256.min.js"
@@ -19,11 +38,11 @@
     ],
     "connects": [],
     "noframes": false,
-    "accessScope": "global",
-    "services": [],
-    "tags": [
-      "stall"
-    ],
+    "diagnostics": {
+      "warnings": [],
+      "errors": []
+    },
+    "syncStatus": "ready",
     "runtimeRole": "stall_core",
     "runtimeRoles": [
       "stall_core",
@@ -36,11 +55,30 @@
     "file": "bypass_sarathi_restrictions_v2.user.js",
     "name": "Bypass Sarathi Restrictions - V2",
     "version": "2.0",
+    "sourceUrl": "",
     "enabled": true,
+    "accessScope": "custom",
+    "plans": [
+      "MAX",
+      "STANDARD"
+    ],
+    "apiKeyIds": [
+      0
+    ],
+    "services": [
+      "stall",
+      "solver",
+      "exam"
+    ],
+    "tags": [
+      "stall"
+    ],
     "matches": [
       "*://sarathi.parivahan.gov.in/*"
     ],
+    "includes": [],
     "exclude": [],
+    "excludeMatches": [],
     "runAt": "document-start",
     "requires": [],
     "resources": [],
@@ -49,11 +87,11 @@
     ],
     "connects": [],
     "noframes": false,
-    "accessScope": "global",
-    "services": [],
-    "tags": [
-      "stall"
-    ],
+    "diagnostics": {
+      "warnings": [],
+      "errors": []
+    },
+    "syncStatus": "ready",
     "runtimeRole": "stall_core",
     "runtimeRoles": [
       "stall_core",
@@ -66,49 +104,19 @@
     "file": "copy_paste.user.js",
     "name": "COPY PASTE",
     "version": "2025-07-29",
+    "sourceUrl": "",
     "enabled": true,
+    "accessScope": "global",
+    "plans": [],
+    "apiKeyIds": [],
+    "services": [],
+    "tags": [],
     "matches": [
       "https://sarathi.parivahan.gov.in/*/*"
     ],
+    "includes": [],
     "exclude": [],
-    "runAt": "document-idle",
-    "requires": [],
-    "resources": [],
-    "grants": [
-      "none"
-    ],
-    "connects": [],
-    "noframes": false
-  },
-  {
-    "id": "enable_all_form_fields",
-    "file": "enable_all_form_fields.user.js",
-    "name": "Enable All Form Fields",
-    "version": "1.0",
-    "enabled": true,
-    "matches": [
-      "https://sarathi.parivahan.gov.in/*"
-    ],
-    "exclude": [],
-    "runAt": "document-idle",
-    "requires": [],
-    "resources": [],
-    "grants": [
-      "none"
-    ],
-    "connects": [],
-    "noframes": false
-  },
-  {
-    "id": "enable_all_form_fields_for_stall",
-    "file": "enable_all_form_fields_for_stall.user.js",
-    "name": "Enable All Form Fields (for stall user)",
-    "version": "1.0",
-    "enabled": true,
-    "matches": [
-      "https://sarathi.parivahan.gov.in/*"
-    ],
-    "exclude": [],
+    "excludeMatches": [],
     "runAt": "document-idle",
     "requires": [],
     "resources": [],
@@ -117,16 +125,199 @@
     ],
     "connects": [],
     "noframes": false,
+    "diagnostics": {
+      "warnings": [],
+      "errors": []
+    },
+    "syncStatus": "ready"
+  },
+  {
+    "id": "enable_all_form_fields",
+    "file": "enable_all_form_fields.user.js",
+    "name": "Enable All Form Fields",
+    "version": "1.0",
+    "sourceUrl": "",
+    "enabled": true,
     "accessScope": "global",
+    "plans": [],
+    "apiKeyIds": [
+      0
+    ],
     "services": [],
+    "tags": [],
+    "matches": [
+      "https://sarathi.parivahan.gov.in/*"
+    ],
+    "includes": [],
+    "exclude": [],
+    "excludeMatches": [],
+    "runAt": "document-idle",
+    "requires": [],
+    "resources": [],
+    "grants": [
+      "none"
+    ],
+    "connects": [],
+    "noframes": false,
+    "diagnostics": {
+      "warnings": [],
+      "errors": []
+    },
+    "syncStatus": "ready"
+  },
+  {
+    "id": "enable_all_form_fields_for_stall",
+    "file": "enable_all_form_fields_for_stall.user.js",
+    "name": "Enable All Form Fields (for stall user)",
+    "version": "1.0",
+    "sourceUrl": "",
+    "enabled": true,
+    "accessScope": "custom",
+    "plans": [
+      "STANDARD",
+      "MAX"
+    ],
+    "apiKeyIds": [
+      0
+    ],
+    "services": [
+      "stall",
+      "solver",
+      "exam"
+    ],
     "tags": [
       "stall"
     ],
+    "matches": [
+      "https://sarathi.parivahan.gov.in/*"
+    ],
+    "includes": [],
+    "exclude": [],
+    "excludeMatches": [],
+    "runAt": "document-idle",
+    "requires": [],
+    "resources": [],
+    "grants": [
+      "none"
+    ],
+    "connects": [],
+    "noframes": false,
+    "diagnostics": {
+      "warnings": [],
+      "errors": []
+    },
+    "syncStatus": "ready",
     "runtimeRole": "stall_core",
     "runtimeRoles": [
       "stall_core",
       "stall_form_unlocker"
     ],
     "stallRunMode": "stall_pages"
+  },
+  {
+    "id": "sarathi_mock_test_looper",
+    "file": "sarathi_mock_test_looper.user.js",
+    "name": "Sarathi Mock Test Looper",
+    "version": "0.0.0",
+    "sourceUrl": "",
+    "enabled": false,
+    "accessScope": "key",
+    "plans": [],
+    "apiKeyIds": [
+      9999
+    ],
+    "services": [],
+    "tags": [],
+    "matches": [
+      "https://sarathi.parivahan.gov.in/sarathiservice/*"
+    ],
+    "includes": [],
+    "exclude": [],
+    "excludeMatches": [],
+    "runAt": "document-idle",
+    "requires": [],
+    "resources": [],
+    "grants": [
+      "none"
+    ],
+    "connects": [],
+    "noframes": false,
+    "diagnostics": {
+      "warnings": [],
+      "errors": []
+    },
+    "syncStatus": "ready"
+  },
+  {
+    "id": "sarathi_select_maharashtra_and_covs_in_edit_ll",
+    "file": "sarathi_select_maharashtra_and_covs_in_edit_ll.user.js",
+    "name": "Sarathi - Select Maharashtra and COVs in Edit LL",
+    "version": "1.1",
+    "sourceUrl": "",
+    "enabled": true,
+    "accessScope": "global",
+    "plans": [],
+    "apiKeyIds": [
+      0
+    ],
+    "services": [],
+    "tags": [],
+    "matches": [
+      "https://sarathi.parivahan.gov.in/sarathiservice/eKycOTPAuth.do"
+    ],
+    "includes": [],
+    "exclude": [],
+    "excludeMatches": [],
+    "runAt": "document-idle",
+    "requires": [],
+    "resources": [],
+    "grants": [
+      "none"
+    ],
+    "connects": [],
+    "noframes": false,
+    "diagnostics": {
+      "warnings": [],
+      "errors": []
+    },
+    "syncStatus": "ready"
+  },
+  {
+    "id": "sarathi_select_maharashtra_in_edit_ll",
+    "file": "sarathi_select_maharashtra_in_edit_ll.user.js",
+    "name": "Sarathi - Select Maharashtra in Edit LL",
+    "version": "1.0",
+    "sourceUrl": "",
+    "enabled": false,
+    "accessScope": "plan",
+    "plans": [
+      "STANDARD",
+      "MAX",
+      "DEMO (FULL)"
+    ],
+    "apiKeyIds": [
+      0
+    ],
+    "services": [],
+    "tags": [],
+    "matches": [
+      "https://sarathi.parivahan.gov.in/sarathiservice/eKycOTPAuth.do"
+    ],
+    "includes": [],
+    "exclude": [],
+    "excludeMatches": [],
+    "runAt": "document-idle",
+    "requires": [],
+    "resources": [],
+    "grants": [
+      "none"
+    ],
+    "connects": [],
+    "noframes": false,
+    "diagnostics": {
+      "warnings": [],
+      "errors": []
+    },
+    "syncStatus": "ready"
   }
 ]

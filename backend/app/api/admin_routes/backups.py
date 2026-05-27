@@ -284,6 +284,28 @@ async def list_backups_all(request: Request) -> Any:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@router.get("/api/backups/inspect")
+async def inspect_backup(request: Request) -> Any:
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    container = request.app.state.container
+    backup_type = str(request.query_params.get("type", "")).strip().lower()
+    filename = str(request.query_params.get("filename", "")).strip()
+    if backup_type not in {"system", "users"}:
+        return JSONResponse({"error": "type must be 'system' or 'users'"}, status_code=400)
+    if not filename:
+        return JSONResponse({"error": "filename is required"}, status_code=400)
+    try:
+        if backup_type == "system":
+            result = container.backup_service.inspect_system_backup(filename)
+        else:
+            result = container.backup_service.inspect_user_backup(filename)
+        return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @router.post("/api/backups/restore")
 async def restore_split_backup(request: Request) -> Any:
     denied = _admin_guard(request)

@@ -1,0 +1,146 @@
+{
+  "manifest_version": 3,
+  "name": "ta-ta",
+  "version": "2.2.0",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "description": "Browser assistant for captcha, exam, and autofill workflows",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "unlimitedStorage",
+    "tabs",
+    "downloads",
+    "notifications",
+    "clipboardWrite",
+    "scripting",
+    "alarms",
+    "browsingData",
+    "declarativeNetRequest"
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "ruleset_1",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
+  "host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "modules/copy_unlocker.js",
+        "modules/userscript_matcher.js",
+        "modules/userscript_runtime.js",
+        "modules/userscript_engine.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://sarathi.parivahan.gov.in/*"
+      ],
+      "js": [
+        "modules/dialog_boot.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://sarathi.parivahan.gov.in/sarathiservice/authenticationaction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/instruction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/examselectaction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/stallexam.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/stallLoginSubmit.do*"
+      ],
+      "js": [
+        "modules/vcam_inject.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://sarathi.parivahan.gov.in/*"
+      ],
+      "js": [
+        "modules/main_inject.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://*/*",
+        "http://*/*"
+      ],
+      "js": [
+        "modules/shared_utils.js",
+        "modules/sarathi_harden.js",
+        "modules/captcha.js",
+        "modules/exam.js",
+        "modules/mock_trainer.js",
+        "modules/autofill.js",
+        "modules/stall_automation.js",
+        "modules/vcam_controller.js",
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://sarathi.parivahan.gov.in/sarathiservice/authenticationaction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/instruction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/examselectaction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/stallexam.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/stallexamaction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/stallLoginSubmit.do*"
+      ],
+      "js": [
+        "modules/sarathi_panel.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "options/options.html",
+  "icons": {
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "locator_picker.js"
+      ],
+      "matches": [
+        "https://*/*",
+        "http://*/*"
+      ]
+    }
+  ]
+}

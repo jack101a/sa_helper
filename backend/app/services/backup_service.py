@@ -50,6 +50,7 @@ USER_TABLES = [
     "user_api_keys",
     "user_api_key_devices",
     "usage_cycles",
+    "exam_workflow_usage",
     "audit_logs",
     "api_keys",
     "api_key_allowed_domains",
@@ -110,12 +111,7 @@ class BackupService:
         "exam_learned",
     ]
 
-    USER_DB_TABLES = [
-        "api_keys",
-        "api_key_entitlements",
-        "usage_events",
-        "audit_log",
-    ]
+    USER_DB_TABLES = USER_TABLES.copy()
 
     def __init__(self, settings: Settings):
         self._settings = settings
@@ -963,27 +959,13 @@ class BackupService:
             }
         }
 
-        # Export ORM-managed tables (users, subscriptions, payments, user_api_keys)
-        try:
-            from app.core.models import User, SubscriptionPlan, UserSubscription, PaymentRecord, UserApiKey, UserApiKeyDevice, UsageCycle
-            session = get_session()
-            try:
-                export["users"] = [u.to_dict() for u in session.query(User).all()]
-                export["subscription_plans"] = [p.to_dict() for p in session.query(SubscriptionPlan).all()]
-                export["user_subscriptions"] = [s.to_dict() for s in session.query(UserSubscription).all()]
-                export["payment_records"] = [p.to_dict() for p in session.query(PaymentRecord).all()]
-                export["user_api_keys"] = [k.to_dict() for k in session.query(UserApiKey).all()]
-                export["user_api_key_devices"] = [d.to_dict() for d in session.query(UserApiKeyDevice).all()]
-                export["usage_cycles"] = [c.to_dict() for c in session.query(UsageCycle).all()]
-            finally:
-                session.close()
-        except Exception as e:
-            logger.warning(f"user_backup_orm_failed: {e}")
+        self._ensure_user_tables()
 
-        # Export legacy tables
+        # Export raw rows so restore gets every persisted column, including key hashes.
         for table_name in self.USER_DB_TABLES:
             try:
-                export[table_name] = self._export_table_rows(table_name)
+                if self._table_exists(table_name):
+                    export[table_name] = self._export_table_rows(table_name)
             except Exception as e:
                 logger.warning(f"user_backup_table_skip: {table_name}: {e}")
 
@@ -1022,6 +1004,7 @@ class BackupService:
         restored_files: list[str] = []
         restored_tables: dict[str, int] = {}
         system_data: dict[str, Any] | None = None
+        table_payload: dict[str, list[dict[str, Any]]] = {}
 
         with tarfile.open(str(backup_path), "r:gz") as tar:
             members = tar.getmembers()
@@ -1037,22 +1020,12 @@ class BackupService:
                     table_name = Path(member.name).stem
                     if table_name not in self.SYSTEM_DB_TABLES:
                         continue
-                    if system_data and table_name in {
-                        "access_control",
-                        "allowed_domains",
-                        "model_routes",
-                        "model_registry",
-                        "field_mappings",
-                        "platform_settings",
-                        "autofill_rule_proposals",
-                        "locators",
-                    }:
-                        continue
                     extracted = tar.extractfile(member)
                     if not extracted:
                         continue
                     rows = json.loads(extracted.read().decode("utf-8"))
-                    restored_tables[table_name] = self._restore_table_rows(table_name, rows)
+                    if isinstance(rows, list):
+                        table_payload[table_name] = rows
                     continue
                 self._restore_tar_member(tar, member)
                 restored_files.append(member.name)
@@ -1060,6 +1033,19 @@ class BackupService:
         if system_data:
             self._restore_system_data(system_data)
             restored_tables["system-data"] = 1
+        if table_payload:
+            # When raw table exports exist in the split backup, treat them as
+            # the restore source of truth for DB row fidelity.
+            restored_tables.update(self._restore_table_group(self.SYSTEM_DB_TABLES, table_payload))
+
+        key_counts = {
+            "model_routes": int(restored_tables.get("model_routes", 0)),
+            "model_registry": int(restored_tables.get("model_registry", 0)),
+            "field_mappings": int(restored_tables.get("field_mappings", 0)),
+            "locators": int(restored_tables.get("locators", 0)),
+            "autofill_rule_proposals": int(restored_tables.get("autofill_rule_proposals", 0)),
+            "exam_learned": int(restored_tables.get("exam_learned", 0)),
+        }
 
         return {
             "success": True,
@@ -1067,6 +1053,8 @@ class BackupService:
             "path": str(backup_path),
             "files": restored_files,
             "tables": restored_tables,
+            "restore_strategy": "table_rows_authoritative" if table_payload else "system_data_only",
+            "key_counts": key_counts,
         }
 
     def restore_user_backup(self, backup_path: str | Path) -> dict:
@@ -1075,7 +1063,10 @@ class BackupService:
         with gzip.open(str(backup_path), "rt", encoding="utf-8") as f:
             payload = json.load(f)
 
+        self._ensure_user_tables()
+
         skipped_tables: list[str] = []
+        compatibility_warnings: list[str] = []
         restorable_payload: dict[str, list[dict[str, Any]]] = {}
         for table_name, rows in payload.items():
             if table_name.startswith("_"):
@@ -1083,7 +1074,14 @@ class BackupService:
             if table_name not in self.USER_DB_TABLES:
                 skipped_tables.append(table_name)
                 continue
-            restorable_payload[table_name] = rows
+            if not isinstance(rows, list):
+                compatibility_warnings.append(f"{table_name}: skipped non-list payload")
+                continue
+            restorable_payload[table_name] = self._prepare_user_restore_rows(
+                table_name,
+                rows,
+                compatibility_warnings,
+            )
         restored_tables = self._restore_table_group(self.USER_DB_TABLES, restorable_payload)
 
         return {
@@ -1092,6 +1090,109 @@ class BackupService:
             "path": str(backup_path),
             "tables": restored_tables,
             "skipped_tables": skipped_tables,
+            "warnings": compatibility_warnings,
+            "key_counts": {
+                "users": int(restored_tables.get("users", 0)),
+                "subscription_plans": int(restored_tables.get("subscription_plans", 0)),
+                "user_subscriptions": int(restored_tables.get("user_subscriptions", 0)),
+                "payment_records": int(restored_tables.get("payment_records", 0)),
+                "user_api_keys": int(restored_tables.get("user_api_keys", 0)),
+                "api_keys": int(restored_tables.get("api_keys", 0)),
+                "api_key_allowed_domains": int(restored_tables.get("api_key_allowed_domains", 0)),
+                "api_key_rate_limits": int(restored_tables.get("api_key_rate_limits", 0)),
+                "api_key_device_bindings": int(restored_tables.get("api_key_device_bindings", 0)),
+                "usage_events": int(restored_tables.get("usage_events", 0)),
+                "audit_logs": int(restored_tables.get("audit_logs", 0)),
+            },
+        }
+
+    def inspect_system_backup(self, backup_path: str | Path) -> dict:
+        """Inspect system split backup contents without restoring anything."""
+        backup_path = self._resolve_split_backup_path("system", backup_path)
+        table_counts: dict[str, int] = {}
+        system_counts = {
+            "model_routes": 0,
+            "field_mappings": 0,
+            "locators": 0,
+            "autofill_rules": 0,
+        }
+        asset_counts = {
+            "model_files": 0,
+            "mapping_files": 0,
+            "userscript_files": 0,
+            "automation_script_files": 0,
+            "question_files": 0,
+        }
+
+        with tarfile.open(str(backup_path), "r:gz") as tar:
+            for member in tar.getmembers():
+                if not member.isfile():
+                    continue
+                name = member.name
+                if name.startswith("data/models/") and name.endswith(".onnx"):
+                    asset_counts["model_files"] += 1
+                elif name.startswith("data/mappings/"):
+                    asset_counts["mapping_files"] += 1
+                elif name.startswith("data/userscripts/"):
+                    asset_counts["userscript_files"] += 1
+                elif name.startswith("data/automation_scripts/"):
+                    asset_counts["automation_script_files"] += 1
+                elif name.startswith("data/questions/"):
+                    asset_counts["question_files"] += 1
+
+                if name == "system-data.json":
+                    extracted = tar.extractfile(member)
+                    if extracted:
+                        payload = json.loads(extracted.read().decode("utf-8"))
+                        system_counts["model_routes"] = self._item_count(payload.get("model_routes"))
+                        system_counts["field_mappings"] = self._item_count(payload.get("field_mappings"))
+                        system_counts["locators"] = self._item_count(payload.get("locators"))
+                        system_counts["autofill_rules"] = self._item_count(payload.get("autofill_rules"))
+                    continue
+
+                if name.startswith("db_tables/") and name.endswith(".json"):
+                    table_name = Path(name).stem
+                    extracted = tar.extractfile(member)
+                    if not extracted:
+                        continue
+                    rows = json.loads(extracted.read().decode("utf-8"))
+                    table_counts[table_name] = self._item_count(rows)
+
+        return {
+            "success": True,
+            "type": "system",
+            "path": str(backup_path),
+            "system_data_counts": system_counts,
+            "table_counts": table_counts,
+            "asset_counts": asset_counts,
+        }
+
+    def inspect_user_backup(self, backup_path: str | Path) -> dict:
+        """Inspect user split backup contents without restoring anything."""
+        backup_path = self._resolve_split_backup_path("users", backup_path)
+        with gzip.open(str(backup_path), "rt", encoding="utf-8") as f:
+            payload = json.load(f)
+
+        table_counts: dict[str, int] = {}
+        for table_name in self.USER_DB_TABLES:
+            rows = payload.get(table_name, [])
+            table_counts[table_name] = self._item_count(rows)
+        payload_tables = {
+            table_name: self._item_count(rows)
+            for table_name, rows in payload.items()
+            if not table_name.startswith("_") and isinstance(rows, list)
+        }
+
+        return {
+            "success": True,
+            "type": "users",
+            "path": str(backup_path),
+            "table_counts": table_counts,
+            "payload_tables": payload_tables,
+            "unknown_tables": [
+                table_name for table_name in payload_tables
+                if table_name not in self.USER_DB_TABLES
+            ],
         }
 
     def _prune_backups(self, directory: Path, prefix: str, keep: int) -> None:
@@ -1239,8 +1340,90 @@ class BackupService:
     def _export_table_rows(self, table_name: str) -> list[dict[str, Any]]:
         with sqlite3.connect(str(self._db_path)) as conn:
             conn.row_factory = sqlite3.Row
-            rows = conn.execute(f"SELECT * FROM {table_name}").fetchall()
+            quoted_table = '"' + table_name.replace('"', '""') + '"'
+            rows = conn.execute(f"SELECT * FROM {quoted_table}").fetchall()
             return [dict(row) for row in rows]
+
+    def _ensure_user_tables(self) -> None:
+        """Create user-domain tables before backup/restore when migrations are absent."""
+        try:
+            from app.core.database import Database
+
+            db = Database(self._settings)
+            db.init()
+        except Exception as exc:
+            logger.warning(f"user_backup_legacy_schema_init_failed: {exc}")
+
+        try:
+            import app.core.models  # noqa: F401
+
+            engine = get_engine()
+            tables = [
+                table for table in Base.metadata.sorted_tables
+                if table.name in self.USER_DB_TABLES
+            ]
+            Base.metadata.create_all(bind=engine, tables=tables)
+        except Exception as exc:
+            logger.warning(f"user_backup_orm_schema_init_failed: {exc}")
+
+    def _table_exists(self, table_name: str) -> bool:
+        with sqlite3.connect(str(self._db_path)) as conn:
+            row = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (table_name,),
+            ).fetchone()
+            return bool(row)
+
+    def _prepare_user_restore_rows(
+        self,
+        table_name: str,
+        rows: list[dict[str, Any]],
+        warnings: list[str],
+    ) -> list[dict[str, Any]]:
+        if table_name not in {
+            "subscription_plans",
+            "user_subscriptions",
+            "payment_records",
+            "user_api_keys",
+            "usage_cycles",
+            "exam_workflow_usage",
+        }:
+            return rows
+
+        now = datetime.now(UTC).isoformat()
+        prepared: list[dict[str, Any]] = []
+        generated_key_hashes = 0
+
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            item = dict(row)
+            if table_name == "subscription_plans":
+                item.setdefault("created_at", now)
+                item.setdefault("updated_at", now)
+            elif table_name == "user_subscriptions":
+                item.setdefault("updated_at", now)
+            elif table_name == "payment_records":
+                item.setdefault("updated_at", now)
+            elif table_name == "user_api_keys":
+                item.setdefault("revoked_reason", "")
+                if not item.get("key_hash"):
+                    seed = f"{table_name}:{item.get('id')}:{item.get('user_id')}:{item.get('key_prefix_display')}"
+                    item["key_hash"] = "restored_missing_" + hashlib.sha256(seed.encode("utf-8")).hexdigest()
+                    generated_key_hashes += 1
+            elif table_name == "usage_cycles":
+                item.setdefault("updated_at", now)
+            elif table_name == "exam_workflow_usage":
+                item.setdefault("created_at", now)
+                item.setdefault("completed_at", now)
+            prepared.append(item)
+
+        if generated_key_hashes:
+            warnings.append(
+                f"user_api_keys: generated {generated_key_hashes} placeholder key_hash values "
+                "because the backup did not contain real key hashes"
+            )
+        return prepared
 
     def _resolve_split_backup_path(self, category: str, backup_path: str | Path) -> Path:
         path = Path(backup_path)
@@ -1292,7 +1475,7 @@ class BackupService:
                 quoted_columns = ", ".join('"' + col.replace('"', '""') + '"' for col in usable_columns)
                 placeholders = ", ".join("?" for _ in usable_columns)
                 values = [
-                    tuple(row.get(col) for col in usable_columns)
+                    tuple(self._sqlite_value(row.get(col)) for col in usable_columns)
                     for row in rows
                 ]
                 conn.executemany(
@@ -1335,7 +1518,7 @@ class BackupService:
                     quoted_columns = ", ".join('"' + col.replace('"', '""') + '"' for col in usable_columns)
                     placeholders = ", ".join("?" for _ in usable_columns)
                     values = [
-                        tuple(row.get(col) for col in usable_columns)
+                        tuple(self._sqlite_value(row.get(col)) for col in usable_columns)
                         for row in rows
                     ]
                     conn.executemany(
@@ -1345,3 +1528,17 @@ class BackupService:
                 restored[table_name] = len(rows)
             conn.commit()
         return restored
+
+    @staticmethod
+    def _sqlite_value(value: Any) -> Any:
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, ensure_ascii=False, default=str)
+        return value
+
+    @staticmethod
+    def _item_count(value: Any) -> int:
+        if isinstance(value, list):
+            return len(value)
+        if isinstance(value, dict):
+            return len(value)
+        return 0

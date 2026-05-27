@@ -82,6 +82,13 @@ def _truthy_setting(value: str) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+@router.get("/exam/learning-status")
+async def get_exam_learning_status(request: Request) -> dict:
+    container = request.app.state.container
+    enabled = _truthy_setting(container.db.get_setting("exam.learning_enabled", "true"))
+    return {"learning_enabled": enabled}
+
+
 def _pattern_list(value: str) -> list[str]:
     out: list[str] = []
     for raw in str(value or "").replace(",", "\n").splitlines():

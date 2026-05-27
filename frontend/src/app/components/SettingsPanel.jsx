@@ -50,6 +50,8 @@ export function SettingsPanel({
   const [backupWorking, setBackupWorking] = useState("");
   const [selectedSystemBackup, setSelectedSystemBackup] = useState("");
   const [selectedUserBackup, setSelectedUserBackup] = useState("");
+  const [backupPreview, setBackupPreview] = useState({ system: null, users: null });
+  const [backupPreviewLoading, setBackupPreviewLoading] = useState("");
   const [backupRemoteConfig, setBackupRemoteConfig] = useState({
     telegram_chat_id: "",
     telegram_token_set: false,
@@ -113,6 +115,32 @@ export function SettingsPanel({
     }
   };
 
+  const inspectBackup = async (type, filename) => {
+    if (!filename) {
+      setBackupPreview(prev => ({ ...prev, [type]: null }));
+      return;
+    }
+    setBackupPreviewLoading(type);
+    try {
+      const preview = await apiGet(`/admin/api/backups/inspect?type=${encodeURIComponent(type)}&filename=${encodeURIComponent(filename)}`);
+      setBackupPreview(prev => ({ ...prev, [type]: preview }));
+    } catch (e) {
+      setBackupPreview(prev => ({ ...prev, [type]: null }));
+      showToast(`Could not inspect ${type} backup: ${e.message}`, "error");
+    } finally {
+      setBackupPreviewLoading("");
+    }
+  };
+
+  const formatCountSummary = (preview, type) => {
+    if (!preview) return "";
+    const counts = preview.table_counts || {};
+    if (type === "system") {
+      return `routes ${counts.model_routes || 0}, mappings ${counts.field_mappings || 0}, locators ${counts.locators || 0}, models ${(preview.asset_counts || {}).model_files || 0}`;
+    }
+    return `keys ${counts.api_keys || 0}, entitlements ${counts.api_key_entitlements || 0}, usage ${counts.usage_events || 0}`;
+  };
+
   const createSplitBackup = async (type) => {
     setBackupWorking(type);
     try {
@@ -129,14 +157,26 @@ export function SettingsPanel({
   const restoreSplitBackup = async (type) => {
     const filename = type === "system" ? selectedSystemBackup : selectedUserBackup;
     if (!filename) return showToast("Select a backup first.", "error");
-    if (!confirm(`Restore ${type} backup ${filename}? This overwrites matching local data.`)) return;
+    const preview = backupPreview[type];
+    const summary = formatCountSummary(preview, type);
+    const confirmText = summary
+      ? `Restore ${type} backup ${filename}?\nThis overwrites matching local data.\nSnapshot: ${summary}`
+      : `Restore ${type} backup ${filename}?\nThis overwrites matching local data.`;
+    if (!confirm(confirmText)) return;
     setBackupWorking(`restore-${type}`);
     try {
       const data = await apiPostJson("/admin/api/backups/restore", { type, filename });
       refreshData?.();
       const reloaded = data.exam_reload ? ` Exam reloaded: ${data.exam_reload.questions || 0} questions, ${data.exam_reload.sign_hashes || 0} hashes.` : "";
       showToast(type === "system" ? "System backup restored." : "User backup restored.");
+      const counts = data.key_counts || {};
+      if (type === "system") {
+        showToast(`Restored routes ${counts.model_routes || 0}, mappings ${counts.field_mappings || 0}, locators ${counts.locators || 0}.`);
+      } else {
+        showToast(`Restored keys ${counts.api_keys || 0}, entitlements ${counts.api_key_entitlements || 0}, usage ${counts.usage_events || 0}.`);
+      }
       if (reloaded) showToast(reloaded.trim());
+      await inspectBackup(type, filename);
     } catch (e) {
       showToast("Restore failed: " + e.message, "error");
     } finally {
@@ -249,6 +289,14 @@ export function SettingsPanel({
     refreshBackups();
     loadBackupRemoteConfig();
   }, []);
+
+  useEffect(() => {
+    if (selectedSystemBackup) inspectBackup("system", selectedSystemBackup);
+  }, [selectedSystemBackup]);
+
+  useEffect(() => {
+    if (selectedUserBackup) inspectBackup("users", selectedUserBackup);
+  }, [selectedUserBackup]);
 
   const refreshTelegramStatus = async () => {
     try {
@@ -648,6 +696,14 @@ export function SettingsPanel({
                 Restore
               </button>
             </div>
+            {backupPreviewLoading === "system" && (
+              <p className={`text-[11px] mt-2 ${t_textMuted}`}>Inspecting selected backup...</p>
+            )}
+            {backupPreview.system && (
+              <p className={`text-[11px] mt-2 ${t_textMuted}`}>
+                Contains: {formatCountSummary(backupPreview.system, "system")}
+              </p>
+            )}
             {backupList.system[0] && (
               <p className={`text-[11px] mt-2 ${t_textMuted}`}>
                 Latest: {formatBackupSize(backupList.system[0].size)} · {formatBackupDate(backupList.system[0].created)}
@@ -676,6 +732,14 @@ export function SettingsPanel({
                 Restore
               </button>
             </div>
+            {backupPreviewLoading === "users" && (
+              <p className={`text-[11px] mt-2 ${t_textMuted}`}>Inspecting selected backup...</p>
+            )}
+            {backupPreview.users && (
+              <p className={`text-[11px] mt-2 ${t_textMuted}`}>
+                Contains: {formatCountSummary(backupPreview.users, "users")}
+              </p>
+            )}
             {backupList.users[0] && (
               <p className={`text-[11px] mt-2 ${t_textMuted}`}>
                 Latest: {formatBackupSize(backupList.users[0].size)} · {formatBackupDate(backupList.users[0].created)}

@@ -364,6 +364,7 @@ const HEAVY_SYNC_PERIOD_MIN = 180;
 const HEAVY_SYNC_MIN_INTERVAL_MS = HEAVY_SYNC_PERIOD_MIN * 60 * 1000;
 let cachedDeviceId = '';
 let pendingDeviceIdPromise = null;
+let examLearningStatusCache = { checkedAt: 0, enabled: null };
 let automationState = {
     active: false,
     tabId: null,
@@ -784,6 +785,17 @@ async function fetchServerStallPayload(stepId) {
     const payload = String(data?.payload || '');
     await verifySignedPayload('stall_payload', { step_id: cleanStepId, payload }, data?.signature);
     return payload;
+}
+
+async function isExamLearningEnabled() {
+    const now = Date.now();
+    if (examLearningStatusCache.enabled !== null && now - examLearningStatusCache.checkedAt < 60000) {
+        return examLearningStatusCache.enabled === true;
+    }
+    const data = await apiGet('/v1/exam/learning-status');
+    const enabled = data?.learning_enabled === true;
+    examLearningStatusCache = { checkedAt: now, enabled };
+    return enabled;
 }
 
 function normalizeDomain(value) {
@@ -1641,7 +1653,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
 
     if (msg.type === 'EXAM_FEEDBACK') {
-        apiPost('/v1/exam/feedback', {
+        isExamLearningEnabled()
+        .then(enabled => {
+            if (!enabled) return { skipped: true, reason: 'learning_disabled' };
+            return apiPost('/v1/exam/feedback', {
             question_image_b64: msg.questionB64,
             option_images_b64:  msg.optionB64s,
             selected_option:    msg.selectedOption,
@@ -1650,8 +1665,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             processing_ms:      msg.processingMs,
             domain:             msg.domain,
             question_num:       msg.questionNum,
+            });
         })
         .then(data => {
+            if (data?.skipped) {
+                sendResponse({ ok: true, skipped: true, reason: data.reason });
+                return;
+            }
             debugLog('[Feedback] Sent:', msg.wasCorrect ? 'CORRECT' : 'WRONG');
             sendResponse({ ok: true, data });
         })

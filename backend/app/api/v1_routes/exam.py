@@ -138,7 +138,6 @@ async def exam_feedback(
     payload: ExamFeedbackRequest,
     background_tasks: BackgroundTasks,
 ) -> ExamFeedbackResponse:
-    ensure_service_allowed(request, "solver")
     """
     Receive per-question correctness feedback from the extension.
     When learning is enabled and answer was correct, the question is
