@@ -13,8 +13,7 @@ seed_path() {
   fi
 }
 
-# Seed default data and config (no-clobber)
-seed_path "$seed_dir/data" "/app/data"
+# Seed default config (no-clobber). Runtime data remains dynamic.
 seed_path "$seed_dir/backend/config" "/app/backend/config"
 
 # Ensure all required directories exist
@@ -24,6 +23,13 @@ mkdir -p /app/backend/logs \
          /app/backend/logs/backups/full \
          /app/backend/app/static/extensions \
          /app/backend/app/templates \
+         /app/data/automation_scripts \
+         /app/data/extension_packages \
+         /app/data/hashes \
+         /app/data/mappings \
+         /app/data/models \
+         /app/data/questions \
+         /app/data/security \
          /app/data/payment_screenshots \
          /app/data/exam_offline
 

@@ -36,8 +36,10 @@ backend/backups/
 # Extension
 extension/mcq_solver_extension.zip
 extension/dist/
+extension/_metadata/
 backend/app/static/extension.zip
 backend/app/static/extensions/
+test/unpacked_extensions/
 *.crx
 *.xpi
 *.zip

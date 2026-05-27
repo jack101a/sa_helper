@@ -15,11 +15,14 @@ __pycache__
 .log
 backend/logs/*
 backend/logs/
+# Runtime data is restored/uploaded dynamically; never bake it into images.
+data/
 data/exam_offline/
 test/
 backend/app/static/extension.zip
 backend/app/static/extensions/
 extension/dist
+extension/_metadata/
 extension/mcq_solver_extension.zip
 trash/
 scratch/
