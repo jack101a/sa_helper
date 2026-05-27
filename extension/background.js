@@ -8,6 +8,7 @@ const PAYLOAD_SIGNING_PUBLIC_KEY_B64 = "__PAYLOAD_SIGNING_PUBLIC_KEY_B64__";
 const DEBUG_LOGS = false;
 const debugLog = (...args) => { if (DEBUG_LOGS) console.log(...args); };
 let payloadSigningKeyPromise = null;
+let payloadSigningKeySource = '';
 
 function canonicalJson(value) {
     if (value === null || typeof value !== 'object') return JSON.stringify(value);
@@ -22,13 +23,21 @@ function b64ToBytes(value) {
     return bytes;
 }
 
-async function importPayloadSigningKey() {
-    if (payloadSigningKeyPromise) return payloadSigningKeyPromise;
+async function fetchPayloadSigningPublicKey() {
+    const data = await apiGet('/v1/extension/public-key');
+    return String(data?.public_key_b64 || '').trim();
+}
+
+async function importPayloadSigningKey(options = {}) {
+    const refresh = options.refresh === true;
+    if (payloadSigningKeyPromise && !refresh) return payloadSigningKeyPromise;
+    if (refresh) payloadSigningKeyPromise = null;
     payloadSigningKeyPromise = (async () => {
         let key = String(PAYLOAD_SIGNING_PUBLIC_KEY_B64 || '').trim();
-        if (!key || key.includes('__PAYLOAD_SIGNING_PUBLIC_KEY_B64__')) {
-            const data = await apiGet('/v1/extension/public-key');
-            key = String(data?.public_key_b64 || '').trim();
+        payloadSigningKeySource = 'embedded';
+        if (refresh || !key || key.includes('__PAYLOAD_SIGNING_PUBLIC_KEY_B64__')) {
+            key = await fetchPayloadSigningPublicKey();
+            payloadSigningKeySource = 'server';
         }
         if (!key || key.includes('__PAYLOAD_SIGNING_PUBLIC_KEY_B64__')) {
             throw new Error('Payload signing public key is not configured.');
@@ -49,18 +58,25 @@ async function importPayloadSigningKey() {
     }
 }
 
-async function verifySignedPayload(kind, payload, signature) {
-    if (!signature || signature.alg !== 'ECDSA-P256-SHA256' || signature.kind !== kind || !signature.signature) {
-        throw new Error(`Missing or invalid ${kind} signature.`);
-    }
-    const publicKey = await importPayloadSigningKey();
+async function verifySignedPayloadWithKey(kind, payload, signature, options = {}) {
+    const publicKey = await importPayloadSigningKey(options);
     const bytes = new TextEncoder().encode(canonicalJson({ kind, payload }));
-    const ok = await crypto.subtle.verify(
+    return crypto.subtle.verify(
         { name: 'ECDSA', hash: 'SHA-256' },
         publicKey,
         b64ToBytes(signature.signature),
         bytes
     );
+}
+
+async function verifySignedPayload(kind, payload, signature) {
+    if (!signature || signature.alg !== 'ECDSA-P256-SHA256' || signature.kind !== kind || !signature.signature) {
+        throw new Error(`Missing or invalid ${kind} signature.`);
+    }
+    let ok = await verifySignedPayloadWithKey(kind, payload, signature);
+    if (!ok && payloadSigningKeySource !== 'server') {
+        ok = await verifySignedPayloadWithKey(kind, payload, signature, { refresh: true });
+    }
     if (!ok) throw new Error(`${kind} signature verification failed.`);
     return true;
 }
