@@ -37,6 +37,7 @@ backend/backups/
 extension/mcq_solver_extension.zip
 extension/dist/
 extension/_metadata/
+extension_dev_localhost/
 backend/app/static/extension.zip
 backend/app/static/extensions/
 test/unpacked_extensions/

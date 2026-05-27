@@ -52,6 +52,7 @@ async def verify(request: Request) -> VerifyResponse:
             subscription_expires_at = sub.end_at.isoformat() if sub and sub.end_at else expires_at
             return VerifyResponse(
                 valid=True,
+                api_key_id=int(key_record["id"]),
                 key_name=key_name,
                 expires_at=subscription_expires_at,
                 key_expires_at=expires_at,
@@ -70,6 +71,7 @@ async def verify(request: Request) -> VerifyResponse:
             session.close()
     return VerifyResponse(
         valid=True,
+        api_key_id=int(key_record["id"]),
         key_name=key_name,
         expires_at=expires_at,
         key_expires_at=expires_at,

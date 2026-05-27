@@ -47,7 +47,7 @@
         debugLog('[Content] Initializing modules...');
 
         // Use the shared utility for storage
-        const data = await window.up_getStorage(['solverEnabled', 'autofillEnabled', 'captchaEnabled', 'isMaster', 'enabledServices', 'stallVcamActive', '_automationState']);
+        const data = await window.up_getStorage(['solverEnabled', 'autofillEnabled', 'captchaEnabled', 'isRecording', 'isMaster', 'enabledServices', 'stallVcamActive', '_automationState']);
         const sarathiHost = isSarathiHost();
         const stallRelated = isStallRelatedUrl();
         const services = data.enabledServices && typeof data.enabledServices === 'object' && !Array.isArray(data.enabledServices)
@@ -66,7 +66,7 @@
         if (window.ExamModule && solverEntitled) window.ExamModule.activate();
         if (window.MockTrainerModule && sarathiHost && data.isMaster === true && solverEntitled) window.MockTrainerModule.activate();
         if (window.CaptchaModule && data.captchaEnabled !== false) window.CaptchaModule.activate();
-        if (window.AutofillModule && data.autofillEnabled !== false) window.AutofillModule.activate();
+        if (window.AutofillModule && (data.autofillEnabled !== false || data.isRecording === true)) window.AutofillModule.activate();
 
         // 3. Start automation monitor
         if (window.StallAutomation && stallRelated && stallEntitled) {

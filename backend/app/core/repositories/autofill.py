@@ -16,13 +16,17 @@ class AutofillRepository(BaseRepository):
         for step in rule.get("steps", []) or []:
             selector = step.get("selector", {}) or {}
             steps.append({
+                "field_key": step.get("field_key", ""),
                 "action": step.get("action", ""),
                 "value": str(step.get("value", "")),
                 "selector": {
                     "strategy": selector.get("strategy", ""),
+                    "primary": selector.get("primary", ""),
                     "id": selector.get("id", ""),
+                    "element_id": selector.get("element_id", ""),
                     "name": selector.get("name", ""),
                     "css": selector.get("css", ""),
+                    "xpath": selector.get("xpath", ""),
                 },
             })
         canonical = {
@@ -30,6 +34,8 @@ class AutofillRepository(BaseRepository):
             "site": {
                 "match_mode": (rule.get("site") or {}).get("match_mode", ""),
                 "pattern": (rule.get("site") or {}).get("pattern", ""),
+                "domain": (rule.get("site") or {}).get("domain", ""),
+                "path": (rule.get("site") or {}).get("path", ""),
             },
             "steps": steps,
         }

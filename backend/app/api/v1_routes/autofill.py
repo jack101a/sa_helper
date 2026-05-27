@@ -84,6 +84,43 @@ def _autofill_rule_allowed(rule_data: dict, key_record: dict, entitlements: dict
     return False
 
 
+def _autofill_profile_scope_allowed(rule_data: dict, key_record: dict, entitlements: dict) -> bool:
+    """Filter sync by profile-scope metadata before the extension stores rules."""
+    profile_scope = rule_data.get("profile_scope") or "default"
+    if isinstance(profile_scope, str):
+        return True
+    if not isinstance(profile_scope, dict):
+        return True
+
+    mode = str(profile_scope.get("mode") or profile_scope.get("scope") or "custom").strip().lower()
+    if mode in {"default", "global", "all"}:
+        return True
+
+    current_plan = normalize_userscript_plan(entitlements.get("plan_name") or "")
+    allowed_plans = {
+        normalize_userscript_plan(item)
+        for item in userscript_string_list(profile_scope.get("plans") or profile_scope.get("plan_names"))
+    }
+    allowed_users = {
+        str(item).strip()
+        for item in userscript_string_list(
+            profile_scope.get("users")
+            or profile_scope.get("user_ids")
+            or profile_scope.get("api_key_ids")
+        )
+        if str(item).strip()
+    }
+    key_id = str(key_record.get("id") or "").strip()
+
+    if mode == "plan":
+        return bool(current_plan and current_plan in allowed_plans)
+    if mode == "user":
+        return bool(key_id and key_id in allowed_users)
+    if mode == "custom":
+        return bool((current_plan and current_plan in allowed_plans) or (key_id and key_id in allowed_users))
+    return True
+
+
 @router.post("/autofill/fill", response_model=AutofillFillResponse)
 async def autofill_fill(request: Request, payload: AutofillFillRequest) -> AutofillFillResponse:
     """
@@ -170,6 +207,8 @@ async def autofill_sync(request: Request) -> AutofillRuleSyncResponse:
         try:
             rule_data = json.loads(row["rule_json"])
             if not _autofill_rule_allowed(rule_data, key_record, entitlements):
+                continue
+            if not _autofill_profile_scope_allowed(rule_data, key_record, entitlements):
                 continue
             rule_data["server_rule_id"] = row["approved_rule_id"]
             rules.append(AutofillRule(**rule_data))

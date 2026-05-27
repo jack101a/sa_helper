@@ -378,6 +378,7 @@ const SENSITIVE_STORAGE_KEYS = [
     'authError',
     'lastAuthFailure',
     'isMaster',
+    'apiKeyId',
     'keyName',
     'expiresAt',
     'name',
@@ -1211,6 +1212,7 @@ async function syncAuthState(source) {
         const isMaster = !!d.is_master;
         await chrome.storage.local.set({
             isMaster,
+            apiKeyId: d.api_key_id || d.key_id || '',
             keyName: d.key_name || '',
             expiresAt: d.subscription_expires_at || d.expires_at || null,
             planName: d.plan_name || d.plan || '',
@@ -1541,6 +1543,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 // Persist metadata so popup/options can detect Master Mode vs User Mode
                 chrome.storage.local.set({
                     isMaster,
+                    apiKeyId: d.api_key_id || d.key_id || '',
                     keyName: d.key_name || '',
                     expiresAt: d.subscription_expires_at || d.expires_at || null,
                     userName: d.user_name || d.name || d.key_name || '',

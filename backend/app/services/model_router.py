@@ -63,6 +63,28 @@ class ModelRouter:
 
         raise ValueError(f"Unsupported model runtime: {model_name}")
 
+    def resolve_model_filename(
+        self,
+        task_type: str,
+        domain: str | None = None,
+        field_name: str | None = None,
+    ) -> str:
+        """Resolve the ONNX filename/path on the API side for remote workers."""
+
+        target_filename = self._settings.model.onnx_path
+        field_model = (
+            self._db.get_field_mapped_model(domain, field_name, task_type)
+            if hasattr(self._db, "get_field_mapped_model")
+            else None
+        )
+        if field_model:
+            return str(field_model.get("ai_model_filename") or target_filename)
+        if domain:
+            route = self._db.get_model_route(domain)
+            if route:
+                return str(route)
+        return str(target_filename)
+
     async def solve(
         self,
         task_type: str,
@@ -70,12 +92,13 @@ class ModelRouter:
         mode: str,
         domain: str | None = None,
         field_name: str | None = None,
+        model_filename: str | None = None,
     ) -> dict:
         """
         Run selected model with fallback on error.
         Returns a dictionary with 'result' and 'model_used'.
         """
-        primary = self._resolve(
+        primary = self._get_onnx_model(model_filename) if model_filename else self._resolve(
             self._settings.model.default,
             task_type=task_type,
             domain=domain,

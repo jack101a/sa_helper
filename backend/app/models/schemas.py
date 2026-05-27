@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ── Shared ────────────────────────────────────────────────────────────────────
@@ -103,25 +103,40 @@ class AutofillProposeRequest(BaseModel):
 
 # ── Autofill Rule Proposals (V26 Engine) ──────────────────────────────────────
 class AutofillRuleStepSelector(BaseModel):
-    strategy: str
+    model_config = ConfigDict(extra="allow")
+
+    strategy: str = "css"
+    primary: str | None = None
     id: str = ""
     name: str = ""
     css: str = ""
     xpath: str = ""
+    label: str = ""
+    element_id: str = ""
+    confidence: float | None = None
     candidates: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class AutofillRuleStep(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     order: int
     action: str
     value: Any = None
+    field_key: str | None = None
+    label: str = ""
     selector: AutofillRuleStepSelector
+    element: dict[str, Any] = Field(default_factory=dict)
+    runtime: dict[str, Any] = Field(default_factory=dict)
     delay_ms: int | None = None
     timeout_ms: int | None = None
     required: bool = True
 
 
 class AutofillRuleExecution(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    mode: str | None = None
     delay_ms: int = 100
     run_once: bool = True
     wait_timeout_ms: int = 2500
@@ -129,11 +144,17 @@ class AutofillRuleExecution(BaseModel):
 
 
 class AutofillRuleSite(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     match_mode: str
     pattern: str
+    domain: str = ""
+    path: str = ""
 
 
 class AutofillRule(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     local_rule_id: str | None = None
     server_rule_id: str | None = None
     name: str | None = None
@@ -141,7 +162,7 @@ class AutofillRule(BaseModel):
     enabled: bool = True
     rule_type: str = "instant"
     site: AutofillRuleSite
-    profile_scope: str = "default"
+    profile_scope: str | dict[str, Any] = "default"
     frame_path: str = "any"
     priority: int = 100
     access_scope: str = "global"
@@ -175,6 +196,7 @@ class AutofillRuleSyncResponse(BaseModel):
 # ── Auth / Keys ───────────────────────────────────────────────────────────────
 class VerifyResponse(BaseModel):
     valid: bool
+    api_key_id: int | None = None
     key_name: str
     expires_at: str | None
     key_expires_at: str | None = None
