@@ -91,6 +91,35 @@ def _pattern_list(value: str) -> list[str]:
     return out
 
 
+def _userscript_dir_has_readable_scripts(scripts_dir: Path) -> bool:
+    """True when a source dir can produce at least one userscript payload."""
+    if any(path.is_file() for path in scripts_dir.glob("*.user.js")):
+        return True
+    index_path = scripts_dir / "index.json"
+    if not index_path.is_file():
+        return False
+    try:
+        entries = json.loads(index_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    if not isinstance(entries, list):
+        return False
+    scripts_dir_resolved = scripts_dir.resolve()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        file_name = str(entry.get("file", "")).strip()
+        if not file_name:
+            continue
+        try:
+            path = (scripts_dir / file_name).resolve()
+        except Exception:
+            continue
+        if scripts_dir_resolved in path.parents and path.is_file():
+            return True
+    return False
+
+
 def _extension_reports_dir() -> Path:
     path = get_project_root() / "data" / "extension_error_reports"
     path.mkdir(parents=True, exist_ok=True)
@@ -181,7 +210,7 @@ async def sync_userscripts(request: Request) -> dict:
     scripts_dir = next(
         (
             item for item in candidate_dirs
-            if (item / "index.json").is_file() or any(item.glob("*.user.js"))
+            if _userscript_dir_has_readable_scripts(item)
         ),
         candidate_dirs[0],
     )

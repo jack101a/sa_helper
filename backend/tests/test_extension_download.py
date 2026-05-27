@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from app.api.admin_routes import settings as settings_routes
 from app.api.admin_routes.settings import _extension_filename_for_format
+from app.api.v1_routes.extension import _userscript_dir_has_readable_scripts
 from app.services.extension_service import ExtensionService
 
 
@@ -42,6 +43,34 @@ class ExtensionDownloadTests(unittest.TestCase):
 
             with zipfile.ZipFile(zip_path, "r") as zf:
                 self.assertEqual(zf.read("marker.txt").decode("utf-8"), "v2")
+
+    def test_userscript_source_ignores_empty_index_without_script_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            scripts_dir = Path(tmp)
+            (scripts_dir / "index.json").write_text("[]", encoding="utf-8")
+
+            self.assertFalse(_userscript_dir_has_readable_scripts(scripts_dir))
+
+            (scripts_dir / "example.user.js").write_text(
+                "// ==UserScript==\n// @name Example\n// ==/UserScript==\n",
+                encoding="utf-8",
+            )
+
+            self.assertTrue(_userscript_dir_has_readable_scripts(scripts_dir))
+
+    def test_userscript_source_accepts_index_with_existing_script_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            scripts_dir = Path(tmp)
+            (scripts_dir / "example.user.js").write_text(
+                "// ==UserScript==\n// @name Example\n// ==/UserScript==\n",
+                encoding="utf-8",
+            )
+            (scripts_dir / "index.json").write_text(
+                '[{"id":"example","file":"example.user.js"}]',
+                encoding="utf-8",
+            )
+
+            self.assertTrue(_userscript_dir_has_readable_scripts(scripts_dir))
 
     def test_package_extension_does_not_generate_user_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
