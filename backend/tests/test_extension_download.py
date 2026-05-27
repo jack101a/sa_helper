@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from app.api.admin_routes import settings as settings_routes
 from app.api.admin_routes.settings import _extension_filename_for_format
-from app.api.v1_routes.extension import _userscript_dir_has_readable_scripts
+from app.api.v1_routes.extension import _userscript_dir_has_readable_scripts, _userscript_signature_payload
 from app.services.extension_service import ExtensionService
 
 
@@ -71,6 +71,45 @@ class ExtensionDownloadTests(unittest.TestCase):
             )
 
             self.assertTrue(_userscript_dir_has_readable_scripts(scripts_dir))
+
+    def test_userscript_signature_payload_is_stable_subset(self):
+        script = {
+            "id": "example",
+            "file": "example.user.js",
+            "name": "Example",
+            "version": "1.2.3",
+            "matches": ["https://example.test/*"],
+            "includes": ["https://include.test/*"],
+            "exclude": ["https://example.test/private/*"],
+            "excludeMatches": ["https://example.test/logout"],
+            "runAt": "document-start",
+            "requires": ["https://cdn.example.test/lib.js"],
+            "resources": [{"name": "logo", "url": "https://example.test/logo.png"}],
+            "grants": ["GM_xmlhttpRequest"],
+            "connects": ["api.example.test"],
+            "noframes": True,
+            "code": "console.log('signed');",
+            "updatedAt": 123,
+            "diagnostics": {"warnings": ["ignored"], "errors": []},
+        }
+
+        self.assertEqual(
+            _userscript_signature_payload(script),
+            {
+                "id": "example",
+                "file": "example.user.js",
+                "version": "1.2.3",
+                "matches": ["https://example.test/*"],
+                "includes": ["https://include.test/*"],
+                "exclude": ["https://example.test/private/*"],
+                "excludeMatches": ["https://example.test/logout"],
+                "runAt": "document-start",
+                "requires": ["https://cdn.example.test/lib.js"],
+                "resources": [{"name": "logo", "url": "https://example.test/logo.png"}],
+                "noframes": True,
+                "code": "console.log('signed');",
+            },
+        )
 
     def test_package_extension_does_not_generate_user_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:

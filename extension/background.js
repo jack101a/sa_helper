@@ -7,6 +7,7 @@ const gmXhrControllers = new Map();
 const PAYLOAD_SIGNING_PUBLIC_KEY_B64 = "__PAYLOAD_SIGNING_PUBLIC_KEY_B64__";
 const DEBUG_LOGS = false;
 const debugLog = (...args) => { if (DEBUG_LOGS) console.log(...args); };
+let payloadSigningKeyPromise = null;
 
 function canonicalJson(value) {
     if (value === null || typeof value !== 'object') return JSON.stringify(value);
@@ -22,17 +23,30 @@ function b64ToBytes(value) {
 }
 
 async function importPayloadSigningKey() {
-    const key = String(PAYLOAD_SIGNING_PUBLIC_KEY_B64 || '').trim();
-    if (!key || key.includes('__PAYLOAD_SIGNING_PUBLIC_KEY_B64__')) {
-        throw new Error('Payload signing public key is not configured.');
+    if (payloadSigningKeyPromise) return payloadSigningKeyPromise;
+    payloadSigningKeyPromise = (async () => {
+        let key = String(PAYLOAD_SIGNING_PUBLIC_KEY_B64 || '').trim();
+        if (!key || key.includes('__PAYLOAD_SIGNING_PUBLIC_KEY_B64__')) {
+            const data = await apiGet('/v1/extension/public-key');
+            key = String(data?.public_key_b64 || '').trim();
+        }
+        if (!key || key.includes('__PAYLOAD_SIGNING_PUBLIC_KEY_B64__')) {
+            throw new Error('Payload signing public key is not configured.');
+        }
+        return crypto.subtle.importKey(
+            'spki',
+            b64ToBytes(key),
+            { name: 'ECDSA', namedCurve: 'P-256' },
+            false,
+            ['verify']
+        );
+    })();
+    try {
+        return await payloadSigningKeyPromise;
+    } catch (e) {
+        payloadSigningKeyPromise = null;
+        throw e;
     }
-    return crypto.subtle.importKey(
-        'spki',
-        b64ToBytes(key),
-        { name: 'ECDSA', namedCurve: 'P-256' },
-        false,
-        ['verify']
-    );
 }
 
 async function verifySignedPayload(kind, payload, signature) {
@@ -1037,6 +1051,9 @@ async function bundleUserscript(script) {
 }
 
 function userscriptSignaturePayload(script) {
+    if (script && script.signaturePayload && typeof script.signaturePayload === 'object') {
+        return script.signaturePayload;
+    }
     return {
         id: script.id || '',
         file: script.file || '',
@@ -1286,8 +1303,10 @@ async function syncHeavyData(source, options = {}) {
             const errors = [];
             for (const script of data.scripts) {
                 try {
-                    await verifySignedPayload('userscript', userscriptSignaturePayload(script), script.signature);
+                    const signaturePayload = userscriptSignaturePayload(script);
+                    await verifySignedPayload('userscript', signaturePayload, script.signature);
                     const bundled = await bundleUserscript(script);
+                    bundled.signatureVerified = true;
                     normalized.push(bundled);
                     if (bundled.requireErrors.length) {
                         await appendUserscriptLog({

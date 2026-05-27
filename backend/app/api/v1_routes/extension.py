@@ -188,6 +188,36 @@ async def extension_config(request: Request) -> dict:
     }
 
 
+@router.get("/extension/public-key")
+async def extension_public_key(request: Request) -> dict:
+    """Return the payload-signing public key for unpacked/dev extension installs."""
+    key_record = request.state.api_key_record
+    if not key_record:
+        raise HTTPException(401, "API key required")
+
+    from app.services.payload_signing_service import ensure_public_key_b64
+
+    return {"public_key_b64": ensure_public_key_b64()}
+
+
+def _userscript_signature_payload(script_payload: dict) -> dict:
+    """Canonical payload that is signed and verified by browser extensions."""
+    return {
+        "id": script_payload.get("id") or "",
+        "file": script_payload.get("file") or "",
+        "version": script_payload.get("version") or "",
+        "matches": script_payload.get("matches") if isinstance(script_payload.get("matches"), list) else [],
+        "includes": script_payload.get("includes") if isinstance(script_payload.get("includes"), list) else [],
+        "exclude": script_payload.get("exclude") if isinstance(script_payload.get("exclude"), list) else [],
+        "excludeMatches": script_payload.get("excludeMatches") if isinstance(script_payload.get("excludeMatches"), list) else [],
+        "runAt": script_payload.get("runAt") or "",
+        "requires": script_payload.get("requires") if isinstance(script_payload.get("requires"), list) else [],
+        "resources": script_payload.get("resources") if isinstance(script_payload.get("resources"), list) else [],
+        "noframes": script_payload.get("noframes") is True,
+        "code": script_payload.get("code") or "",
+    }
+
+
 @router.get("/userscripts/sync")
 async def sync_userscripts(request: Request) -> dict:
     """
@@ -302,20 +332,9 @@ async def sync_userscripts(request: Request) -> dict:
                 "updatedAt": int(path.stat().st_mtime),
                 "code": code,
             }
-            script_payload["signature"] = sign_payload("userscript", {
-                "id": script_payload["id"],
-                "file": script_payload["file"],
-                "version": script_payload["version"],
-                "matches": script_payload["matches"],
-                "includes": script_payload["includes"],
-                "exclude": script_payload["exclude"],
-                "excludeMatches": script_payload["excludeMatches"],
-                "runAt": script_payload["runAt"],
-                "requires": script_payload["requires"],
-                "resources": script_payload["resources"],
-                "noframes": script_payload["noframes"],
-                "code": script_payload["code"],
-            })
+            signature_payload = _userscript_signature_payload(script_payload)
+            script_payload["signaturePayload"] = signature_payload
+            script_payload["signature"] = sign_payload("userscript", signature_payload)
             scripts_data.append(script_payload)
         except Exception as e:
             failed += 1
