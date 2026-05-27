@@ -55,6 +55,7 @@ services:
     environment:
       - PAYLOAD_SIGNER_TOKEN=${PAYLOAD_SIGNER_TOKEN:-}
       - PAYLOAD_SIGNING_PRIVATE_KEY_PATH=/run/sa-helper-signing/payload_signing_private.pem
+      - PAYLOAD_SIGNING_PUBLIC_KEY_PATH=/run/sa-helper-signing/payload_signing_public.spki.b64
       - PAYLOAD_SIGNING_ALLOW_CREATE=true
     volumes:
       - sa_helper_signing:/run/sa-helper-signing

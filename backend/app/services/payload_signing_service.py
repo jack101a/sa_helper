@@ -18,7 +18,7 @@ from app.core.paths import get_project_root
 
 _KEY_DIR = get_project_root() / "data" / "security"
 _DEV_PRIVATE_KEY_PATH = _KEY_DIR / "payload_signing_private.pem"
-_PUBLIC_KEY_PATH = _KEY_DIR / "payload_signing_public.spki.b64"
+_DEV_PUBLIC_KEY_PATH = _KEY_DIR / "payload_signing_public.spki.b64"
 _DEFAULT_SECRET_PRIVATE_KEY_PATH = Path("/run/secrets/payload_signing_private.pem")
 _SIGNER_TIMEOUT_SECONDS = float(os.getenv("PAYLOAD_SIGNER_TIMEOUT_SECONDS", "3") or "3")
 
@@ -73,6 +73,13 @@ def _private_key_path() -> tuple[Path, bool]:
     return _DEV_PRIVATE_KEY_PATH, True
 
 
+def _public_key_path() -> Path:
+    configured = os.getenv("PAYLOAD_SIGNING_PUBLIC_KEY_PATH", "").strip()
+    if configured:
+        return Path(configured)
+    return _DEV_PUBLIC_KEY_PATH
+
+
 def _load_or_create_private_key():
     private_key_path, allow_create = _private_key_path()
     if private_key_path.exists():
@@ -123,8 +130,10 @@ def ensure_public_key_b64_local() -> str:
             format=serialization.PublicFormat.SubjectPublicKeyInfo,
         )
     ).decode("ascii")
-    if not _PUBLIC_KEY_PATH.exists() or _PUBLIC_KEY_PATH.read_text(encoding="utf-8").strip() != public_b64:
-        _PUBLIC_KEY_PATH.write_text(public_b64 + "\n", encoding="utf-8")
+    public_key_path = _public_key_path()
+    if not public_key_path.exists() or public_key_path.read_text(encoding="utf-8").strip() != public_b64:
+        public_key_path.parent.mkdir(parents=True, exist_ok=True)
+        public_key_path.write_text(public_b64 + "\n", encoding="utf-8")
     return public_b64
 
 
