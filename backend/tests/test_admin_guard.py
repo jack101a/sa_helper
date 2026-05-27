@@ -73,3 +73,33 @@ class TestAdminGuard:
         r = client.get("/admin/api/test", cookies={"admin_session": token})
         assert r.status_code == 200
         assert r.json() == {"ok": True}
+
+    def test_admin_api_write_requires_admin_header(self, admin_settings):
+        from app.api.admin_routes.utils import _admin_guard, _admin_session_cookie
+
+        app = _create_admin_app(admin_settings)
+
+        @app.post("/admin/api/write")
+        async def admin_write(request: Request):
+            denied = _admin_guard(request)
+            if denied:
+                return denied
+            return JSONResponse({"ok": True})
+
+        client = TestClient(app)
+        scope = {
+            "type": "http",
+            "app": app,
+            "method": "POST",
+            "path": "/admin/api/write",
+            "headers": [],
+            "query_string": b"",
+            "client": ("testclient", 50000),
+            "server": ("testserver", 80),
+            "scheme": "http",
+        }
+        token = _admin_session_cookie(StarletteRequest(scope))
+        blocked = client.post("/admin/api/write", cookies={"admin_session": token})
+        assert blocked.status_code == 403
+        allowed = client.post("/admin/api/write", cookies={"admin_session": token}, headers={"x-admin-api": "1"})
+        assert allowed.status_code == 200

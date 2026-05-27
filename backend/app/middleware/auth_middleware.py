@@ -13,11 +13,8 @@ from app.services.key_service import KeyService
 
 logger = logging.getLogger(__name__)
 
-# Paths exempt from API-key authentication
-_PUBLIC_V1_PATHS = {
-    "/v1/locators",
-    "/v1/field-mappings/routes",
-}
+# Keep /v1 data endpoints authenticated. Extension sync already sends X-API-Key.
+_PUBLIC_V1_PATHS: set[str] = set()
 
 # Explicit error codes for client UX
 ERROR_CODES = {

@@ -335,6 +335,7 @@ export function SettingsPanel({
       fd.append("file", file);
       const resp = await fetch("/admin/api/settings/upload-qr", {
         method: "POST",
+        headers: { "X-Admin-API": "1" },
         body: fd,
         credentials: "include",
       });

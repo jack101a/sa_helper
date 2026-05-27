@@ -25,6 +25,7 @@ from app.core.payment_links import build_upi_link, decode_upi_payload
 from app.middleware.auth_middleware import AuthMiddleware
 from app.middleware.logging_middleware import LoggingMiddleware
 from app.middleware.rate_limit_middleware import RateLimitMiddleware
+from app.middleware.security_headers_middleware import SecurityHeadersMiddleware
 
 settings = get_settings()
 configure_logging(settings=settings)
@@ -271,6 +272,7 @@ app.state.container = container
 app.add_middleware(LoggingMiddleware)
 app.add_middleware(AuthMiddleware, settings=settings, key_service=container.key_service)
 app.add_middleware(RateLimitMiddleware, settings=settings)
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.server.cors_origins,

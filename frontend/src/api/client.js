@@ -20,7 +20,7 @@ async function handleResponse(resp) {
 function buildOpts(opts = {}) {
   return {
     credentials: "include",
-    headers: { Accept: "application/json", ...(opts.headers || {}) },
+    headers: { Accept: "application/json", "X-Admin-API": "1", ...(opts.headers || {}) },
     ...opts,
   };
 }
@@ -55,7 +55,7 @@ export async function apiPostForm(url, formData, opts = {}) {
 export async function apiPostJson(url, body = {}, opts = {}) {
   const resp = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+    headers: { "Content-Type": "application/json", "X-Admin-API": "1", ...(opts.headers || {}) },
     body: JSON.stringify(body),
     credentials: "include",
   });
@@ -65,7 +65,7 @@ export async function apiPostJson(url, body = {}, opts = {}) {
 export async function apiPatchJson(url, body = {}, opts = {}) {
   const resp = await fetch(url, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+    headers: { "Content-Type": "application/json", "X-Admin-API": "1", ...(opts.headers || {}) },
     body: JSON.stringify(body),
     credentials: "include",
   });
@@ -75,7 +75,7 @@ export async function apiPatchJson(url, body = {}, opts = {}) {
 export async function apiPutJson(url, body = {}, opts = {}) {
   const resp = await fetch(url, {
     method: "PUT",
-    headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+    headers: { "Content-Type": "application/json", "X-Admin-API": "1", ...(opts.headers || {}) },
     body: JSON.stringify(body),
     credentials: "include",
   });

@@ -29,6 +29,22 @@ services:
         max-size: "50m"
         max-file: "5"
 
+  payload-signer:
+    restart: unless-stopped
+    init: true
+    environment:
+      - APP_ENV=production
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   scheduler:
     restart: unless-stopped
     init: true

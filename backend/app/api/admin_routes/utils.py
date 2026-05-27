@@ -138,6 +138,9 @@ def _admin_guard(request: Request) -> Response | None:
     """Return redirect response when admin auth is missing."""
     trusted_identity = _trusted_admin_identity(request)
     if trusted_identity:
+        csrf_denied = _admin_api_csrf_guard(request)
+        if csrf_denied:
+            return csrf_denied
         return None
 
     settings = request.app.state.container.settings
@@ -150,6 +153,9 @@ def _admin_guard(request: Request) -> Response | None:
 
     cookie_token = request.cookies.get("admin_session", "")
     if cookie_token and _admin_session_valid(request, cookie_token):
+        csrf_denied = _admin_api_csrf_guard(request)
+        if csrf_denied:
+            return csrf_denied
         return None
 
     if _wants_json(request):
@@ -160,6 +166,16 @@ def _wants_json(request: Request) -> bool:
     if request.headers.get("x-admin-api", "").strip() == "1":
         return True
     return "application/json" in request.headers.get("accept", "").lower()
+
+def _admin_api_csrf_guard(request: Request) -> Response | None:
+    """Require a custom header for state-changing admin API calls."""
+    if request.method.upper() not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return None
+    if not request.url.path.startswith("/admin/api/"):
+        return None
+    if request.headers.get("x-admin-api", "").strip() == "1":
+        return None
+    return JSONResponse({"error": "admin_csrf_required"}, status_code=403)
 
 def _model_upload_error(request: Request, message: str, status_code: int = 400) -> Response:
     if _wants_json(request):

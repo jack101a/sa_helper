@@ -51,7 +51,7 @@ def key_service():
 
 
 class TestPublicPaths:
-    """Public paths should not require authentication."""
+    """Only non-v1 health paths should bypass API-key authentication."""
 
     def test_health_no_auth(self, settings, key_service):
         app = _create_test_app(key_service, settings)
@@ -59,12 +59,12 @@ class TestPublicPaths:
         r = client.get("/health")
         assert r.status_code == 200
 
-    def test_locators_no_auth(self, settings, key_service):
+    def test_locators_requires_auth(self, settings, key_service):
         app = _create_test_app(key_service, settings)
         client = TestClient(app)
         r = client.get("/v1/locators")
-        assert r.status_code == 200
-        assert r.json()["public"] is True
+        assert r.status_code == 401
+        assert r.json()["error_code"] == "invalid_key"
 
 
 class TestLegacyKey:
