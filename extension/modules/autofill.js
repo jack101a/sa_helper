@@ -3,6 +3,8 @@
     'use strict';
 
     window.AutofillModule = (() => {
+        const DEBUG_LOGS = false;
+        const debugLog = (...args) => { if (DEBUG_LOGS) console.log(...args); };
         let _active = false;
         let _recording = false;
         let _filledElements = new WeakSet();
@@ -13,6 +15,7 @@
         let _pageKey = '';
         let _completedStepKeys = new Set();
         let _cooldownUntil = 0;
+        let _recordSession = null;
 
         const SCHEMA_VERSION = 2;
         const DEFAULT_SETTINGS = {
@@ -23,11 +26,14 @@
             retryInterval: 1000
         };
 
+        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
         // ── Selection Logic ───────────────────────────────────────────────
 
         function findBestElement(selectorObj) {
             if (!selectorObj) return null;
             const { strategy, id, name, css } = selectorObj;
+            const candidates = Array.isArray(selectorObj.candidates) ? selectorObj.candidates : [];
             
             // Try explicit strategy first
             if (strategy === 'id' && id) {
@@ -57,6 +63,11 @@
                     const el = document.querySelector(css);
                     if (el) return el;
                 } catch (_) {}
+            }
+            for (const candidate of candidates) {
+                if (!candidate || typeof candidate !== 'object') continue;
+                const found = findBestElement(candidate);
+                if (found) return found;
             }
             return null;
         }
@@ -169,7 +180,9 @@
             if (!fillValue && step.action !== 'click') return 'complete';
 
             try {
-                await window.up_humanMouse(el);
+                const ruleType = String(rule.rule_type || rule.ruleType || 'instant').toLowerCase();
+                if (ruleType === 'flow') await window.up_humanMouse(el);
+                else if (typeof el.focus === 'function') el.focus();
                 if (step.action === 'text') {
                     setNativeValue(el, fillValue);
                 } else if (step.action === 'select') {
@@ -190,6 +203,9 @@
                 _filledElements.add(el);
                 _completedStepKeys.add(stepKey);
                 window.up_sendMsg('INCREMENT_STAT', { key: 'statFill' });
+                const execution = rule.execution || {};
+                const delayMs = Number(step.delay_ms ?? step.delayMs ?? execution.delay_ms ?? execution.delayMs ?? 100);
+                if (delayMs > 0) await sleep(Math.min(Math.max(delayMs, 0), 5000));
                 return 'filled';
             } catch (e) {
                 console.error('[Autofill] Step failed:', e);
@@ -202,16 +218,20 @@
             let filled = 0;
             let pending = 0;
             const steps = [...rule.steps].sort((a, b) => (a.order || 0) - (b.order || 0));
+            const ruleType = String(rule.rule_type || rule.ruleType || 'instant').toLowerCase();
+            const execution = rule.execution || {};
             for (const step of steps) {
                 if (_completedStepKeys.has(executionStepKey(rule, step))) continue;
                 const el = findBestElement(step.selector);
                 if (!el && step.action !== 'radio') {
                     pending++;
+                    if (ruleType === 'flow' && execution.stop_on_error !== false && step.required !== false) break;
                     continue;
                 }
                 const result = await executeStep(rule, step, profileData, settings);
                 if (result === 'filled') filled++;
                 if (result === 'pending') pending++;
+                if (ruleType === 'flow' && result === 'pending' && execution.stop_on_error !== false && step.required !== false) break;
             }
             return { filled, pending };
         }
@@ -233,8 +253,9 @@
                 const matchedRules = rules.filter(matchRule).sort((a,b) => (b.priority || 100) - (a.priority || 100));
                 if (!matchedRules.length) return;
 
+                const flowMatched = matchedRules.some(rule => String(rule.rule_type || rule.ruleType || 'instant').toLowerCase() === 'flow');
                 const maxRetries = Math.max(1, Number(settings.maxRetries || DEFAULT_SETTINGS.maxRetries));
-                const retryInterval = Math.max(150, Number(settings.retryInterval || DEFAULT_SETTINGS.retryInterval));
+                const retryInterval = flowMatched ? Math.max(150, Number(settings.retryInterval || DEFAULT_SETTINGS.retryInterval)) : 100;
                 for (let attempt = 0; attempt < maxRetries; attempt++) {
                     let totalFilled = 0;
                     let totalPending = 0;
@@ -277,23 +298,30 @@
         }
 
         function generateSelector(el) {
+            const candidates = [];
             // Priority 1: Data Attributes
             const dataAttrs = ['data-testid', 'data-name', 'data-qa', 'data-cy', 'data-id'];
             for (const attr of dataAttrs) {
                 const val = el.getAttribute(attr);
-                if (val) return { strategy: 'css', css: `[${attr}="${CSS.escape(val)}"]` };
+                if (val) candidates.push({ strategy: 'css', css: `[${attr}="${CSS.escape(val)}"]` });
             }
 
             // Priority 2: ID
             if (el.id && !/^\d/.test(el.id)) { // Avoid numeric IDs which are often dynamic
-                return { strategy: 'id', id: el.id, css: `#${CSS.escape(el.id)}` };
+                candidates.push({ strategy: 'id', id: el.id, css: `#${CSS.escape(el.id)}` });
             }
 
             // Priority 3: Name
-            if (el.name) return { strategy: 'name', name: el.name, css: cssPath(el) };
+            if (el.name) candidates.push({ strategy: 'name', name: el.name, css: cssPath(el) });
+            const aria = el.getAttribute('aria-label');
+            if (aria) candidates.push({ strategy: 'css', css: `${el.tagName.toLowerCase()}[aria-label="${CSS.escape(aria)}"]` });
+            const placeholder = el.getAttribute('placeholder');
+            if (placeholder) candidates.push({ strategy: 'css', css: `${el.tagName.toLowerCase()}[placeholder="${CSS.escape(placeholder)}"]` });
 
             // Fallback: CSS Path
-            return { strategy: 'css', css: cssPath(el) };
+            candidates.push({ strategy: 'css', css: cssPath(el) });
+            const primary = candidates[0] || { strategy: 'css', css: cssPath(el) };
+            return { ...primary, candidates: candidates.slice(1) };
         }
 
         function stepSignature(rule) {
@@ -311,9 +339,179 @@
             ].join('|');
         }
 
+        function actionLabel(step) {
+            const selector = step.selector || {};
+            const selected = selector.id ? `#${selector.id}` : selector.name ? `[name="${selector.name}"]` : selector.css || selector.strategy || 'selector';
+            const value = step.action === 'click' ? '' : ` = ${String(step.value ?? '').slice(0, 32)}`;
+            return `${step.order}. ${step.action} ${selected}${value}`;
+        }
+
+        function ensureRecordSession() {
+            if (_recordSession) return _recordSession;
+            _recordSession = {
+                id: `rec_${Date.now()}`,
+                ruleType: 'instant',
+                matchMode: 'domainPath',
+                pattern: window.location.hostname + window.location.pathname,
+                steps: [],
+                startedAt: new Date().toISOString(),
+            };
+            renderRecordPanel();
+            return _recordSession;
+        }
+
+        function destroyRecordPanel() {
+            const panel = document.getElementById('__sa_autofill_record_panel');
+            if (panel) panel.remove();
+        }
+
+        function renderRecordPanel() {
+            if (!_recording) {
+                destroyRecordPanel();
+                return;
+            }
+            const session = ensureRecordSession();
+            let panel = document.getElementById('__sa_autofill_record_panel');
+            if (!panel) {
+                panel = document.createElement('div');
+                panel.id = '__sa_autofill_record_panel';
+                panel.style.cssText = [
+                    'position:fixed',
+                    'right:16px',
+                    'top:72px',
+                    'z-index:2147483647',
+                    'width:360px',
+                    'max-width:calc(100vw - 32px)',
+                    'background:#0f172a',
+                    'color:#e2e8f0',
+                    'border:1px solid rgba(148,163,184,.35)',
+                    'border-radius:8px',
+                    'box-shadow:0 18px 45px rgba(0,0,0,.35)',
+                    'font:12px/1.35 system-ui,sans-serif',
+                    'overflow:hidden'
+                ].join(';');
+                panel.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    const target = event.target;
+                    if (!(target instanceof HTMLElement)) return;
+                    const action = target.dataset.action;
+                    if (!action) return;
+                    if (action === 'remove') {
+                        const index = Number(target.dataset.index);
+                        session.steps.splice(index, 1);
+                        session.steps.forEach((step, idx) => { step.order = idx + 1; });
+                        renderRecordPanel();
+                    } else if (action === 'clear') {
+                        session.steps = [];
+                        renderRecordPanel();
+                    } else if (action === 'cancel') {
+                        _recordSession = null;
+                        chrome.storage.local.set({ isRecording: false });
+                        _recording = false;
+                        destroyRecordPanel();
+                    } else if (action === 'save') {
+                        saveRecordSession();
+                    }
+                }, true);
+                panel.addEventListener('change', (event) => {
+                    event.stopPropagation();
+                    const target = event.target;
+                    if (!(target instanceof HTMLSelectElement)) return;
+                    if (target.dataset.field === 'ruleType') session.ruleType = target.value;
+                    if (target.dataset.field === 'matchMode') {
+                        session.matchMode = target.value;
+                        if (target.value === 'domain') session.pattern = window.location.hostname;
+                        if (target.value === 'domainPath') session.pattern = window.location.hostname + window.location.pathname;
+                        if (target.value === 'fullUrl') session.pattern = window.location.href;
+                    }
+                    renderRecordPanel();
+                }, true);
+                document.documentElement.appendChild(panel);
+            }
+            const rows = session.steps.map((step, index) => `
+                <div style="display:flex;gap:8px;align-items:flex-start;padding:7px 10px;border-top:1px solid rgba(148,163,184,.18)">
+                    <div style="flex:1;min-width:0;word-break:break-word">${escapeHtml(actionLabel(step))}</div>
+                    <button data-action="remove" data-index="${index}" style="border:0;background:#7f1d1d;color:white;border-radius:5px;padding:2px 6px;cursor:pointer">Delete</button>
+                </div>
+            `).join('');
+            panel.innerHTML = `
+                <div style="padding:10px;border-bottom:1px solid rgba(148,163,184,.25);display:flex;align-items:center;gap:8px">
+                    <strong style="font-size:13px">Autofill Recorder</strong>
+                    <span style="margin-left:auto;color:#93c5fd">${session.steps.length} step${session.steps.length === 1 ? '' : 's'}</span>
+                </div>
+                <div style="padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                    <label>Rule type<br><select data-field="ruleType" style="width:100%"><option value="instant"${session.ruleType === 'instant' ? ' selected' : ''}>Instant</option><option value="flow"${session.ruleType === 'flow' ? ' selected' : ''}>Flow</option></select></label>
+                    <label>Scope<br><select data-field="matchMode" style="width:100%"><option value="domainPath"${session.matchMode === 'domainPath' ? ' selected' : ''}>This page</option><option value="domain"${session.matchMode === 'domain' ? ' selected' : ''}>Whole domain</option><option value="fullUrl"${session.matchMode === 'fullUrl' ? ' selected' : ''}>Exact URL</option></select></label>
+                    <div style="grid-column:1/-1;color:#94a3b8;word-break:break-all">${escapeHtml(session.pattern)}</div>
+                </div>
+                <div style="max-height:260px;overflow:auto">${rows || '<div style="padding:14px 10px;color:#94a3b8">Interact with text fields, selects, checkboxes, radios, or buttons.</div>'}</div>
+                <div style="padding:10px;display:flex;gap:8px;border-top:1px solid rgba(148,163,184,.25)">
+                    <button data-action="save" style="background:#16a34a;color:white;border:0;border-radius:6px;padding:6px 10px;cursor:pointer">Save</button>
+                    <button data-action="clear" style="background:#475569;color:white;border:0;border-radius:6px;padding:6px 10px;cursor:pointer">Clear</button>
+                    <button data-action="cancel" style="margin-left:auto;background:#334155;color:white;border:0;border-radius:6px;padding:6px 10px;cursor:pointer">Stop</button>
+                </div>
+            `;
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[ch]));
+        }
+
+        async function saveRecordSession() {
+            const session = ensureRecordSession();
+            if (!session.steps.length) {
+                showRecordToast('No steps recorded', true);
+                return;
+            }
+            const rule = {
+                local_rule_id: session.id,
+                name: `${session.ruleType} ${window.location.hostname}`,
+                status: 'pending',
+                enabled: true,
+                rule_type: session.ruleType,
+                access_scope: 'global',
+                services: ['autofill'],
+                plans: [],
+                api_key_ids: [],
+                site: { match_mode: session.matchMode, pattern: session.pattern },
+                profile_scope: 'default',
+                frame_path: 'any',
+                priority: 100,
+                execution: {
+                    delay_ms: session.ruleType === 'instant' ? 100 : 150,
+                    run_once: true,
+                    wait_timeout_ms: session.ruleType === 'instant' ? 2500 : 5000,
+                    stop_on_error: session.ruleType === 'flow'
+                },
+                steps: session.steps,
+                meta: {
+                    recorded_at: session.startedAt,
+                    saved_at: new Date().toISOString(),
+                    recorder: 'session_panel'
+                }
+            };
+            const resp = await window.up_sendMsg('RECORD_RULE', { rule });
+            if (resp && resp.ok) {
+                showRecordToast('Autofill rule saved for review', true);
+                _recordSession = null;
+                chrome.storage.local.set({ isRecording: false });
+                _recording = false;
+                destroyRecordPanel();
+            } else {
+                showRecordToast(`Save failed: ${resp?.error || 'unknown'}`, true);
+            }
+        }
+
         function handleInteraction(e) {
             if (!_recording) return;
             if (e.isTrusted === false) return;
+            if (e.target?.closest?.('#__sa_autofill_record_panel')) return;
             const el = e.target.closest('input, select, textarea, button, a');
             if (!el || el.type === 'password') return;
             if (e.type === 'click' && el.tagName === 'INPUT' && ['text', 'email', 'number', 'tel'].includes(el.type)) return;
@@ -334,32 +532,37 @@
                 value = '';
             }
 
-            const rule = {
-                local_rule_id: `local_${Date.now()}`,
-                name: `${action} ${window.location.hostname}`,
-                site: { match_mode: 'domainPath', pattern: window.location.hostname + window.location.pathname },
-                steps: [{
-                    order: 1,
-                    action,
-                    value,
-                    selector: generateSelector(el)
-                }],
+            const session = ensureRecordSession();
+            if (['BUTTON', 'A'].includes(el.tagName) || ['submit', 'button'].includes(el.type)) {
+                session.ruleType = 'flow';
+            }
+            const step = {
+                order: session.steps.length + 1,
+                action,
+                value,
+                selector: generateSelector(el),
+                delay_ms: session.ruleType === 'instant' ? 100 : 150,
+                timeout_ms: session.ruleType === 'instant' ? 2500 : 5000,
+                required: true,
                 meta: {
-                    recorded_at: new Date().toISOString(),
                     tag: el.tagName.toLowerCase(),
                     element_id: el.id || '',
                     element_name: el.name || '',
                 }
             };
 
-            const signature = stepSignature(rule);
+            const signature = stepSignature({
+                site: { match_mode: session.matchMode, pattern: session.pattern },
+                steps: [step]
+            });
             const now = Date.now();
             if (signature === _lastRecordedSignature && (now - _lastRecordedAt) < 1500) return;
             _lastRecordedSignature = signature;
             _lastRecordedAt = now;
 
-            console.log('[Autofill] Recorded interaction:', rule);
-            window.up_sendMsg('RECORD_STEP', { rule });
+            session.steps.push(step);
+            debugLog('[Autofill] Recorded interaction:', step);
+            renderRecordPanel();
         }
 
         function showRecordToast(text, isOn) {
@@ -414,12 +617,19 @@
                 _mutationObs.observe(document.body, { childList: true, subtree: true });
                 document.addEventListener('change', handleInteraction, true);
                 document.addEventListener('click', handleInteraction, true);
+                if (_recording) renderRecordPanel();
                 runEngine();
-                console.log('[Autofill] V26 Engine active');
+                debugLog('[Autofill] V26 Engine active');
             },
             toggleRecording(state) {
                 _recording = state;
-                console.log(`[Autofill] Recording: ${_recording}`);
+                if (_recording) {
+                    ensureRecordSession();
+                } else {
+                    _recordSession = null;
+                    destroyRecordPanel();
+                }
+                debugLog(`[Autofill] Recording: ${_recording}`);
                 showRecordToast(_recording ? 'Autofill recording ON' : 'Autofill recording OFF', _recording);
             },
             runNow() {

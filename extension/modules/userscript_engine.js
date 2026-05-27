@@ -6,6 +6,8 @@
 
     if (window.__USERSCRIPT_ENGINE_INITIALIZED__) return;
     window.__USERSCRIPT_ENGINE_INITIALIZED__ = true;
+    const DEBUG_LOGS = false;
+    const debugLog = (...args) => { if (DEBUG_LOGS) console.log(...args); };
 
     function isExcludedHost() {
         const host = String(location.hostname || '').replace(/^www\./, '').toLowerCase();
@@ -26,7 +28,7 @@
 
     if (!/^https?:$/i.test(location.protocol) || isExcludedHost()) return;
 
-    console.log('[Userscript Engine] Booting...');
+    debugLog('[Userscript Engine] Booting...');
 
     const GM_SHIM = `
 (function() {
@@ -122,7 +124,7 @@
                 return id;
             },
             unregisterMenuCommand: (id) => request('unregisterMenuCommand', { details: { id } }, scriptId).catch(() => {}),
-            log: (...args) => request('log', { details: { args } }, scriptId).catch(() => console.log(...args)),
+            log: (...args) => request('log', { details: { args } }, scriptId).catch(() => debugLog(...args)),
             setClipboard: (text) => navigator.clipboard?.writeText ? navigator.clipboard.writeText(String(text || '')) : Promise.reject(new Error('clipboard unavailable')),
             xmlhttpRequest: (details) => {
                 details = details || {};
@@ -205,7 +207,7 @@
                 code: GM_SHIM,
                 name: 'GM Shim'
             });
-            console.log('[Userscript Engine] GM shim execution requested');
+            debugLog('[Userscript Engine] GM shim execution requested');
         } catch (e) {
             console.debug('[Userscript Engine] Failed to request GM shim injection:', e);
         }
@@ -468,9 +470,16 @@
   const GM_download = GM && GM.download ? GM.download.bind(GM) : function(){};
   const GM_registerMenuCommand = GM && GM.registerMenuCommand ? GM.registerMenuCommand.bind(GM) : function(){ return ''; };
   const GM_unregisterMenuCommand = GM && GM.unregisterMenuCommand ? GM.unregisterMenuCommand.bind(GM) : function(){};
-  const GM_log = GM && GM.log ? GM.log.bind(GM) : console.log.bind(console);
+  const GM_log = GM && GM.log ? GM.log.bind(GM) : function(){};
   const GM_getResourceText = function(name){ return (__resources[name] && __resources[name].text) || ''; };
   const GM_getResourceURL = function(name){ return (__resources[name] && __resources[name].dataUrl) || ''; };
+  const console = {
+    log: function(){},
+    debug: function(){},
+    info: function(){},
+    warn: function(){},
+    error: function(){}
+  };
   try {
 ${scriptData.bundledRequireCode || ''}
 
@@ -494,7 +503,7 @@ ${scriptData.rawCode || ''}
                 id: scriptData.executionId || scriptData.id
             });
             if (response?.ok === false) throw new Error(response.error || 'execution failed');
-            console.log(`[Userscript Engine] Executed script: ${scriptData.name}`);
+            debugLog(`[Userscript Engine] Executed script: ${scriptData.name}`);
         } catch (e) {
             console.error(`[Userscript Engine] Error injecting script ${scriptData.name}:`, e);
             chrome.runtime.sendMessage({
@@ -543,7 +552,7 @@ ${scriptData.rawCode || ''}
         let data = await chrome.storage.local.get(['normalized_userscripts', 'userscriptsEnabled', '_automationState', 'stallWorkspaceActive']);
         const stallWorkspaceActive = await resolveStallWorkspaceActive(data);
         if (data.userscriptsEnabled === false) {
-            console.log('[Userscript Engine] Global userscripts toggle is disabled.');
+            debugLog('[Userscript Engine] Global userscripts toggle is disabled.');
             return;
         }
         let scripts = data.normalized_userscripts || [];
@@ -552,14 +561,14 @@ ${scriptData.rawCode || ''}
                 const syncResp = await chrome.runtime.sendMessage({ type: 'USERSCRIPTS_SYNC' });
                 if (syncResp?.ok && Array.isArray(syncResp.userscripts)) {
                     scripts = syncResp.userscripts;
-                    console.log(`[Userscript Engine] Synced ${scripts.length} scripts on demand.`);
+                    debugLog(`[Userscript Engine] Synced ${scripts.length} scripts on demand.`);
                 }
             } catch (e) {
                 console.debug('[Userscript Engine] On-demand sync failed:', e);
             }
         }
         if (!scripts.length) {
-            console.log('[Userscript Engine] No scripts configured.');
+            debugLog('[Userscript Engine] No scripts configured.');
             return;
         }
         const filterScriptsForUrl = (url) => scripts.filter(script => {
@@ -585,11 +594,11 @@ ${scriptData.rawCode || ''}
         const ranCount = runForUrl(location.href, 'load');
         runtime.installSpaWatcher((url) => {
             const spaCount = runForUrl(url, 'spa');
-            if (spaCount) console.log(`[Userscript Engine] SPA route matched ${spaCount} script(s): ${url}`);
+            if (spaCount) debugLog(`[Userscript Engine] SPA route matched ${spaCount} script(s): ${url}`);
         });
 
         if (!ranCount) {
-            console.log('[Userscript Engine] No scripts matched current URL.');
+            debugLog('[Userscript Engine] No scripts matched current URL.');
         }
     } catch (e) {
         console.error('[Userscript Engine] Error loading scripts:', e);

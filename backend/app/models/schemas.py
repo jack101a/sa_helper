@@ -107,6 +107,8 @@ class AutofillRuleStepSelector(BaseModel):
     id: str = ""
     name: str = ""
     css: str = ""
+    xpath: str = ""
+    candidates: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class AutofillRuleStep(BaseModel):
@@ -114,6 +116,16 @@ class AutofillRuleStep(BaseModel):
     action: str
     value: Any = None
     selector: AutofillRuleStepSelector
+    delay_ms: int | None = None
+    timeout_ms: int | None = None
+    required: bool = True
+
+
+class AutofillRuleExecution(BaseModel):
+    delay_ms: int = 100
+    run_once: bool = True
+    wait_timeout_ms: int = 2500
+    stop_on_error: bool = False
 
 
 class AutofillRuleSite(BaseModel):
@@ -126,10 +138,17 @@ class AutofillRule(BaseModel):
     server_rule_id: str | None = None
     name: str | None = None
     status: str | None = None
+    enabled: bool = True
+    rule_type: str = "instant"
     site: AutofillRuleSite
     profile_scope: str = "default"
     frame_path: str = "any"
     priority: int = 100
+    access_scope: str = "global"
+    plans: list[str] = Field(default_factory=list)
+    services: list[str] = Field(default_factory=lambda: ["autofill"])
+    api_key_ids: list[int] = Field(default_factory=list)
+    execution: AutofillRuleExecution = Field(default_factory=AutofillRuleExecution)
     steps: list[AutofillRuleStep]
     meta: dict[str, Any] = Field(default_factory=dict)
 

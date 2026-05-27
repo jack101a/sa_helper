@@ -5,6 +5,9 @@
 (function () {
     'use strict';
 
+    const DEBUG_LOGS = false;
+    const debugLog = (...args) => { if (DEBUG_LOGS) console.log(...args); };
+
     function normalizedHost() {
         return String(location.hostname || '').replace(/^www\./, '').toLowerCase();
     }
@@ -41,7 +44,7 @@
     async function boot() {
         if (isExcludedSite()) return;
         if (window.up_installErrorReporter) window.up_installErrorReporter('content');
-        console.log('[Content] Initializing modules...');
+        debugLog('[Content] Initializing modules...');
 
         // Use the shared utility for storage
         const data = await window.up_getStorage(['solverEnabled', 'autofillEnabled', 'captchaEnabled', 'isMaster', 'enabledServices', 'stallVcamActive', '_automationState']);
@@ -80,7 +83,7 @@
                 window.AutofillModule.runNow();
             }
             if (msg.type === 'ROUTES_UPDATED' && window.CaptchaModule) {
-                console.log('[Content] Routes updated by background sync — applying immediately');
+                debugLog('[Content] Routes updated by background sync — applying immediately');
                 if (window.CaptchaModule.resetCache) window.CaptchaModule.resetCache();
             }
 
@@ -98,7 +101,7 @@
             
         });
 
-        console.log('[Content] Boot complete.');
+        debugLog('[Content] Boot complete.');
     }
 
     // Run bootloader

@@ -1,6 +1,6 @@
 'use strict';
 
-const KEYS = ['captchaEnabled', 'autofillEnabled', 'apiKey', 'serverUrl', 'keyName', 'expiresAt', 'enabledServices', 'theme'];
+const KEYS = ['captchaEnabled', 'autofillEnabled', 'apiKey', 'keyName', 'expiresAt', 'enabledServices', 'theme'];
 const SERVER_URL = 'https://tata-ocs.duckdns.org';
 
 function el(id) { return document.getElementById(id); }
@@ -118,7 +118,7 @@ async function handleLogin() {
     errNode.style.color = 'var(--warning)';
     setLoading('btn-auth-submit', true);
 
-    chrome.runtime.sendMessage({ type: 'VERIFY_KEY', apiKey: key, serverUrl: SERVER_URL }, async resp => {
+    chrome.runtime.sendMessage({ type: 'VERIFY_KEY', apiKey: key }, async resp => {
         setLoading('btn-auth-submit', false);
         if (chrome.runtime.lastError) {
             errNode.textContent = 'Extension error: ' + chrome.runtime.lastError.message;
@@ -135,7 +135,6 @@ async function handleLogin() {
         await wipeSyncedData();
         await chrome.storage.local.set({
             apiKey: key,
-            serverUrl: SERVER_URL,
             isMaster: false,
             keyName: resp.data.key_name || 'Generic Key',
             expiresAt: resp.data.subscription_expires_at || resp.data.expires_at || null,
@@ -173,7 +172,7 @@ function setupUserUI(data) {
 
 async function initApp() {
     const data = await chrome.storage.local.get(KEYS);
-    if (data.serverUrl !== SERVER_URL) await chrome.storage.local.set({ serverUrl: SERVER_URL });
+    await chrome.storage.local.remove(['serverUrl']);
 
     const theme = data.theme || 'dark';
     document.documentElement.setAttribute('data-theme', theme);

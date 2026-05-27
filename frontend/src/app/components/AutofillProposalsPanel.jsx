@@ -36,9 +36,16 @@ const EXAMPLE_IMPORT = `{
     {
       "name": "Applicant mobile number",
       "status": "approved",
+      "enabled": true,
+      "rule_type": "instant",
       "site": { "match_mode": "domainPath", "pattern": "sarathi.parivahan.gov.in/sarathiservice" },
       "profile_scope": "default",
+      "access_scope": "plan",
+      "plans": ["STANDARD", "MAX"],
+      "services": ["autofill"],
+      "api_key_ids": [],
       "priority": 100,
+      "execution": { "delay_ms": 100, "run_once": true, "wait_timeout_ms": 2500, "stop_on_error": false },
       "steps": [
         {
           "order": 1,
@@ -108,15 +115,30 @@ function buildManualRule(form) {
     local_rule_id: `admin_${Date.now()}`,
     name: form.name.trim(),
     status: form.status,
+    enabled: true,
+    rule_type: form.ruleType,
     site: { match_mode: form.matchMode, pattern: form.pattern.trim() },
     profile_scope: form.profileScope.trim() || "default",
     frame_path: "any",
     priority: Number(form.priority) || 100,
+    access_scope: form.accessScope,
+    plans: form.plans.split(/[,;\n]+/).map(v => v.trim()).filter(Boolean),
+    services: form.services.split(/[,;\n]+/).map(v => v.trim()).filter(Boolean),
+    api_key_ids: form.apiKeyIds.split(/[,;\n]+/).map(v => Number(v.trim())).filter(Number.isFinite),
+    execution: {
+      delay_ms: Number(form.delayMs) || (form.ruleType === "flow" ? 150 : 100),
+      run_once: true,
+      wait_timeout_ms: Number(form.waitTimeoutMs) || (form.ruleType === "flow" ? 5000 : 2500),
+      stop_on_error: form.ruleType === "flow",
+    },
     steps: [{
       order: 1,
       action: form.action,
       value: form.action === "click" ? "" : form.value,
       selector,
+      delay_ms: Number(form.delayMs) || (form.ruleType === "flow" ? 150 : 100),
+      timeout_ms: Number(form.waitTimeoutMs) || (form.ruleType === "flow" ? 5000 : 2500),
+      required: true,
     }],
     meta: { created_from: "admin_ui", created_at: new Date().toISOString() },
   };
@@ -128,8 +150,15 @@ const defaultManualForm = {
   matchMode: "domainPath",
   profileScope: "default",
   priority: 100,
+  ruleType: "instant",
   action: "text",
   value: "",
+  accessScope: "global",
+  plans: "",
+  services: "autofill",
+  apiKeyIds: "",
+  delayMs: 100,
+  waitTimeoutMs: 2500,
   selectorStrategy: "css",
   selectorId: "",
   selectorName: "",
@@ -251,6 +280,12 @@ export function AutofillProposalsPanel({
     await handleEditAutofillProposal(row.id, patch);
   };
 
+  const patchRuleJson = async (row, updates) => {
+    const rule = parseRule(row.rule_json);
+    if (!rule) return;
+    await handleEditAutofillProposal(row.id, { rule_json: JSON.stringify({ ...rule, ...updates }) });
+  };
+
   const inputClass = `${smallGlassInput} w-full`;
   const labelClass = `text-[11px] font-medium ${t_textMuted}`;
 
@@ -283,8 +318,15 @@ export function AutofillProposalsPanel({
             <label className={labelClass}>Rule name<input required value={manualForm.name} onChange={e => updateManual("name", e.target.value)} className={inputClass} placeholder="Applicant mobile number"/></label>
             <label className={labelClass}>Website / webpage<input required value={manualForm.pattern} onChange={e => updateManual("pattern", e.target.value)} className={inputClass} placeholder="example.com/path"/></label>
             <label className={labelClass}>Match mode<select value={manualForm.matchMode} onChange={e => updateManual("matchMode", e.target.value)} className={inputClass}><option value="domainPath">Domain + path contains</option><option value="domain">Exact domain</option><option value="fullUrl">Exact full URL</option></select></label>
+            <label className={labelClass}>Rule type<select value={manualForm.ruleType} onChange={e => updateManual("ruleType", e.target.value)} className={inputClass}><option value="instant">Instant fill</option><option value="flow">Flow / ordered steps</option></select></label>
             <label className={labelClass}>Action<select value={manualForm.action} onChange={e => updateManual("action", e.target.value)} className={inputClass}><option value="text">Text</option><option value="select">Select</option><option value="checkbox">Checkbox</option><option value="radio">Radio</option><option value="click">Click</option></select></label>
             <label className={labelClass}>Value<input value={manualForm.value} onChange={e => updateManual("value", e.target.value)} className={inputClass} placeholder="{{profile_field}} or fixed value"/></label>
+            <label className={labelClass}>Access<select value={manualForm.accessScope} onChange={e => updateManual("accessScope", e.target.value)} className={inputClass}><option value="global">Global</option><option value="plan">Plan</option><option value="service">Service</option><option value="key">API key IDs</option><option value="custom">Custom</option></select></label>
+            <label className={labelClass}>Plans<input value={manualForm.plans} onChange={e => updateManual("plans", e.target.value)} className={inputClass} placeholder="STANDARD, MAX"/></label>
+            <label className={labelClass}>Services<input value={manualForm.services} onChange={e => updateManual("services", e.target.value)} className={inputClass} placeholder="autofill"/></label>
+            <label className={labelClass}>API key IDs<input value={manualForm.apiKeyIds} onChange={e => updateManual("apiKeyIds", e.target.value)} className={inputClass} placeholder="12, 15"/></label>
+            <label className={labelClass}>Delay ms<input type="number" min="0" value={manualForm.delayMs} onChange={e => updateManual("delayMs", e.target.value)} className={inputClass}/></label>
+            <label className={labelClass}>Wait timeout ms<input type="number" min="250" value={manualForm.waitTimeoutMs} onChange={e => updateManual("waitTimeoutMs", e.target.value)} className={inputClass}/></label>
             <label className={labelClass}>Selector strategy<select value={manualForm.selectorStrategy} onChange={e => updateManual("selectorStrategy", e.target.value)} className={inputClass}><option value="css">CSS</option><option value="id">ID</option><option value="name">Name</option></select></label>
             <label className={labelClass}>ID selector<input value={manualForm.selectorId} onChange={e => updateManual("selectorId", e.target.value)} className={inputClass} placeholder="mobileNo"/></label>
             <label className={labelClass}>Name selector<input value={manualForm.selectorName} onChange={e => updateManual("selectorName", e.target.value)} className={inputClass} placeholder="mobileNo"/></label>
@@ -375,6 +417,13 @@ export function AutofillProposalsPanel({
                         <span> / </span>
                         <span className="font-mono break-all">{valuePreview(step.value)}</span>
                       </div>
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        <span className={`px-1.5 py-0.5 rounded border text-[10px] ${t_borderLight}`}>{rule?.rule_type || "instant"}</span>
+                        <span className={`px-1.5 py-0.5 rounded border text-[10px] ${t_borderLight}`}>{rule?.access_scope || "global"}</span>
+                        {(rule?.plans || []).slice(0, 3).map(plan => (
+                          <span key={plan} className={`px-1.5 py-0.5 rounded border text-[10px] ${t_borderLight}`}>{plan}</span>
+                        ))}
+                      </div>
                       <div className={`mt-1 text-[10px] ${t_textMuted}`}>
                         #{p.id}{p.approved_rule_id ? ` / ${p.approved_rule_id}` : ""}
                       </div>
@@ -411,6 +460,24 @@ export function AutofillProposalsPanel({
                           <input type="checkbox" checked={active} onChange={e => setRuleStatus(p, e.target.checked)} className="rounded cursor-pointer"/>
                           {active ? "Active" : "Inactive"}
                         </label>
+                      )}
+                      {rule && (
+                        <select
+                          value={rule.rule_type || "instant"}
+                          onChange={e => patchRuleJson(p, {
+                            rule_type: e.target.value,
+                            execution: {
+                              ...(rule.execution || {}),
+                              delay_ms: e.target.value === "flow" ? 150 : 100,
+                              wait_timeout_ms: e.target.value === "flow" ? 5000 : 2500,
+                              stop_on_error: e.target.value === "flow",
+                            },
+                          })}
+                          className={`${smallGlassInput} mt-2 w-28 text-[11px]`}
+                        >
+                          <option value="instant">Instant</option>
+                          <option value="flow">Flow</option>
+                        </select>
                       )}
                       <div className={`text-[10px] mt-1 ${t_textMuted}`}>{p.submitted_at ? new Date(p.submitted_at).toLocaleDateString() : p.created_at ? new Date(p.created_at).toLocaleDateString() : ""}</div>
                     </td>

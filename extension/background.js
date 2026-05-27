@@ -5,6 +5,8 @@
 
 const gmXhrControllers = new Map();
 const PAYLOAD_SIGNING_PUBLIC_KEY_B64 = "__PAYLOAD_SIGNING_PUBLIC_KEY_B64__";
+const DEBUG_LOGS = false;
+const debugLog = (...args) => { if (DEBUG_LOGS) console.log(...args); };
 
 function canonicalJson(value) {
     if (value === null || typeof value !== 'object') return JSON.stringify(value);
@@ -228,7 +230,7 @@ async function handleGMCall(msg) {
     }
 
     if (action === 'log') {
-        console.log(`[Userscript:${ns}]`, ...(Array.isArray(details?.args) ? details.args : [details]));
+        debugLog(`[Userscript:${ns}]`, ...(Array.isArray(details?.args) ? details.args : [details]));
         return { requestId, ok: true };
     }
     
@@ -315,7 +317,7 @@ async function migrateUserscripts() {
     const data = await storageGet(['userscripts', 'normalized_userscripts', 'userscriptsEnabled']);
     if (!data.userscripts || data.normalized_userscripts) return;
 
-    console.log('[Userscript] Migrating legacy scripts...');
+    debugLog('[Userscript] Migrating legacy scripts...');
     const normalized = data.userscripts.map(script => {
         const parsedMeta = parseUserscript(script.code || '');
         return {
@@ -356,6 +358,7 @@ let automationState = {
 
 const SENSITIVE_STORAGE_KEYS = [
     'apiKey',
+    'serverUrl',
     'authState',
     'authError',
     'lastAuthFailure',
@@ -608,7 +611,7 @@ async function clearStallData() {
             serviceWorkers: true,
             webSQL: true
         }, () => {
-            console.log('[Automation] Cache and Cookies cleared for Sarathi domain');
+            debugLog('[Automation] Cache and Cookies cleared for Sarathi domain');
             chrome.storage.local.remove([
                 'stall_user_photo',
                 'stallStepScripts',
@@ -734,7 +737,7 @@ async function wipeSyncedExtensionData(options = {}) {
     if (preserveAuth && allData?.apiKey) {
         await storageSet({ apiKey: allData.apiKey });
     }
-    console.log(`[Sync] Wiped ${toRemove.length} server-synced/protected storage keys`);
+    debugLog(`[Sync] Wiped ${toRemove.length} server-synced/protected storage keys`);
     return { removed: toRemove.length };
 }
 
@@ -828,7 +831,7 @@ async function getDeviceId() {
 async function apiGet(path) {
     const { apiKey, serverUrl } = await getSettings();
     if (!apiKey) throw new Error('No API key configured');
-    console.log(`[API] GET ${path}`);
+    debugLog(`[API] GET ${path}`);
     const resp = await fetch(`${serverUrl}${path}`, {
         headers: { 'X-API-Key': apiKey, 'X-Device-ID': await getDeviceId() },
     });
@@ -844,7 +847,7 @@ async function apiGet(path) {
 async function apiPost(path, body) {
     const { apiKey, serverUrl } = await getSettings();
     if (!apiKey) throw new Error('No API key configured');
-    console.log(`[API] POST ${path}`, body);
+    debugLog(`[API] POST ${path}`);
     const resp = await fetch(`${serverUrl}${path}`, {
         method:  'POST',
         headers: {
@@ -861,7 +864,7 @@ async function apiPost(path, body) {
         throw new Error(err.detail || `HTTP ${resp.status}`);
     }
     const data = await resp.json();
-    console.log(`[API] POST ${path} success:`, data);
+    debugLog(`[API] POST ${path} success`);
     return data;
 }
 
@@ -1169,7 +1172,7 @@ async function syncPendingRoutesToServer() {
 async function syncAuthState(source) {
     const { apiKey } = await getSettings();
     if (!apiKey) {
-        console.log(`[AuthSync:${source}] Skipped - no API key`);
+        debugLog(`[AuthSync:${source}] Skipped - no API key`);
         return { ok: false, reason: 'no_key' };
     }
     try {
@@ -1213,7 +1216,7 @@ async function syncExtensionConfig(source) {
                 syncedAt: Date.now()
             }
         });
-        console.log(`[Sync:${source}] Extension config synced — copy unlocker ${cfg.enabled === true ? 'enabled' : 'disabled'}, ${sites.length} site(s)`);
+        debugLog(`[Sync:${source}] Extension config synced — copy unlocker ${cfg.enabled === true ? 'enabled' : 'disabled'}, ${sites.length} site(s)`);
         return { ok: true, copyUnlockerSites: sites.length };
     } catch (e) {
         console.warn('[Sync] Extension config failed:', e.message);
@@ -1224,7 +1227,7 @@ async function syncExtensionConfig(source) {
 async function syncHeavyData(source, options = {}) {
     const { apiKey } = await getSettings();
     if (!apiKey) {
-        console.log('[Sync] Skipped — no API key');
+        debugLog('[Sync] Skipped — no API key');
         return { ok: false, reason: 'no_key' };
     }
 
@@ -1234,7 +1237,7 @@ async function syncHeavyData(source, options = {}) {
     const lastHeavySync = Number(state.lastHeavySync || 0);
     if (!force && lastHeavySync && (now - lastHeavySync) < HEAVY_SYNC_MIN_INTERVAL_MS) {
         const nextInMs = HEAVY_SYNC_MIN_INTERVAL_MS - (now - lastHeavySync);
-        console.log(`[Sync:${source}] Heavy sync skipped; next in ${Math.ceil(nextInMs / 60000)} min`);
+        debugLog(`[Sync:${source}] Heavy sync skipped; next in ${Math.ceil(nextInMs / 60000)} min`);
         return { ok: true, skippedHeavy: true, nextHeavySyncInMs: nextInMs };
     }
 
@@ -1245,7 +1248,7 @@ async function syncHeavyData(source, options = {}) {
         const routes = await apiGet('/v1/field-mappings/routes');
         await chrome.storage.local.set({ globalFieldRoutes: routes, lastSync: Date.now(), lastHeavySync: Date.now() });
         results.routes = Object.keys(routes).length;
-        console.log(`[Sync:${source}] Routes synced — ${results.routes} domains`);
+        debugLog(`[Sync:${source}] Routes synced — ${results.routes} domains`);
     } catch (e) {
         console.warn('[Sync] Routes failed:', e.message);
     }
@@ -1255,7 +1258,7 @@ async function syncHeavyData(source, options = {}) {
         const locators = await apiGet('/v1/locators');
         await chrome.storage.local.set({ globalLocators: locators });
         results.locators = Object.keys(locators || {}).length;
-        console.log(`[Sync:${source}] Locators synced — ${results.locators} domains`);
+        debugLog(`[Sync:${source}] Locators synced — ${results.locators} domains`);
     } catch (e) {
         console.warn('[Sync] Locators failed:', e.message);
     }
@@ -1269,7 +1272,7 @@ async function syncHeavyData(source, options = {}) {
             const merged = dedupeRules([...localRules, ...data.rules]);
             await chrome.storage.local.set({ rules: merged });
             results.rules = data.rules.length;
-            console.log(`[Sync:${source}] Rules synced — ${results.rules} rules`);
+            debugLog(`[Sync:${source}] Rules synced — ${results.rules} rules`);
         }
     } catch (e) {
         console.warn('[Sync] Rules failed:', e.message);
@@ -1299,7 +1302,7 @@ async function syncHeavyData(source, options = {}) {
                 userscriptsEnabled: existing.isMaster ? existing.userscriptsEnabled !== false : isUserscriptsEntitledFrom(existing)
             });
             results.userscripts = normalized.length;
-            console.log(`[Sync:${source}] Userscripts synced — ${results.userscripts} scripts`);
+            debugLog(`[Sync:${source}] Userscripts synced — ${results.userscripts} scripts`);
         }
     } catch (e) {
         console.warn('[Sync] Userscripts failed:', e.message);
@@ -1335,16 +1338,19 @@ chrome.alarms.onAlarm.addListener(alarm => {
 // Sync on install / startup / service-worker wake
 // ─────────────────────────────────────────────────────────────────
 chrome.runtime.onInstalled.addListener(async () => {
+    await storageRemove(['serverUrl']);
     await migrateUserscripts();
     await syncAll('install', { forceHeavy: true });
 });
 
 chrome.runtime.onStartup.addListener(async () => {
+    await storageRemove(['serverUrl']);
     await migrateUserscripts();
     await syncAll('startup');
 });
 
 // Sync immediately when service worker starts (covers wake-from-sleep)
+storageRemove(['serverUrl']);
 syncAll('wake');
 
 // Restore STALL automation state if service worker was killed mid-session
@@ -1359,7 +1365,7 @@ chrome.storage.local.get(['_automationState'], (stored) => {
         chrome.storage.local.set({ stallWorkspaceActive: true });
         _setStallKeepAlive(true);
         _stallKeepAliveTick();
-        console.log('[STALL] Restored automation state from storage, step:', automationState.step);
+        debugLog('[STALL] Restored automation state from storage, step:', automationState.step);
     }
     _stateResolve();
 });
@@ -1375,7 +1381,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
         chrome.storage.local.set({ stallWorkspaceActive: false, stallVcamActive: false, sp_vcam_enabled: false, sp_vcam_force_all: false }, () => {
             chrome.storage.local.remove(['_stall_appNo', '_stall_captcha', '_stall_step4_started_at', '_stall_step4_lock_at', '_stall_step4_done_at', 'stall_user_photo', 'sp_vcam_image']);
         });
-        console.log('[STALL] User closed the STALL tab; session stopped.');
+        debugLog('[STALL] User closed the STALL tab; session stopped.');
     }
 });
 
@@ -1612,7 +1618,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             question_num:       msg.questionNum,
         })
         .then(data => {
-            console.log('[Feedback] Sent:', msg.wasCorrect ? 'CORRECT' : 'WRONG', data);
+            debugLog('[Feedback] Sent:', msg.wasCorrect ? 'CORRECT' : 'WRONG');
             sendResponse({ ok: true, data });
         })
         .catch(err => {
@@ -1721,6 +1727,49 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
 
     // ── Interaction Recorder ────────────────────────────────────
+    if (msg.type === 'RECORD_RULE') {
+        chrome.storage.local.get(['rules', 'activeProfileId', 'isMaster', 'apiKey'], data => {
+            let rules = dedupeRules(data.rules || []);
+            const rule = msg.rule || {};
+            rule.profile_scope = data.activeProfileId || rule.profile_scope || 'default';
+            rule.local_rule_id = rule.local_rule_id || `local_${Date.now()}`;
+            const nextSignature = ruleSignature(rule);
+            const alreadyRecorded = rules.some(existing => ruleSignature(existing) === nextSignature);
+
+            if (!alreadyRecorded) {
+                rules.push(rule);
+                rules = dedupeRules(rules);
+            }
+
+            chrome.storage.local.set({ rules }, async () => {
+                if (!data.isMaster || !data.apiKey || alreadyRecorded) {
+                    sendResponse({ ok: true, saved: !alreadyRecorded, proposed: false, duplicate: alreadyRecorded });
+                    return;
+                }
+                try {
+                    const devId = await getDeviceId();
+                    const proposed = await apiPost('/v1/autofill/proposals', {
+                        idempotency_key: rule.local_rule_id,
+                        submitted_at: new Date().toISOString(),
+                        client: {
+                            extension_version: chrome.runtime.getManifest().version,
+                            schema_version: 27,
+                            device_id: devId,
+                            browser: 'chrome',
+                            os: navigator.platform || 'unknown'
+                        },
+                        rule
+                    });
+                    sendResponse({ ok: true, saved: true, proposed: true, result: proposed });
+                } catch (e) {
+                    console.warn('[Autofill] Auto-propose failed:', e.message);
+                    sendResponse({ ok: true, saved: true, proposed: false, error: e.message });
+                }
+            });
+        });
+        return true;
+    }
+
     if (msg.type === 'RECORD_STEP') {
         chrome.storage.local.get(['rules', 'activeProfileId', 'isMaster', 'apiKey'], data => {
             let rules = dedupeRules(data.rules || []);
@@ -1750,8 +1799,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                             rule: {
                                 local_rule_id: rule.local_rule_id,
                                 name: rule.name,
+                                status: rule.status,
+                                enabled: rule.enabled !== false,
+                                rule_type: rule.rule_type || 'instant',
+                                access_scope: rule.access_scope || 'global',
+                                services: rule.services || ['autofill'],
+                                plans: rule.plans || [],
+                                api_key_ids: rule.api_key_ids || [],
                                 site: rule.site,
                                 steps: rule.steps,
+                                execution: rule.execution || { delay_ms: 100, run_once: true, wait_timeout_ms: 2500, stop_on_error: false },
                                 profile_scope: rule.profile_scope || 'default',
                                 priority: 100,
                                 meta: rule.meta || {}
@@ -1884,7 +1941,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 automationState.active = false;
             }
             _persistAutomationState();
-            console.log(`[Automation] Advanced to Step ${msg.step}`);
+            debugLog(`[Automation] Advanced to Step ${msg.step}`);
             if (Number(msg.step) >= 7) {
                 _setStallKeepAlive(false);
                 chrome.storage.local.set({ stallWorkspaceActive: false, _stall_completed_at: Date.now() });
@@ -1913,7 +1970,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         chrome.storage.local.set({ stallWorkspaceActive: false, stallVcamActive: false, sp_vcam_enabled: false, sp_vcam_force_all: false }, () => {
             chrome.storage.local.remove(['stallStepScripts', '_stall_appNo', '_stall_captcha', '_stall_step4_started_at', '_stall_step4_lock_at', '_stall_step4_done_at', '_stall_flow_done_at', '_stall_language_done_at', '_stall_completed_at', 'stall_user_photo', 'sp_vcam_image']);
         });
-        console.log('[Automation] STALL session complete. MCQ Solver taking over.');
+        debugLog('[Automation] STALL session complete. MCQ Solver taking over.');
         sendResponse({ ok: true });
         return false;
     }

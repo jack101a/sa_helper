@@ -19,10 +19,69 @@ from app.models.schemas import (
 )
 
 from .utils import ensure_master_key, ensure_service_allowed
+from .utils import (
+    get_request_entitlements,
+    normalize_userscript_plan,
+    userscript_int_list,
+    userscript_string_list,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["v1"])
+
+
+def _autofill_rule_access(rule_data: dict) -> dict:
+    scope = str(rule_data.get("access_scope") or rule_data.get("accessScope") or "global").strip().lower()
+    if scope in {"all", "public"}:
+        scope = "global"
+    elif scope in {"keys", "user", "users"}:
+        scope = "key"
+    elif scope not in {"global", "plan", "key", "custom", "service"}:
+        scope = "global"
+    services = userscript_string_list(rule_data.get("services") or rule_data.get("service") or ["autofill"])
+    return {
+        "access_scope": scope,
+        "plans": userscript_string_list(rule_data.get("plans") or rule_data.get("plan_names") or rule_data.get("allowed_plans")),
+        "api_key_ids": userscript_int_list(rule_data.get("api_key_ids") or rule_data.get("apiKeyIds") or rule_data.get("allowed_api_key_ids")),
+        "services": services or ["autofill"],
+    }
+
+
+def _autofill_rule_allowed(rule_data: dict, key_record: dict, entitlements: dict) -> bool:
+    if rule_data.get("enabled") is False:
+        return False
+    if key_record.get("key_type") == "master":
+        return True
+
+    access = _autofill_rule_access(rule_data)
+    scope = access["access_scope"]
+    if scope == "global":
+        return True
+    if scope == "plan":
+        allowed_plans = {normalize_userscript_plan(item) for item in access["plans"]}
+        current_plan = normalize_userscript_plan(entitlements.get("plan_name") or "")
+        return bool(current_plan and current_plan in allowed_plans)
+    if scope == "key":
+        try:
+            return int(key_record["id"]) in set(access["api_key_ids"])
+        except (KeyError, TypeError, ValueError):
+            return False
+    if scope == "service":
+        services = entitlements.get("services") or {}
+        return any(name in services and services.get(name) is not False for name in access["services"])
+    if scope == "custom":
+        services = entitlements.get("services") or {}
+        current_plan = normalize_userscript_plan(entitlements.get("plan_name") or "")
+        allowed_plans = {normalize_userscript_plan(item) for item in access["plans"]}
+        matched = bool(current_plan and current_plan in allowed_plans)
+        try:
+            matched = matched or int(key_record["id"]) in set(access["api_key_ids"])
+        except (KeyError, TypeError, ValueError):
+            pass
+        matched = matched or any(name in services and services.get(name) is not False for name in access["services"])
+        return matched
+    return False
 
 
 @router.post("/autofill/fill", response_model=AutofillFillResponse)
@@ -102,12 +161,16 @@ async def autofill_sync(request: Request) -> AutofillRuleSyncResponse:
     """Extension downloads approved rules (V26 engine) for local playback."""
     ensure_service_allowed(request, "autofill")
     container = request.app.state.container
+    key_record = request.state.api_key_record
+    entitlements = get_request_entitlements(request)
     approved_rows = container.db.get_approved_autofill_rules()
 
     rules: list[AutofillRule] = []
     for row in approved_rows:
         try:
             rule_data = json.loads(row["rule_json"])
+            if not _autofill_rule_allowed(rule_data, key_record, entitlements):
+                continue
             rule_data["server_rule_id"] = row["approved_rule_id"]
             rules.append(AutofillRule(**rule_data))
         except Exception:

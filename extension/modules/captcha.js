@@ -3,6 +3,8 @@
     'use strict';
 
     window.CaptchaModule = (() => {
+        const DEBUG_LOGS = false;
+        const debugLog = (...args) => { if (DEBUG_LOGS) console.log(...args); };
         let _active = false;
         let _tickInterval = null;
         const _solvedMap = new Map(); // src → b64 prefix, per-captcha dedup
@@ -191,7 +193,7 @@
 
             updateSolvedMap(cacheKey, b64Key);
             await fastFillCaptcha(inp, resp.result);
-            console.log(`[Captcha] ✓ "${resp.result}" in ${resp.ms}ms (${domain})`);
+            debugLog(`[Captcha] ✓ "${resp.result}" in ${resp.ms}ms (${domain})`);
         }
 
         async function solveTextRoute(source, target, fieldName) {
@@ -214,7 +216,7 @@
 
             updateSolvedMap(cacheKey, raw);
             await fastFillCaptcha(target, resp.result);
-            console.log(`[Captcha] ✓ text route "${resp.result}" in ${resp.ms}ms (${domain})`);
+            debugLog(`[Captcha] ✓ text route "${resp.result}" in ${resp.ms}ms (${domain})`);
         }
 
         async function tick() {
@@ -275,7 +277,7 @@
                 tick(); // immediate first try
                 if (_tickInterval) clearInterval(_tickInterval);
                 _tickInterval = setInterval(tick, 2500);
-                console.log('[Captcha] Module active (route-aware)');
+                debugLog('[Captcha] Module active (route-aware)');
             },
             deactivate() { _active = false; if (_tickInterval) { clearInterval(_tickInterval); _tickInterval = null; } },
             resetCache() { _solvedMap.clear(); }, // called when routes update
