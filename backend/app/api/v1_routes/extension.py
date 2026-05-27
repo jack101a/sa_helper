@@ -202,153 +202,134 @@ async def sync_userscripts(request: Request) -> dict:
     container = request.app.state.container
     entitlements = get_request_entitlements(request)
     root = get_project_root()
-    candidate_dirs = [
-        (root / "data" / "userscripts").resolve(),
-        (root / "data" / "mappings").resolve(),
+    source_dirs = [
         (root / "backend" / "datasets" / "userscripts").resolve(),
+        (root / "data" / "mappings").resolve(),
+        (root / "data" / "userscripts").resolve(),
     ]
-    scripts_dir = next(
-        (
-            item for item in candidate_dirs
-            if _userscript_dir_has_readable_scripts(item)
-        ),
-        candidate_dirs[0],
-    )
 
-    scripts_data: list[dict] = []
-    index_path = scripts_dir / "index.json"
+    discovered: dict[str, tuple[Path, Path, dict]] = {}
+    source_counts: dict[str, int] = {}
 
-    if index_path.is_file():
-        try:
-            entries = json.loads(index_path.read_text(encoding="utf-8"))
-            if not isinstance(entries, list):
-                raise ValueError("index.json must be a JSON array")
-            for entry in entries:
-                if not isinstance(entry, dict):
-                    continue
-                file_name = str(entry.get("file", "")).strip()
-                if not file_name:
-                    continue
-                try:
-                    path = (scripts_dir / file_name).resolve()
-                    if scripts_dir.resolve() not in path.parents or not path.is_file():
-                        raise ValueError(f"Invalid userscript file: {file_name}")
-                    code = path.read_text(encoding="utf-8")
-                    parsed = parse_userscript_meta(code)
-                    script_id = str(entry.get("id") or Path(file_name).stem.replace(".user", "")).strip()
-                    if not userscript_allowed_for_key(entry, key_record, entitlements):
-                        continue
-                    access = userscript_access(entry)
-                    runtime_metadata = _userscript_runtime_metadata(script_id, entry)
-                    if not runtime_metadata["tags"]:
-                        runtime_metadata["tags"] = userscript_string_list(parsed.get("tags", []))
-                    script_payload = {
-                        "id": script_id,
-                        "file": file_name,
-                        "name": str(entry.get("name") or parsed["name"] or script_id),
-                        "version": str(entry.get("version") or parsed["version"]),
-                        "description": str(entry.get("description") or parsed["description"]),
-                        "sourceUrl": str(entry.get("sourceUrl") or entry.get("installUrl") or parsed["downloadURL"] or ""),
-                        "enabled": bool(entry.get("enabled", True)),
-                        "accessScope": access["accessScope"],
-                        "plans": access["plans"],
-                        "apiKeyIds": access["apiKeyIds"],
-                        "services": access["services"],
-                        "matches": entry.get("matches") if isinstance(entry.get("matches"), list) else parsed["matches"],
-                        "includes": entry.get("includes") if isinstance(entry.get("includes"), list) else parsed["includes"],
-                        "exclude": entry.get("exclude") if isinstance(entry.get("exclude"), list) else parsed["exclude"],
-                        "excludeMatches": entry.get("excludeMatches") if isinstance(entry.get("excludeMatches"), list) else parsed["excludeMatches"],
-                        "runAt": str(entry.get("runAt") or parsed["runAt"]),
-                        "requires": entry.get("requires") if isinstance(entry.get("requires"), list) else parsed["requires"],
-                        "resources": entry.get("resources") if isinstance(entry.get("resources"), list) else parsed["resources"],
-                        "grants": entry.get("grants") if isinstance(entry.get("grants"), list) else parsed["grants"],
-                        "connects": entry.get("connects") if isinstance(entry.get("connects"), list) else parsed["connects"],
-                        "noframes": bool(entry.get("noframes", parsed["noframes"])),
-                        **runtime_metadata,
-                        "diagnostics": parsed.get("diagnostics", {"warnings": [], "errors": []}),
-                        "syncStatus": userscript_sync_status(parsed),
-                        "updatedAt": int(path.stat().st_mtime),
-                        "code": code,
-                    }
-                    script_payload["signature"] = sign_payload("userscript", {
-                        "id": script_payload["id"],
-                        "file": script_payload["file"],
-                        "version": script_payload["version"],
-                        "matches": script_payload["matches"],
-                        "includes": script_payload["includes"],
-                        "exclude": script_payload["exclude"],
-                        "excludeMatches": script_payload["excludeMatches"],
-                        "runAt": script_payload["runAt"],
-                        "requires": script_payload["requires"],
-                        "resources": script_payload["resources"],
-                        "noframes": script_payload["noframes"],
-                        "code": script_payload["code"],
-                    })
-                    scripts_data.append(script_payload)
-                except Exception as e:
-                    logger.exception("Failed userscript entry %s: %s", file_name, e)
-        except Exception as e:
-            logger.exception("Failed to parse userscripts index.json: %s", e)
-    else:
-        for filepath in scripts_dir.glob("*.user.js"):
-            if not filepath.is_file():
-                continue
+    for scripts_dir in source_dirs:
+        if not _userscript_dir_has_readable_scripts(scripts_dir):
+            continue
+        source_key = str(scripts_dir.relative_to(root)) if scripts_dir.is_relative_to(root) else str(scripts_dir)
+        index_path = scripts_dir / "index.json"
+        entries: list[dict] = []
+        if index_path.is_file():
             try:
-                code = filepath.read_text(encoding="utf-8")
-                parsed = parse_userscript_meta(code)
-                script_id = filepath.stem.replace(".user", "")
-                entry = {"enabled": True, "accessScope": "global", "plans": [], "apiKeyIds": []}
-                if not userscript_allowed_for_key(entry, key_record, entitlements):
-                    continue
-                script_payload = {
-                    "id": script_id,
-                    "name": parsed["name"] or script_id,
-                    "version": parsed["version"],
-                    "description": parsed["description"],
-                    "sourceUrl": parsed["downloadURL"],
+                raw_entries = json.loads(index_path.read_text(encoding="utf-8"))
+                if not isinstance(raw_entries, list):
+                    raise ValueError("index.json must be a JSON array")
+                entries = [entry for entry in raw_entries if isinstance(entry, dict)]
+            except Exception as e:
+                logger.exception("Failed to parse userscripts index %s: %s", index_path, e)
+                entries = []
+        else:
+            entries = [
+                {
+                    "id": filepath.stem.replace(".user", ""),
+                    "file": filepath.name,
                     "enabled": True,
                     "accessScope": "global",
                     "plans": [],
                     "apiKeyIds": [],
                     "services": [],
-                    "matches": parsed["matches"],
-                    "includes": parsed["includes"],
-                    "exclude": parsed["exclude"],
-                    "excludeMatches": parsed["excludeMatches"],
-                    "runAt": parsed["runAt"],
-                    "requires": parsed["requires"],
-                    "resources": parsed["resources"],
-                    "grants": parsed["grants"],
-                    "connects": parsed["connects"],
-                    "tags": parsed.get("tags", []),
-                    "noframes": parsed["noframes"],
-                    "runtimeRole": "",
-                    "runtimeRoles": [],
-                    "stallRunMode": "",
-                    "diagnostics": parsed.get("diagnostics", {"warnings": [], "errors": []}),
-                    "syncStatus": userscript_sync_status(parsed),
-                    "updatedAt": int(filepath.stat().st_mtime),
-                    "code": code,
                 }
-                script_payload["signature"] = sign_payload("userscript", {
-                    "id": script_payload["id"],
-                    "file": "",
-                    "version": script_payload["version"],
-                    "matches": script_payload["matches"],
-                    "includes": script_payload["includes"],
-                    "exclude": script_payload["exclude"],
-                    "excludeMatches": script_payload["excludeMatches"],
-                    "runAt": script_payload["runAt"],
-                    "requires": script_payload["requires"],
-                    "resources": script_payload["resources"],
-                    "noframes": script_payload["noframes"],
-                    "code": script_payload["code"],
-                })
-                scripts_data.append(script_payload)
-            except Exception as e:
-                logger.exception("Failed to read userscript %s: %s", filepath.name, e)
+                for filepath in sorted(scripts_dir.glob("*.user.js"))
+                if filepath.is_file()
+            ]
 
-    return {"scripts": scripts_data}
+        for entry in entries:
+            file_name = str(entry.get("file", "")).strip()
+            if not file_name:
+                continue
+            try:
+                path = (scripts_dir / file_name).resolve()
+            except Exception:
+                continue
+            if scripts_dir not in path.parents or not path.is_file():
+                logger.warning("Skipping invalid userscript entry", extra={"context": {"source": source_key, "file": file_name}})
+                continue
+            script_id = str(entry.get("id") or Path(file_name).stem.replace(".user", "")).strip()
+            if not script_id:
+                continue
+            discovered[script_id] = (scripts_dir, path, entry)
+            source_counts[source_key] = source_counts.get(source_key, 0) + 1
+
+    scripts_data: list[dict] = []
+    skipped = 0
+    failed = 0
+
+    for script_id, (scripts_dir, path, entry) in discovered.items():
+        file_name = str(entry.get("file") or path.name)
+        try:
+            if not userscript_allowed_for_key(entry, key_record, entitlements):
+                skipped += 1
+                continue
+            code = path.read_text(encoding="utf-8")
+            parsed = parse_userscript_meta(code)
+            access = userscript_access(entry)
+            runtime_metadata = _userscript_runtime_metadata(script_id, entry)
+            if not runtime_metadata["tags"]:
+                runtime_metadata["tags"] = userscript_string_list(parsed.get("tags", []))
+            script_payload = {
+                "id": script_id,
+                "file": file_name,
+                "name": str(entry.get("name") or parsed["name"] or script_id),
+                "version": str(entry.get("version") or parsed["version"]),
+                "description": str(entry.get("description") or parsed["description"]),
+                "sourceUrl": str(entry.get("sourceUrl") or entry.get("installUrl") or parsed["downloadURL"] or ""),
+                "enabled": bool(entry.get("enabled", True)),
+                "accessScope": access["accessScope"],
+                "plans": access["plans"],
+                "apiKeyIds": access["apiKeyIds"],
+                "services": access["services"],
+                "matches": entry.get("matches") if isinstance(entry.get("matches"), list) else parsed["matches"],
+                "includes": entry.get("includes") if isinstance(entry.get("includes"), list) else parsed["includes"],
+                "exclude": entry.get("exclude") if isinstance(entry.get("exclude"), list) else parsed["exclude"],
+                "excludeMatches": entry.get("excludeMatches") if isinstance(entry.get("excludeMatches"), list) else parsed["excludeMatches"],
+                "runAt": str(entry.get("runAt") or parsed["runAt"]),
+                "requires": entry.get("requires") if isinstance(entry.get("requires"), list) else parsed["requires"],
+                "resources": entry.get("resources") if isinstance(entry.get("resources"), list) else parsed["resources"],
+                "grants": entry.get("grants") if isinstance(entry.get("grants"), list) else parsed["grants"],
+                "connects": entry.get("connects") if isinstance(entry.get("connects"), list) else parsed["connects"],
+                "noframes": bool(entry.get("noframes", parsed["noframes"])),
+                **runtime_metadata,
+                "diagnostics": parsed.get("diagnostics", {"warnings": [], "errors": []}),
+                "syncStatus": userscript_sync_status(parsed),
+                "updatedAt": int(path.stat().st_mtime),
+                "code": code,
+            }
+            script_payload["signature"] = sign_payload("userscript", {
+                "id": script_payload["id"],
+                "file": script_payload["file"],
+                "version": script_payload["version"],
+                "matches": script_payload["matches"],
+                "includes": script_payload["includes"],
+                "exclude": script_payload["exclude"],
+                "excludeMatches": script_payload["excludeMatches"],
+                "runAt": script_payload["runAt"],
+                "requires": script_payload["requires"],
+                "resources": script_payload["resources"],
+                "noframes": script_payload["noframes"],
+                "code": script_payload["code"],
+            })
+            scripts_data.append(script_payload)
+        except Exception as e:
+            failed += 1
+            logger.exception("Failed userscript entry %s from %s: %s", file_name, scripts_dir, e)
+
+    meta = {
+        "discovered": len(discovered),
+        "delivered": len(scripts_data),
+        "skipped": skipped,
+        "failed": failed,
+        "sources": source_counts,
+    }
+    logger.info("userscripts_sync_complete", extra={"context": meta})
+    return {"scripts": scripts_data, "meta": meta}
 
 
 @router.post("/extension/error-report")

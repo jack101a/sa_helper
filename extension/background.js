@@ -1283,16 +1283,27 @@ async function syncHeavyData(source, options = {}) {
         const data = await apiGet('/v1/userscripts/sync').catch(() => null);
         if (data && data.scripts) {
             const normalized = [];
+            const errors = [];
             for (const script of data.scripts) {
-                await verifySignedPayload('userscript', userscriptSignaturePayload(script), script.signature);
-                const bundled = await bundleUserscript(script);
-                normalized.push(bundled);
-                if (bundled.requireErrors.length) {
+                try {
+                    await verifySignedPayload('userscript', userscriptSignaturePayload(script), script.signature);
+                    const bundled = await bundleUserscript(script);
+                    normalized.push(bundled);
+                    if (bundled.requireErrors.length) {
+                        await appendUserscriptLog({
+                            level: 'warn',
+                            scriptId: bundled.id,
+                            scriptName: bundled.name,
+                            message: `@require failed: ${bundled.lastError}`
+                        });
+                    }
+                } catch (e) {
+                    errors.push(`${script?.id || script?.name || 'unknown'}: ${e.message || e}`);
                     await appendUserscriptLog({
-                        level: 'warn',
-                        scriptId: bundled.id,
-                        scriptName: bundled.name,
-                        message: `@require failed: ${bundled.lastError}`
+                        level: 'error',
+                        scriptId: script?.id || '',
+                        scriptName: script?.name || '',
+                        message: e.message || String(e)
                     });
                 }
             }
@@ -1302,6 +1313,10 @@ async function syncHeavyData(source, options = {}) {
                 userscriptsEnabled: existing.isMaster ? existing.userscriptsEnabled !== false : isUserscriptsEntitledFrom(existing)
             });
             results.userscripts = normalized.length;
+            results.userscriptErrors = errors.length;
+            if (errors.length) {
+                console.warn('[Sync] Userscript entries skipped:', errors.slice(0, 5).join('; '));
+            }
             debugLog(`[Sync:${source}] Userscripts synced — ${results.userscripts} scripts`);
         }
     } catch (e) {
