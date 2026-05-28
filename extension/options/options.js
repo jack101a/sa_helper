@@ -15,6 +15,13 @@ window.onunhandledrejection = function (ev) {
 // ── Globals & Constants ──────────────────────────────────────────────────────
 const PROFILE_FIELDS = [];
 const SERVER_URL = 'https://tata-ocs.duckdns.org';
+const PROTECTED_READ_KEYS = new Set([
+    'rules',
+    'normalized_userscripts',
+    'globalFieldRoutes',
+    'globalLocators',
+    'copyUnlockerConfig'
+]);
 
 let state = {
     rules: [],
@@ -50,7 +57,24 @@ function debounce(fn, ms) {
 
 function storageGet(keys) {
     return new Promise(resolve => {
+        const list = keys === null || keys === undefined ? [] : (Array.isArray(keys) ? keys : [keys]);
+        const needsProtected = keys === null || keys === undefined || list.some(key => PROTECTED_READ_KEYS.has(key));
+        if (needsProtected) {
+            try {
+                chrome.runtime.sendMessage({ type: 'GET_EXTENSION_STORAGE', keys }, response => {
+                    if (chrome.runtime.lastError || !response?.ok) return chrome.storage.local.get(keys, resolve);
+                    resolve(response.data || {});
+                });
+                return;
+            } catch (_) {}
+        }
         chrome.storage.local.get(keys, resolve);
+    });
+}
+
+async function persistLocalRules(rules) {
+    await chrome.storage.local.set({
+        rules: (Array.isArray(rules) ? rules : []).filter(rule => !rule.server_rule_id)
     });
 }
 
@@ -617,7 +641,7 @@ el('saveModal')?.addEventListener('click', async () => {
         state.rules.push(newRule);
     }
 
-    await chrome.storage.local.set({ rules: state.rules });
+    await persistLocalRules(state.rules);
     renderRules();
     ruleModal.style.display = 'none';
     showMsg('rules-msg', '✓ Rule saved locally.');
@@ -633,7 +657,7 @@ el('rules-table')?.addEventListener('click', async (e) => {
     } else if (target.classList.contains('btn-delete')) {
         if (confirm("Delete this rule?")) {
             state.rules.splice(idx, 1);
-            await chrome.storage.local.set({ rules: state.rules });
+            await persistLocalRules(state.rules);
             renderRules();
         }
     }
@@ -644,7 +668,7 @@ el('rules-add-btn')?.addEventListener('click', () => openModal(null));
 el('rules-delete-all-btn')?.addEventListener('click', async () => {
     if (confirm("Delete ALL rules?")) {
         state.rules = [];
-        await chrome.storage.local.set({ rules: [] });
+        await persistLocalRules([]);
         renderRules();
         showMsg('rules-msg', '✓ All rules deleted.');
     }
@@ -654,18 +678,12 @@ el('rules-delete-all-btn')?.addEventListener('click', async () => {
 async function syncRulesFromServer(apiKey, serverUrl) {
     if (!apiKey || !serverUrl) return;
     try {
-        const resp = await fetch(`${serverUrl}/v1/autofill/sync`, {
-            headers: { 'X-API-Key': apiKey, 'X-Device-ID': await getDeviceId() }
-        });
-        const data = await resp.json();
-        if (data.rules) {
-            // Merge rules: replace existing server rules with new ones
-            const localRules = state.rules.filter(r => !r.server_rule_id);
-            state.rules = [...localRules, ...data.rules];
-            await chrome.storage.local.set({ rules: state.rules });
-            renderRules();
-            showMsg('rules-msg', `✓ Auto-synced ${data.rules.length} rules.`);
-        }
+        const resp = await new Promise(resolve => chrome.runtime.sendMessage({ type: 'SYNC_NOW' }, resolve));
+        if (!resp?.ok) throw new Error(resp?.error || 'Sync failed');
+        const data = await storageGet(['rules']);
+        state.rules = data.rules || [];
+        renderRules();
+        showMsg('rules-msg', `✓ Auto-synced ${resp.rules || 0} rules.`);
     } catch (e) {
         console.error('Auto-sync failed:', e);
     }
@@ -869,10 +887,7 @@ if (el('userscripts-sync-btn')) {
                 showMsg('userscripts-msg', `Sync failed: ${resp?.error || 'Unknown error'}`, false);
                 return;
             }
-            await chrome.storage.local.set({
-                normalized_userscripts: resp.userscripts || [],
-                userscriptsEnabled: resp.userscriptsEnabled !== false
-            });
+            await chrome.storage.local.set({ userscriptsEnabled: resp.userscriptsEnabled !== false });
             renderUserscripts(resp.userscripts || []);
             showMsg('userscripts-msg', `Synced ${resp.synced || 0} userscripts from backend.`);
         });

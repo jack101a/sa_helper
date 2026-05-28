@@ -12,7 +12,16 @@
     let guardsInstalled = false;
 
     function storageGet(keys) {
-        return new Promise(resolve => chrome.storage.local.get(keys, resolve));
+        return new Promise(resolve => {
+            try {
+                chrome.runtime.sendMessage({ type: 'GET_EXTENSION_STORAGE', keys }, response => {
+                    if (chrome.runtime.lastError || !response?.ok) return resolve({});
+                    resolve(response.data || {});
+                });
+            } catch (_) {
+                resolve({});
+            }
+        });
     }
 
     function normalizeHost(value) {
@@ -193,11 +202,11 @@ html, body, body * {
         }
     }
 
-    if (chrome.storage?.onChanged) {
-        chrome.storage.onChanged.addListener((changes, areaName) => {
-            if (areaName !== 'local' || !changes.copyUnlockerConfig) return;
-            if (isEnabledForCurrentPage(changes.copyUnlockerConfig.newValue)) activate();
-            else deactivate();
+    if (chrome.runtime?.onMessage) {
+        chrome.runtime.onMessage.addListener(msg => {
+            if (msg?.type !== 'PROTECTED_STORAGE_CHANGED' || !(msg.keys || []).includes('copyUnlockerConfig')) return false;
+            init();
+            return false;
         });
     }
 

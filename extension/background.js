@@ -87,29 +87,33 @@ async function handleGMCall(msg) {
     const storageKey = `userscript_storage:${ns}`;
     
     if (action === 'getValue') {
-        const data = await storageGet([storageKey]);
+        const data = await getProtectedValues([storageKey]);
         const store = data[storageKey] || {};
         return { requestId, value: store[key] !== undefined ? store[key] : defaultValue };
     }
     
     if (action === 'setValue') {
-        const data = await storageGet([storageKey]);
+        const data = await getProtectedValues([storageKey]);
         const store = data[storageKey] || {};
+        const oldStore = { ...store };
         store[key] = value;
-        await storageSet({ [storageKey]: store });
+        await setProtectedValues({ [storageKey]: store });
+        broadcastUserscriptValueChanged(ns, oldStore, store);
         return { requestId, ok: true };
     }
 
     if (action === 'deleteValue') {
-        const data = await storageGet([storageKey]);
+        const data = await getProtectedValues([storageKey]);
         const store = data[storageKey] || {};
+        const oldStore = { ...store };
         delete store[key];
-        await storageSet({ [storageKey]: store });
+        await setProtectedValues({ [storageKey]: store });
+        broadcastUserscriptValueChanged(ns, oldStore, store);
         return { requestId, ok: true };
     }
 
     if (action === 'listValues') {
-        const data = await storageGet([storageKey]);
+        const data = await getProtectedValues([storageKey]);
         return { requestId, values: Object.keys(data[storageKey] || {}) };
     }
 
@@ -241,21 +245,21 @@ async function handleGMCall(msg) {
     }
 
     if (action === 'registerMenuCommand') {
-        const data = await storageGet([`userscript_menu_commands:${ns}`]);
         const menuKey = `userscript_menu_commands:${ns}`;
+        const data = await getProtectedValues([menuKey]);
         const commands = data[menuKey] || {};
         const id = details?.id || `${Date.now()}_${Math.random().toString(36).slice(2)}`;
         commands[id] = { id, text: String(details?.text || ''), registeredAt: Date.now() };
-        await storageSet({ [menuKey]: commands });
+        await setProtectedValues({ [menuKey]: commands });
         return { requestId, ok: true, id };
     }
 
     if (action === 'unregisterMenuCommand') {
         const menuKey = `userscript_menu_commands:${ns}`;
-        const data = await storageGet([menuKey]);
+        const data = await getProtectedValues([menuKey]);
         const commands = data[menuKey] || {};
         delete commands[details?.id || details?.key || key];
-        await storageSet({ [menuKey]: commands });
+        await setProtectedValues({ [menuKey]: commands });
         return { requestId, ok: true };
     }
 
@@ -270,7 +274,7 @@ async function handleGMCall(msg) {
 async function isUserscriptConnectAllowed(scriptId, targetUrl) {
     try {
         const url = new URL(String(targetUrl || ''));
-        const data = await storageGet(['normalized_userscripts']);
+        const data = await getProtectedValues(['normalized_userscripts']);
         const scripts = Array.isArray(data.normalized_userscripts) ? data.normalized_userscripts : [];
         const script = scripts.find(item => String(item.id) === String(scriptId));
         const connects = script?.parsedMeta?.connects || [];
@@ -345,7 +349,8 @@ function parseUserscript(code) {
 
 async function migrateUserscripts() {
     const data = await storageGet(['userscripts', 'normalized_userscripts', 'userscriptsEnabled']);
-    if (!data.userscripts || data.normalized_userscripts) return;
+    const protectedData = await getProtectedValues(['normalized_userscripts']).catch(() => ({}));
+    if (!data.userscripts || data.normalized_userscripts || protectedData.normalized_userscripts) return;
 
     debugLog('[Userscript] Migrating legacy scripts...');
     const normalized = data.userscripts.map(script => {
@@ -363,10 +368,8 @@ async function migrateUserscripts() {
             lastError: null
         };
     });
-    await storageSet({
-        normalized_userscripts: normalized,
-        userscriptsEnabled: data.userscriptsEnabled !== false
-    });
+    await setProtectedValues({ normalized_userscripts: normalized });
+    await storageSet({ userscriptsEnabled: data.userscriptsEnabled !== false });
 }
 
 'use strict';
@@ -378,8 +381,16 @@ const STALL_KEEPALIVE_ALARM = 'stall_keepalive';
 const SYNC_PERIOD_MIN = 5;
 const HEAVY_SYNC_PERIOD_MIN = 180;
 const HEAVY_SYNC_MIN_INTERVAL_MS = HEAVY_SYNC_PERIOD_MIN * 60 * 1000;
+const SERVER_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const SERVER_CACHE_META_KEY = 'serverCacheMeta';
+const PROTECTED_CACHE_META_KEY = 'protectedCacheMeta';
+const PROTECTED_CACHE_PREFIX = 'protected_cache:';
+const PROTECTED_CACHE_ALG = 'AES-GCM-HKDF-SHA256';
 let cachedDeviceId = '';
 let pendingDeviceIdPromise = null;
+let protectedHydrationPromise = null;
+let protectedCryptoKeyPromise = null;
+let protectedMemoryCache = {};
 let examLearningStatusCache = { checkedAt: 0, enabled: null };
 let automationState = {
     active: false,
@@ -457,6 +468,26 @@ const AUTH_CLEAR_KEY_CODES = new Set([
 ]);
 
 const SENSITIVE_STORAGE_PREFIXES = [
+    'userscript_require:',
+    'userscript_resource:',
+    'userscript_storage:',
+    'userscript_menu_commands:'
+];
+
+const PROTECTED_FIXED_KEYS = new Set([
+    'normalized_userscripts',
+    'globalFieldRoutes',
+    'globalLocators',
+    'copyUnlockerConfig',
+    'serverAutofillRules'
+]);
+
+const PROTECTED_READ_KEYS = new Set([
+    ...PROTECTED_FIXED_KEYS,
+    'rules'
+]);
+
+const PROTECTED_DYNAMIC_PREFIXES = [
     'userscript_require:',
     'userscript_resource:',
     'userscript_storage:',
@@ -673,6 +704,325 @@ function storageRemove(keys) {
     return new Promise(resolve => chrome.storage.local.remove(keys, resolve));
 }
 
+function isProtectedStorageKey(key) {
+    const name = String(key || '');
+    return PROTECTED_FIXED_KEYS.has(name)
+        || PROTECTED_DYNAMIC_PREFIXES.some(prefix => name.startsWith(prefix));
+}
+
+function protectedDiskKey(key) {
+    return `${PROTECTED_CACHE_PREFIX}${key}`;
+}
+
+function bytesToB64(bytes) {
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+    }
+    return btoa(binary);
+}
+
+function utf8B64ToBytes(value) {
+    return b64ToBytes(String(value || ''));
+}
+
+function randomB64(length) {
+    const bytes = new Uint8Array(length);
+    crypto.getRandomValues(bytes);
+    return bytesToB64(bytes);
+}
+
+async function getProtectedCacheMeta() {
+    const data = await storageGet([PROTECTED_CACHE_META_KEY]);
+    let meta = data[PROTECTED_CACHE_META_KEY];
+    if (!meta || meta.v !== 1 || !meta.salt) {
+        meta = { v: 1, alg: PROTECTED_CACHE_ALG, salt: randomB64(16), createdAt: Date.now() };
+        await storageSet({ [PROTECTED_CACHE_META_KEY]: meta });
+    }
+    return meta;
+}
+
+async function getProtectedCryptoKey() {
+    if (protectedCryptoKeyPromise) return protectedCryptoKeyPromise;
+    protectedCryptoKeyPromise = (async () => {
+        const data = await storageGet(['apiKey']);
+        const apiKey = String(data.apiKey || '').trim();
+        if (!apiKey) throw new Error('No API key configured');
+        const deviceId = await getDeviceId();
+        const meta = await getProtectedCacheMeta();
+        const material = await crypto.subtle.importKey(
+            'raw',
+            new TextEncoder().encode(`${apiKey}\n${deviceId}\n${chrome.runtime.id}`),
+            'HKDF',
+            false,
+            ['deriveKey']
+        );
+        return crypto.subtle.deriveKey(
+            {
+                name: 'HKDF',
+                salt: utf8B64ToBytes(meta.salt),
+                info: new TextEncoder().encode('sa-helper protected extension cache v1'),
+                hash: 'SHA-256'
+            },
+            material,
+            { name: 'AES-GCM', length: 256 },
+            false,
+            ['encrypt', 'decrypt']
+        );
+    })();
+    try {
+        return await protectedCryptoKeyPromise;
+    } catch (e) {
+        protectedCryptoKeyPromise = null;
+        throw e;
+    }
+}
+
+async function encryptProtectedValue(key, value) {
+    const iv = new Uint8Array(12);
+    crypto.getRandomValues(iv);
+    const cryptoKey = await getProtectedCryptoKey();
+    const plaintext = new TextEncoder().encode(JSON.stringify(value));
+    const ciphertext = await crypto.subtle.encrypt(
+        {
+            name: 'AES-GCM',
+            iv,
+            additionalData: new TextEncoder().encode(String(key))
+        },
+        cryptoKey,
+        plaintext
+    );
+    return {
+        v: 1,
+        alg: PROTECTED_CACHE_ALG,
+        iv: bytesToB64(iv),
+        ciphertext: bytesToB64(new Uint8Array(ciphertext)),
+        updatedAt: Date.now()
+    };
+}
+
+async function decryptProtectedValue(key, envelope) {
+    if (!envelope || envelope.v !== 1 || envelope.alg !== PROTECTED_CACHE_ALG || !envelope.iv || !envelope.ciphertext) {
+        return undefined;
+    }
+    const cryptoKey = await getProtectedCryptoKey();
+    const plaintext = await crypto.subtle.decrypt(
+        {
+            name: 'AES-GCM',
+            iv: utf8B64ToBytes(envelope.iv),
+            additionalData: new TextEncoder().encode(String(key))
+        },
+        cryptoKey,
+        utf8B64ToBytes(envelope.ciphertext)
+    );
+    return JSON.parse(new TextDecoder().decode(plaintext));
+}
+
+async function hydrateProtectedCache() {
+    if (protectedHydrationPromise) return protectedHydrationPromise;
+    protectedHydrationPromise = (async () => {
+        const allData = await storageGet(null);
+        const nextCache = {};
+        for (const [diskKey, envelope] of Object.entries(allData || {})) {
+            if (!diskKey.startsWith(PROTECTED_CACHE_PREFIX)) continue;
+            const key = diskKey.slice(PROTECTED_CACHE_PREFIX.length);
+            try {
+                const value = await decryptProtectedValue(key, envelope);
+                if (value !== undefined) nextCache[key] = value;
+            } catch (e) {
+                console.warn('[ProtectedCache] Decrypt failed; purging protected server cache:', e.message || e);
+                await purgeProtectedServerCache({ reason: 'decrypt_failed', preserveLocalRules: true });
+                return {};
+            }
+        }
+        protectedMemoryCache = nextCache;
+        return protectedMemoryCache;
+    })();
+    try {
+        return await protectedHydrationPromise;
+    } catch (e) {
+        protectedHydrationPromise = null;
+        throw e;
+    }
+}
+
+async function setProtectedValues(values = {}) {
+    await hydrateProtectedCache();
+    const encrypted = {};
+    const removePlaintext = [];
+    for (const [key, value] of Object.entries(values)) {
+        if (!isProtectedStorageKey(key)) continue;
+        protectedMemoryCache[key] = value;
+        encrypted[protectedDiskKey(key)] = await encryptProtectedValue(key, value);
+        removePlaintext.push(key);
+    }
+    if (Object.keys(encrypted).length) await storageSet(encrypted);
+    if (removePlaintext.length) await storageRemove(removePlaintext);
+}
+
+async function getProtectedValues(keys = []) {
+    await enforceServerCacheExpiry('protected_read');
+    const cache = await hydrateProtectedCache();
+    const result = {};
+    const requested = Array.isArray(keys) ? keys : [keys];
+    for (const key of requested) {
+        if (key === 'rules') {
+            const data = await storageGet(['rules']);
+            const storedRules = Array.isArray(data.rules) ? data.rules : [];
+            const localRules = storedRules.filter(rule => !rule.server_rule_id);
+            const legacyServerRules = storedRules.filter(rule => rule.server_rule_id);
+            const serverRules = Array.isArray(cache.serverAutofillRules) ? cache.serverAutofillRules : legacyServerRules;
+            result.rules = dedupeRules([...localRules, ...serverRules]);
+        } else if (isProtectedStorageKey(key)) {
+            if (cache[key] !== undefined) {
+                result[key] = cache[key];
+            } else {
+                const legacy = await storageGet([key]);
+                if (legacy[key] !== undefined) result[key] = legacy[key];
+            }
+        }
+    }
+    return result;
+}
+
+async function getExtensionStorage(keys) {
+    if (keys === null || keys === undefined) {
+        const data = await storageGet(keys);
+        const protectedData = await getProtectedValues(Array.from(PROTECTED_READ_KEYS));
+        return { ...data, ...protectedData };
+    }
+    const requested = Array.isArray(keys) ? keys : [keys];
+    const protectedKeys = requested.filter(key => PROTECTED_READ_KEYS.has(key) || isProtectedStorageKey(key));
+    const localKeys = requested.filter(key => !protectedKeys.includes(key));
+    const [localData, protectedData] = await Promise.all([
+        localKeys.length ? storageGet(localKeys) : Promise.resolve({}),
+        protectedKeys.length ? getProtectedValues(protectedKeys) : Promise.resolve({})
+    ]);
+    return { ...localData, ...protectedData };
+}
+
+async function markServerCacheSynced(fields = {}) {
+    const now = Date.now();
+    const current = await storageGet([SERVER_CACHE_META_KEY]);
+    const meta = {
+        ...(current[SERVER_CACHE_META_KEY] || {}),
+        state: 'active',
+        lastServerSyncAt: now,
+        expiresAt: now + SERVER_CACHE_TTL_MS,
+        updatedAt: now,
+        ...fields
+    };
+    await storageSet({ [SERVER_CACHE_META_KEY]: meta });
+    return meta;
+}
+
+async function purgeProtectedServerCache(options = {}) {
+    const allData = await storageGet(null);
+    const encryptedKeys = Object.keys(allData || {}).filter(key => key.startsWith(PROTECTED_CACHE_PREFIX));
+    const dynamicPlaintextKeys = Object.keys(allData || {}).filter(key =>
+        PROTECTED_DYNAMIC_PREFIXES.some(prefix => key.startsWith(prefix))
+    );
+    const plaintextKeys = [
+        'normalized_userscripts',
+        'globalFieldRoutes',
+        'globalLocators',
+        'copyUnlockerConfig',
+        'serverAutofillRules',
+        ...dynamicPlaintextKeys
+    ];
+    const removeKeys = [...new Set([...encryptedKeys, ...plaintextKeys])];
+    if (removeKeys.length) await storageRemove(removeKeys);
+
+    const localRules = (Array.isArray(allData?.rules) ? allData.rules : []).filter(rule => !rule.server_rule_id);
+    await storageSet({
+        rules: localRules,
+        userscriptsEnabled: false,
+        lastSync: 0,
+        lastHeavySync: 0,
+        [SERVER_CACHE_META_KEY]: {
+            ...(allData?.[SERVER_CACHE_META_KEY] || {}),
+            state: 'purged',
+            reason: options.reason || 'expired',
+            purgedAt: Date.now(),
+            lastServerSyncAt: Number(allData?.[SERVER_CACHE_META_KEY]?.lastServerSyncAt || 0)
+        }
+    });
+    protectedMemoryCache = {};
+    protectedHydrationPromise = null;
+    protectedCryptoKeyPromise = null;
+    broadcastProtectedStorageChanged(['normalized_userscripts', 'globalFieldRoutes', 'globalLocators', 'copyUnlockerConfig', 'rules']);
+    debugLog(`[ProtectedCache] Purged ${removeKeys.length} encrypted/plaintext server cache keys`);
+    return { removed: removeKeys.length, localRules: localRules.length };
+}
+
+async function enforceServerCacheExpiry(reason = 'check') {
+    const data = await storageGet([SERVER_CACHE_META_KEY, 'apiKey']);
+    if (!data.apiKey) return { ok: true, state: 'no_key' };
+    const meta = data[SERVER_CACHE_META_KEY] || {};
+    const last = Number(meta.lastServerSyncAt || 0);
+    if (!last) return { ok: true, state: 'empty' };
+    const now = Date.now();
+    if (now - last < SERVER_CACHE_TTL_MS) return { ok: true, state: 'active', expiresInMs: SERVER_CACHE_TTL_MS - (now - last) };
+    await purgeProtectedServerCache({ reason });
+    return { ok: false, state: 'expired', expiredAt: now };
+}
+
+async function migrateLegacyProtectedStorage() {
+    const data = await storageGet([
+        'apiKey',
+        'normalized_userscripts',
+        'globalFieldRoutes',
+        'globalLocators',
+        'copyUnlockerConfig',
+        'rules'
+    ]);
+    if (!data.apiKey) return { migrated: 0 };
+
+    const values = {};
+    for (const key of ['normalized_userscripts', 'globalFieldRoutes', 'globalLocators', 'copyUnlockerConfig']) {
+        if (data[key] !== undefined) values[key] = data[key];
+    }
+
+    const rules = Array.isArray(data.rules) ? data.rules : [];
+    const serverRules = rules.filter(rule => rule?.server_rule_id);
+    const localRules = rules.filter(rule => !rule?.server_rule_id);
+    if (serverRules.length) values.serverAutofillRules = serverRules;
+
+    const migrated = Object.keys(values).length;
+    if (migrated) {
+        await setProtectedValues(values);
+        if (serverRules.length) await storageSet({ rules: localRules });
+        broadcastProtectedStorageChanged(Object.keys(values).map(key => key === 'serverAutofillRules' ? 'rules' : key));
+    }
+    return { migrated };
+}
+
+function broadcastProtectedStorageChanged(keys = []) {
+    const uniqueKeys = [...new Set(keys)];
+    chrome.tabs?.query?.({}, tabs => {
+        for (const tab of tabs || []) {
+            chrome.tabs.sendMessage(tab.id, { type: 'PROTECTED_STORAGE_CHANGED', keys: uniqueKeys }, () => void chrome.runtime.lastError);
+            if (uniqueKeys.includes('globalFieldRoutes') || uniqueKeys.includes('globalLocators')) {
+                chrome.tabs.sendMessage(tab.id, { type: 'ROUTES_UPDATED' }, () => void chrome.runtime.lastError);
+            }
+        }
+    });
+}
+
+function broadcastUserscriptValueChanged(scriptId, oldValue, newValue) {
+    chrome.tabs?.query?.({}, tabs => {
+        for (const tab of tabs || []) {
+            chrome.tabs.sendMessage(tab.id, {
+                type: 'USERSCRIPT_VALUE_CHANGED',
+                scriptId,
+                oldValue: oldValue || {},
+                newValue: newValue || {}
+            }, () => void chrome.runtime.lastError);
+        }
+    });
+}
+
 function serviceMapFrom(data) {
     const services = data && (data.enabledServices || data.enabled_services || data.services || data.subscribed_services);
     return services && typeof services === 'object' && !Array.isArray(services) ? services : {};
@@ -756,7 +1106,8 @@ async function wipeSyncedExtensionData(options = {}) {
     const dynamicKeys = Object.keys(allData || {}).filter(key =>
         SENSITIVE_STORAGE_PREFIXES.some(prefix => key.startsWith(prefix))
     );
-    const keys = [...new Set([...SENSITIVE_STORAGE_KEYS, ...dynamicKeys])];
+    const protectedDiskKeys = Object.keys(allData || {}).filter(key => key.startsWith(PROTECTED_CACHE_PREFIX));
+    const keys = [...new Set([...SENSITIVE_STORAGE_KEYS, ...dynamicKeys, ...protectedDiskKeys, PROTECTED_CACHE_META_KEY, SERVER_CACHE_META_KEY])];
     const toRemove = preserveAuth ? keys.filter(key => key !== 'apiKey') : keys;
 
     automationState = {
@@ -769,6 +1120,9 @@ async function wipeSyncedExtensionData(options = {}) {
     if (preserveAuth && allData?.apiKey) {
         await storageSet({ apiKey: allData.apiKey });
     }
+    protectedMemoryCache = {};
+    protectedHydrationPromise = null;
+    protectedCryptoKeyPromise = null;
     debugLog(`[Sync] Wiped ${toRemove.length} server-synced/protected storage keys`);
     return { removed: toRemove.length };
 }
@@ -978,13 +1332,13 @@ async function fetchUserscriptDependency(url, baseUrl) {
     const cleanUrl = resolveUserscriptUrl(url, baseUrl);
     if (!/^(https?|data):/i.test(cleanUrl)) return { url: cleanUrl, ok: false, code: '', error: 'Only http(s), data:, or base-resolved @require URLs are supported' };
     const cacheKey = `userscript_require:${cleanUrl}`;
-    const cached = await storageGet([cacheKey]);
+    const cached = await getProtectedValues([cacheKey]);
     if (cached[cacheKey]?.code) return { url: cleanUrl, ok: true, code: cached[cacheKey].code, error: '', cached: true };
     try {
         const resp = await fetch(cleanUrl, { credentials: 'omit' });
         if (!resp.ok) return { url: cleanUrl, ok: false, code: '', error: `HTTP ${resp.status}` };
         const code = await resp.text();
-        await storageSet({ [cacheKey]: { code, fetchedAt: Date.now(), contentType: resp.headers.get('content-type') || '' } });
+        await setProtectedValues({ [cacheKey]: { code, fetchedAt: Date.now(), contentType: resp.headers.get('content-type') || '' } });
         return { url: cleanUrl, ok: true, code, error: '' };
     } catch (e) {
         return { url: cleanUrl, ok: false, code: '', error: e.message };
@@ -995,7 +1349,7 @@ async function fetchUserscriptResource(resource, baseUrl) {
     const url = resolveUserscriptUrl(resource?.url, baseUrl);
     if (!/^(https?|data):/i.test(url)) return { ...resource, url, ok: false, text: '', dataUrl: '', error: 'Only http(s), data:, or base-resolved @resource URLs are supported' };
     const cacheKey = `userscript_resource:${url}`;
-    const cached = await storageGet([cacheKey]);
+    const cached = await getProtectedValues([cacheKey]);
     if (cached[cacheKey]?.dataUrl) return { ...resource, url, ok: true, text: cached[cacheKey].text || '', dataUrl: cached[cacheKey].dataUrl, error: '', cached: true };
     try {
         const resp = await fetch(url, { credentials: 'omit' });
@@ -1007,7 +1361,7 @@ async function fetchUserscriptResource(resource, baseUrl) {
         for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
         const text = new TextDecoder().decode(new Uint8Array(buffer));
         const dataUrl = `data:${contentType};base64,${btoa(binary)}`;
-        await storageSet({ [cacheKey]: { text, dataUrl, fetchedAt: Date.now(), contentType } });
+        await setProtectedValues({ [cacheKey]: { text, dataUrl, fetchedAt: Date.now(), contentType } });
         return { ...resource, ok: true, text, dataUrl, error: '' };
     } catch (e) {
         return { ...resource, ok: false, text: '', dataUrl: '', error: e.message };
@@ -1151,7 +1505,7 @@ async function validateSelectors(sourceSelector, targetSelector) {
 }
 
 async function syncPendingRoutesToServer() {
-    const data = await storageGet(['domainFieldRoutes', 'globalFieldRoutes']);
+    const data = await getExtensionStorage(['domainFieldRoutes', 'globalFieldRoutes']);
     const routes = Array.isArray(data.domainFieldRoutes) ? data.domainFieldRoutes : [];
     const globalRoutes = data.globalFieldRoutes || {};
     const serverSet = new Set();
@@ -1241,6 +1595,7 @@ async function syncAuthState(source) {
             userscriptsEnabled: isMaster ? current.userscriptsEnabled !== false : isUserscriptsEntitledFrom({ enabledServices: services }),
             lastVerify: Date.now()
         });
+        await markServerCacheSynced({ lastAuthSyncAt: Date.now() });
         await syncExtensionConfig(source);
         return { ok: true, verified: true };
     } catch (e) {
@@ -1256,13 +1611,15 @@ async function syncExtensionConfig(source) {
         const sites = Array.isArray(cfg.sites)
             ? cfg.sites.map(item => String(item || '').trim()).filter(Boolean).slice(0, 200)
             : [];
-        await storageSet({
+        await setProtectedValues({
             copyUnlockerConfig: {
                 enabled: cfg.enabled === true,
                 sites,
                 syncedAt: Date.now()
             }
         });
+        await markServerCacheSynced({ lastExtensionConfigSyncAt: Date.now() });
+        broadcastProtectedStorageChanged(['copyUnlockerConfig']);
         debugLog(`[Sync:${source}] Extension config synced — copy unlocker ${cfg.enabled === true ? 'enabled' : 'disabled'}, ${sites.length} site(s)`);
         return { ok: true, copyUnlockerSites: sites.length };
     } catch (e) {
@@ -1293,7 +1650,10 @@ async function syncHeavyData(source, options = {}) {
     // 1. Field-mapping routes (domain → [{source_selector, target_selector, task_type, …}])
     try {
         const routes = await apiGet('/v1/field-mappings/routes');
-        await chrome.storage.local.set({ globalFieldRoutes: routes, lastSync: Date.now(), lastHeavySync: Date.now() });
+        await setProtectedValues({ globalFieldRoutes: routes });
+        await chrome.storage.local.set({ lastSync: Date.now(), lastHeavySync: Date.now() });
+        await markServerCacheSynced({ lastRoutesSyncAt: Date.now() });
+        broadcastProtectedStorageChanged(['globalFieldRoutes']);
         results.routes = Object.keys(routes).length;
         debugLog(`[Sync:${source}] Routes synced — ${results.routes} domains`);
     } catch (e) {
@@ -1303,7 +1663,9 @@ async function syncHeavyData(source, options = {}) {
     // 2. Custom locators (domain → {img, input} pairs)
     try {
         const locators = await apiGet('/v1/locators');
-        await chrome.storage.local.set({ globalLocators: locators });
+        await setProtectedValues({ globalLocators: locators });
+        await markServerCacheSynced({ lastLocatorsSyncAt: Date.now() });
+        broadcastProtectedStorageChanged(['globalLocators']);
         results.locators = Object.keys(locators || {}).length;
         debugLog(`[Sync:${source}] Locators synced — ${results.locators} domains`);
     } catch (e) {
@@ -1316,8 +1678,10 @@ async function syncHeavyData(source, options = {}) {
         if (data.rules) {
             const localData = await storageGet(['rules']);
             const localRules = (localData.rules || []).filter(r => !r.server_rule_id);
-            const merged = dedupeRules([...localRules, ...data.rules]);
-            await chrome.storage.local.set({ rules: merged });
+            await chrome.storage.local.set({ rules: localRules });
+            await setProtectedValues({ serverAutofillRules: data.rules });
+            await markServerCacheSynced({ lastAutofillSyncAt: Date.now() });
+            broadcastProtectedStorageChanged(['rules']);
             results.rules = data.rules.length;
             debugLog(`[Sync:${source}] Rules synced — ${results.rules} rules`);
         }
@@ -1357,10 +1721,10 @@ async function syncHeavyData(source, options = {}) {
                 }
             }
             const existing = await storageGet(['userscriptsEnabled', 'isMaster', 'enabledServices']);
-            await chrome.storage.local.set({
-                normalized_userscripts: normalized,
-                userscriptsEnabled: existing.isMaster ? existing.userscriptsEnabled !== false : isUserscriptsEntitledFrom(existing)
-            });
+            await setProtectedValues({ normalized_userscripts: normalized });
+            await chrome.storage.local.set({ userscriptsEnabled: existing.isMaster ? existing.userscriptsEnabled !== false : isUserscriptsEntitledFrom(existing) });
+            await markServerCacheSynced({ lastUserscriptsSyncAt: Date.now() });
+            broadcastProtectedStorageChanged(['normalized_userscripts']);
             results.userscripts = normalized.length;
             results.userscriptErrors = errors.length;
             if (errors.length) {
@@ -1372,6 +1736,7 @@ async function syncHeavyData(source, options = {}) {
         console.warn('[Sync] Userscripts failed:', e.message);
     }
 
+    await enforceServerCacheExpiry(`heavy_sync_${source}`);
     return { ok: true, ...results };
 }
 
@@ -1404,18 +1769,26 @@ chrome.alarms.onAlarm.addListener(alarm => {
 chrome.runtime.onInstalled.addListener(async () => {
     await storageRemove(['serverUrl']);
     await migrateUserscripts();
+    await migrateLegacyProtectedStorage();
+    await enforceServerCacheExpiry('install');
     await syncAll('install', { forceHeavy: true });
 });
 
 chrome.runtime.onStartup.addListener(async () => {
     await storageRemove(['serverUrl']);
     await migrateUserscripts();
+    await migrateLegacyProtectedStorage();
+    await enforceServerCacheExpiry('startup');
     await syncAll('startup');
 });
 
 // Sync immediately when service worker starts (covers wake-from-sleep)
 storageRemove(['serverUrl']);
-syncAll('wake');
+(async () => {
+    await migrateLegacyProtectedStorage();
+    await enforceServerCacheExpiry('wake');
+    await syncAll('wake');
+})();
 
 // Restore STALL automation state if service worker was killed mid-session
 chrome.storage.local.get(['_automationState'], (stored) => {
@@ -1490,6 +1863,20 @@ chrome.storage.onChanged.addListener((changes, area) => {
 // ─────────────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type === 'GET_EXTENSION_STORAGE') {
+        getExtensionStorage(msg.keys)
+            .then(data => sendResponse({ ok: true, data }))
+            .catch(e => sendResponse({ ok: false, error: e.message, data: {} }));
+        return true;
+    }
+
+    if (msg.type === 'ENFORCE_SERVER_CACHE_EXPIRY') {
+        enforceServerCacheExpiry(msg.reason || 'manual')
+            .then(sendResponse)
+            .catch(e => sendResponse({ ok: false, error: e.message }));
+        return true;
+    }
+
     if (msg.type === 'GM_API_CALL') {
         handleGMCall(msg).then(sendResponse);
         return true;
@@ -1573,6 +1960,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                     userscriptsEnabled: isMaster ? current.userscriptsEnabled !== false : isUserscriptsEntitledFrom({ enabledServices: services }),
                     lastVerify: Date.now()
                 });
+                await markServerCacheSynced({ lastAuthSyncAt: Date.now() });
                 sendResponse({ ok: true, data: d });
             })
             .catch(e => sendResponse({ ok: false, error: e.message }));
@@ -1719,7 +2107,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'USERSCRIPTS_SYNC') {
         syncHeavyData('userscripts_manual', { force: true })
         .then(async (r) => {
-            const data = await storageGet(['normalized_userscripts', 'userscriptsEnabled']);
+            const data = await getExtensionStorage(['normalized_userscripts', 'userscriptsEnabled']);
             sendResponse({
                 ok: true,
                 synced: r.userscripts || 0,
@@ -1801,7 +2189,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     // ── Interaction Recorder ────────────────────────────────────
     if (msg.type === 'RECORD_RULE') {
-        chrome.storage.local.get(['rules', 'activeProfileId', 'isMaster', 'apiKey'], data => {
+        getExtensionStorage(['rules', 'activeProfileId', 'isMaster', 'apiKey']).then(data => {
             let rules = dedupeRules(data.rules || []);
             const rule = msg.rule || {};
             rule.profile_scope = data.activeProfileId || rule.profile_scope || 'default';
@@ -1814,7 +2202,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 rules = dedupeRules(rules);
             }
 
-            chrome.storage.local.set({ rules }, async () => {
+            const localRules = rules.filter(item => !item.server_rule_id);
+            chrome.storage.local.set({ rules: localRules }, async () => {
                 if (!data.isMaster || !data.apiKey || alreadyRecorded) {
                     sendResponse({ ok: true, saved: !alreadyRecorded, proposed: false, duplicate: alreadyRecorded });
                     return;
@@ -1844,7 +2233,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
 
     if (msg.type === 'RECORD_STEP') {
-        chrome.storage.local.get(['rules', 'activeProfileId', 'isMaster', 'apiKey'], data => {
+        getExtensionStorage(['rules', 'activeProfileId', 'isMaster', 'apiKey']).then(data => {
             let rules = dedupeRules(data.rules || []);
             const rule  = msg.rule;
             rule.profile_scope = data.activeProfileId || 'default';
@@ -1891,7 +2280,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 }
             }
 
-            chrome.storage.local.set({ rules }, () => {
+            const localRules = rules.filter(item => !item.server_rule_id);
+            chrome.storage.local.set({ rules: localRules }, () => {
                 if (!alreadyRecorded) {
                     let host = '';
                     try {

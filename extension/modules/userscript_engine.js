@@ -549,7 +549,18 @@ ${scriptData.rawCode || ''}
             console.error('[Userscript Engine] Runtime helpers missing.');
             return;
         }
-        let data = await chrome.storage.local.get(['normalized_userscripts', 'userscriptsEnabled', '_automationState', 'stallWorkspaceActive']);
+        let data = await new Promise(resolve => {
+            chrome.runtime.sendMessage({
+                type: 'GET_EXTENSION_STORAGE',
+                keys: ['normalized_userscripts', 'userscriptsEnabled', '_automationState', 'stallWorkspaceActive']
+            }, response => {
+                if (chrome.runtime.lastError || !response?.ok) {
+                    chrome.storage.local.get(['userscriptsEnabled', '_automationState', 'stallWorkspaceActive'], resolve);
+                    return;
+                }
+                resolve(response.data || {});
+            });
+        });
         const stallWorkspaceActive = await resolveStallWorkspaceActive(data);
         if (data.userscriptsEnabled === false) {
             debugLog('[Userscript Engine] Global userscripts toggle is disabled.');

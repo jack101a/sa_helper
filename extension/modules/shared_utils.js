@@ -8,6 +8,13 @@
         timer: null,
         installed: false
     };
+    const PROTECTED_READ_KEYS = new Set([
+        'rules',
+        'normalized_userscripts',
+        'globalFieldRoutes',
+        'globalLocators',
+        'copyUnlockerConfig'
+    ]);
 
     function compactError(value) {
         if (value instanceof Error) {
@@ -66,10 +73,32 @@
         });
     };
 
+    function needsProtectedStorage(keys) {
+        const list = Array.isArray(keys) ? keys : [keys];
+        return list.some(key => PROTECTED_READ_KEYS.has(key));
+    }
+
+    function getExtensionStorage(keys) {
+        return new Promise(resolve => {
+            try {
+                chrome.runtime.sendMessage({ type: 'GET_EXTENSION_STORAGE', keys }, response => {
+                    if (chrome.runtime.lastError || !response?.ok) return resolve({});
+                    resolve(response.data || {});
+                });
+            } catch (_) {
+                resolve({});
+            }
+        });
+    }
+
     window.up_getStorage = function(keys) {
         return new Promise(resolve => {
             if (typeof chrome === 'undefined' || !chrome.runtime?.id) return resolve({});
             try {
+                if (keys !== null && keys !== undefined && needsProtectedStorage(keys)) {
+                    getExtensionStorage(keys).then(resolve);
+                    return;
+                }
                 const p = chrome.storage.local.get(keys, resolve);
                 if (p && typeof p.catch === 'function') {
                     p.catch(() => resolve({}));
