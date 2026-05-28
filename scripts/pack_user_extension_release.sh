@@ -193,16 +193,19 @@ def payload_public_key_b64() -> str:
 
 def inject_payload_public_key(dist_dir: Path) -> None:
     public_key = payload_public_key_b64()
-    placeholder = "__PAYLOAD_SIGNING_PUBLIC_KEY_B64__"
-    replaced = False
-    for path in dist_dir.rglob("*.js"):
-        text = path.read_text(encoding="utf-8")
-        if placeholder not in text:
-            continue
-        path.write_text(text.replace(placeholder, public_key), encoding="utf-8")
-        replaced = True
-    if not replaced:
-        fail("payload signing public key placeholder was not found in extension package")
+    background_path = dist_dir / "background.js"
+    if not background_path.is_file():
+        fail("background.js not found in extension package")
+    text = background_path.read_text(encoding="utf-8")
+    pattern = re.compile(r'const\s+PAYLOAD_SIGNING_PUBLIC_KEY_B64\s*=\s*(["\'])(.*?)\1\s*;')
+    next_text, replaced = pattern.subn(
+        f'const PAYLOAD_SIGNING_PUBLIC_KEY_B64 = "{public_key}";',
+        text,
+        count=1,
+    )
+    if replaced != 1:
+        fail("payload signing public key constant was not found in background.js")
+    background_path.write_text(next_text, encoding="utf-8")
 
 
 def validate_user_profile(dist_dir: Path) -> None:

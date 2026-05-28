@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -28,16 +29,20 @@ class ExtensionService:
         from app.services.payload_signing_service import ensure_public_key_b64
 
         public_key = ensure_public_key_b64()
-        placeholder = "__PAYLOAD_SIGNING_PUBLIC_KEY_B64__"
-        replaced = False
-        for path in dist_dir.rglob("*.js"):
-            text = path.read_text(encoding="utf-8")
-            if placeholder not in text:
-                continue
-            path.write_text(text.replace(placeholder, public_key), encoding="utf-8")
-            replaced = True
-        if not replaced and (dist_dir / "background.js").exists():
-            raise RuntimeError("Payload signing public key placeholder was not found in extension source")
+        background_path = dist_dir / "background.js"
+        if not background_path.exists():
+            return
+
+        text = background_path.read_text(encoding="utf-8")
+        pattern = re.compile(r'const\s+PAYLOAD_SIGNING_PUBLIC_KEY_B64\s*=\s*(["\'])(.*?)\1\s*;')
+        next_text, replaced = pattern.subn(
+            f'const PAYLOAD_SIGNING_PUBLIC_KEY_B64 = "{public_key}";',
+            text,
+            count=1,
+        )
+        if replaced != 1:
+            raise RuntimeError("Payload signing public key constant was not found in extension background.js")
+        background_path.write_text(next_text, encoding="utf-8")
 
     def _write_archive_set(self, zip_base: Path, zip_path: Path, crx_path: Path, xpi_path: Path, source_dir: Path) -> bool:
         shutil.make_archive(str(zip_base), "zip", source_dir)

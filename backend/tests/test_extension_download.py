@@ -44,6 +44,33 @@ class ExtensionDownloadTests(unittest.TestCase):
             with zipfile.ZipFile(zip_path, "r") as zf:
                 self.assertEqual(zf.read("marker.txt").decode("utf-8"), "v2")
 
+    def test_package_extension_injects_only_public_key_constant(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            extension_dir = root / "extension"
+            output_dir = root / "backend" / "app" / "static" / "extensions"
+            extension_dir.mkdir(parents=True, exist_ok=True)
+            (extension_dir / "manifest.json").write_text(
+                '{"manifest_version": 3, "name": "Test Extension", "version": "1.0.0"}',
+                encoding="utf-8",
+            )
+            (extension_dir / "background.js").write_text(
+                'const PAYLOAD_SIGNING_PUBLIC_KEY_B64 = "__PAYLOAD_SIGNING_PUBLIC_KEY_B64__";\n'
+                "if (key.includes('__PAYLOAD_SIGNING_PUBLIC_KEY_B64__')) fallback();\n",
+                encoding="utf-8",
+            )
+
+            service = ExtensionService(root_dir=root, output_dir=output_dir)
+            with patch("app.services.payload_signing_service.ensure_public_key_b64", return_value="TEST_PUBLIC_KEY"):
+                self.assertTrue(service.package_extension())
+
+            with zipfile.ZipFile(output_dir / "mcq_solver_extension.zip", "r") as zf:
+                background = zf.read("background.js").decode("utf-8")
+
+            self.assertIn('const PAYLOAD_SIGNING_PUBLIC_KEY_B64 = "TEST_PUBLIC_KEY";', background)
+            self.assertIn("key.includes('__PAYLOAD_SIGNING_PUBLIC_KEY_B64__')", background)
+            self.assertNotIn("key.includes('TEST_PUBLIC_KEY')", background)
+
     def test_userscript_source_ignores_empty_index_without_script_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             scripts_dir = Path(tmp)
