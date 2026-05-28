@@ -538,6 +538,38 @@ function _injectStallKeepAlive(tabId) {
     });
 }
 
+function _openStallWorkspace(url) {
+    return new Promise((resolve, reject) => {
+        const finishWithTab = (tab) => {
+            if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message || 'Failed to open STALL tab'));
+                return;
+            }
+            if (!tab?.id) {
+                reject(new Error('Failed to open STALL tab'));
+                return;
+            }
+            resolve(tab);
+        };
+
+        const openTab = () => chrome.tabs.create({ url, active: true }, finishWithTab);
+
+        if (!chrome.windows?.create) {
+            openTab();
+            return;
+        }
+
+        chrome.windows.create({ url, state: 'maximized', focused: true }, (newWin) => {
+            if (chrome.runtime.lastError || !newWin?.tabs?.[0]?.id) {
+                void chrome.runtime.lastError;
+                openTab();
+                return;
+            }
+            resolve(newWin.tabs[0]);
+        });
+    });
+}
+
 function _stallKeepAliveTick() {
     if (!automationState.active || !automationState.tabId) return;
     chrome.tabs.get(automationState.tabId, tab => {
@@ -2349,22 +2381,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             };
             await chrome.storage.local.set({ _automationState: automationState });
 
-            // Open fresh window
-            chrome.windows.create({
-                url: AUTH_FROM_URL,
-                state: 'maximized',
-                focused: true
-            }, (newWin) => {
-                if (newWin && newWin.tabs && newWin.tabs[0]) {
-                    automationState.tabId = newWin.tabs[0].id;
-                    _persistAutomationState();
-                    _setStallKeepAlive(true);
-                    _injectStallKeepAlive(automationState.tabId);
-                    sendResponse({ ok: true });
-                } else {
-                    sendResponse({ ok: false, error: 'Failed to start window' });
-                }
-            });
+            const tab = await _openStallWorkspace(AUTH_FROM_URL);
+            automationState.tabId = tab.id;
+            _persistAutomationState();
+            _setStallKeepAlive(true);
+            _injectStallKeepAlive(automationState.tabId);
+            sendResponse({ ok: true });
         }).catch(e => sendResponse({ ok: false, error: e.message || String(e) }));
         return true; // async
     }

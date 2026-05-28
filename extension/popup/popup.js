@@ -408,7 +408,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (resp?.ok) {
                 window.close();
             } else {
-                alert('failed');
+                alert(resp?.error || chrome.runtime.lastError?.message || 'Failed to start STALL.');
             }
         });
     };

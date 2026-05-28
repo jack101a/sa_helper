@@ -19,6 +19,36 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["v1"])
 
 
+def _user_quota_error(result: dict) -> HTTPException:
+    used = int(result.get("used") or 0)
+    limit = int(result.get("limit") or 0)
+    return HTTPException(429, f"monthly quota exceeded ({used}/{limit} solves used)")
+
+
+def _check_user_solve_quota(request: Request) -> None:
+    if not getattr(request.state, "is_user_key", False):
+        return
+    key_record = request.state.api_key_record
+    user_id = int(key_record.get("user_id") or 0)
+    if user_id <= 0:
+        raise HTTPException(403, "user subscription not found")
+    result = request.app.state.container.usage_cycle_service.check_quota(user_id)
+    if not result.get("allowed"):
+        raise _user_quota_error(result)
+
+
+def _record_user_solve_usage(request: Request) -> None:
+    if not getattr(request.state, "is_user_key", False):
+        return
+    key_record = request.state.api_key_record
+    user_id = int(key_record.get("user_id") or 0)
+    if user_id <= 0:
+        raise HTTPException(403, "user subscription not found")
+    result = request.app.state.container.usage_cycle_service.increment_usage_atomic(user_id, amount=1)
+    if not result.get("allowed"):
+        raise _user_quota_error(result)
+
+
 @router.post("/solve", response_model=SolveResponse)
 async def solve(request: Request, payload: SolveRequest) -> SolveResponse:
     """Solve a text captcha image using the ONNX OCR model."""
@@ -38,6 +68,8 @@ async def solve(request: Request, payload: SolveRequest) -> SolveResponse:
     if not is_valid_base64(payload.payload_base64):
         raise HTTPException(400, "payload_base64 invalid")
 
+    _check_user_solve_quota(request)
+
     try:
         solved = await container.solver_service.submit(
             task_type=payload.type,
@@ -46,6 +78,7 @@ async def solve(request: Request, payload: SolveRequest) -> SolveResponse:
             domain=normalized or None,
             field_name=payload.field_name,
         )
+        _record_user_solve_usage(request)
         container.usage_service.record(
             key_id=int(key_record["id"]),
             task_type=f"captcha:{payload.type}",
