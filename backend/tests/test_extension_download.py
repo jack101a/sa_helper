@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import json
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,7 +11,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.api.admin_routes import settings as settings_routes
-from app.api.admin_routes.settings import _extension_filename_for_format
+from app.api.admin_routes.settings import _extension_filename_for_format, _extension_media_type
 from app.api.v1_routes.extension import _userscript_dir_has_readable_scripts, _userscript_signature_payload
 from app.services.extension_service import ExtensionService
 
@@ -70,6 +71,34 @@ class ExtensionDownloadTests(unittest.TestCase):
             self.assertIn('const PAYLOAD_SIGNING_PUBLIC_KEY_B64 = "TEST_PUBLIC_KEY";', background)
             self.assertIn("key.includes('__PAYLOAD_SIGNING_PUBLIC_KEY_B64__')", background)
             self.assertNotIn("key.includes('TEST_PUBLIC_KEY')", background)
+
+    def test_package_extension_xpi_uses_firefox_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            extension_dir = root / "extension"
+            output_dir = root / "backend" / "app" / "static" / "extensions"
+            extension_dir.mkdir(parents=True, exist_ok=True)
+            (extension_dir / "manifest.json").write_text(
+                '{"manifest_version": 3, "name": "Chrome Build", "version": "1.0.0"}',
+                encoding="utf-8",
+            )
+            (extension_dir / "manifest_firefox.json").write_text(
+                '{"manifest_version": 3, "name": "Firefox Build", "version": "1.0.0", "browser_specific_settings": {"gecko": {"id": "ta-ta@extension"}}}',
+                encoding="utf-8",
+            )
+
+            service = ExtensionService(root_dir=root, output_dir=output_dir)
+            self.assertTrue(service.package_extension())
+
+            with zipfile.ZipFile(output_dir / "mcq_solver_extension.zip", "r") as zf:
+                chrome_manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+            with zipfile.ZipFile(output_dir / "mcq_solver_extension.xpi", "r") as zf:
+                self.assertNotIn("manifest_firefox.json", zf.namelist())
+                firefox_manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+
+            self.assertEqual(chrome_manifest["name"], "Chrome Build")
+            self.assertEqual(firefox_manifest["name"], "Firefox Build")
+            self.assertIn("browser_specific_settings", firefox_manifest)
 
     def test_userscript_source_ignores_empty_index_without_script_files(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -188,6 +217,8 @@ class ExtensionDownloadTests(unittest.TestCase):
         self.assertEqual(_extension_filename_for_format("zip", "user"), "mcq_solver_extension_user.zip")
         self.assertEqual(_extension_filename_for_format("CRX", "user"), "mcq_solver_extension_user.crx")
         self.assertEqual(_extension_filename_for_format("xpi", "user"), "mcq_solver_extension_user.xpi")
+        self.assertEqual(_extension_media_type("mcq_solver_extension.zip"), "application/zip")
+        self.assertEqual(_extension_media_type("mcq_solver_extension.xpi"), "application/x-xpinstall")
 
     def test_extension_format_mapping_rejects_unknown_format(self):
         with self.assertRaises(HTTPException) as exc:

@@ -1,4 +1,4 @@
-"""In-memory per-key + IP rate limiting middleware."""
+"""In-memory per-key rate limiting for heavy API actions."""
 
 from __future__ import annotations
 
@@ -13,14 +13,23 @@ from app.core.config import Settings
 
 # How often (seconds) to sweep stale buckets from the event dict.
 _BUCKET_PRUNE_INTERVAL = 120
-_EXAM_WORKFLOW_LIMITED_PATHS = {
+_RATE_LIMITED_PATHS = {
+    "/v1/solve",
     "/v1/exam/solve",
-    "/v1/exam/feedback",
+    "/v1/autofill/fill",
+    "/v1/report",
+    "/v1/autofill/proposals",
+    "/v1/locators/propose",
+    "/v1/field-mappings/propose",
 }
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Rate-limit keyed by API key + IP address."""
+    """Rate-limit expensive authenticated actions by API key.
+
+    Lightweight sync/config endpoints intentionally bypass this middleware so
+    extension refreshes do not consume captcha/automation quota.
+    """
 
     def __init__(self, app, settings: Settings) -> None:
         super().__init__(app)
@@ -45,32 +54,17 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         """Reject requests that exceed window quota."""
 
-        if not request.url.path.startswith("/v1"):
-            return await call_next(request)
-        if request.url.path in {"/v1/key/create", "/v1/key/revoke"}:
-            return await call_next(request)
-        if request.url.path in _EXAM_WORKFLOW_LIMITED_PATHS:
+        if request.url.path not in _RATE_LIMITED_PATHS:
             return await call_next(request)
 
         key_record = getattr(request.state, "api_key_record", None)
-        api_key = getattr(request.state, "api_key", "anonymous")
-        ip = request.client.host if request.client else "unknown"
         key_id = int(key_record.get("id")) if key_record else None
+        if key_id is None:
+            return await call_next(request)
         now = time.time()
 
         # Opportunistic bucket pruning (runs at most every _BUCKET_PRUNE_INTERVAL s)
         self._prune_buckets(now)
-
-        global_bucket = f"global:{ip}"
-        key_bucket = f"key:{key_id if key_id is not None else 'anon'}:{ip}"
-
-        # Global limiter (all API traffic from this IP)
-        global_queue = self._events[global_bucket]
-        while global_queue and (now - global_queue[0]) > self._window_seconds:
-            global_queue.popleft()
-        if len(global_queue) >= (self._rpm + self._burst):
-            return JSONResponse({"detail": "rate limit exceeded"}, status_code=429)
-        global_queue.append(now)
 
         # Per-key limiter with optional DB override
         key_rpm = self._rpm
@@ -85,7 +79,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 key_rpm = int(custom.get("requests_per_minute", key_rpm))
                 key_burst = int(custom.get("burst", key_burst))
 
-        key_queue = self._events[key_bucket]
+        scope = "user_key" if getattr(request.state, "is_user_key", False) else "legacy_key"
+        key_queue = self._events[f"{scope}:{key_id}"]
         while key_queue and (now - key_queue[0]) > self._window_seconds:
             key_queue.popleft()
         if len(key_queue) >= (key_rpm + key_burst):

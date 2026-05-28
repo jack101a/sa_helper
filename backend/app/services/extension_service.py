@@ -50,7 +50,22 @@ class ExtensionService:
             logger.error("Extension ZIP was not created", extra={"context": {"zip_path": str(zip_path)}})
             return False
         shutil.copy2(zip_path, crx_path)
-        shutil.copy2(zip_path, xpi_path)
+        xpi_dir = Path(tempfile.mkdtemp(prefix="sa_helper_firefox_extension_"))
+        try:
+            shutil.copytree(source_dir, xpi_dir / "extension")
+            firefox_manifest = xpi_dir / "extension" / "manifest_firefox.json"
+            if firefox_manifest.exists():
+                shutil.copy2(firefox_manifest, xpi_dir / "extension" / "manifest.json")
+                firefox_manifest.unlink()
+            xpi_base = xpi_dir / xpi_path.stem
+            shutil.make_archive(str(xpi_base), "zip", xpi_dir / "extension")
+            generated_xpi_zip = xpi_base.with_suffix(".zip")
+            generated_xpi_zip.replace(xpi_path)
+        finally:
+            shutil.rmtree(xpi_dir, ignore_errors=True)
+        if not xpi_path.exists():
+            logger.error("Extension XPI was not created", extra={"context": {"xpi_path": str(xpi_path)}})
+            return False
         return True
 
     def package_user_extension(self):

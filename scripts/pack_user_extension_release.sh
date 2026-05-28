@@ -135,6 +135,11 @@ def apply_user_manifest_profile(manifest_path: Path) -> None:
     manifest.pop("options_page", None)
     manifest["name"] = "ta-ta User"
     manifest["description"] = "Browser assistant synced by your ta-ta account"
+    if manifest_path.name == "manifest_firefox.json":
+        browser_settings = manifest.setdefault("browser_specific_settings", {})
+        gecko = browser_settings.setdefault("gecko", {})
+        gecko["id"] = "tata-captcha@nika"
+        browser_settings.setdefault("gecko_android", {})["strict_min_version"] = "142.0"
     for content_script in manifest.get("content_scripts") or []:
         if isinstance(content_script, dict):
             content_script["js"] = [
@@ -295,6 +300,20 @@ def zip_dir(source: Path, target: Path) -> None:
                 archive.write(path, path.relative_to(source).as_posix())
 
 
+def zip_firefox_dir(source: Path, target: Path) -> None:
+    with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(source.rglob("*")):
+            if not path.is_file():
+                continue
+            arcname = path.relative_to(source).as_posix()
+            if arcname == "manifest_firefox.json":
+                continue
+            if arcname == "manifest.json" and (source / "manifest_firefox.json").is_file():
+                archive.write(source / "manifest_firefox.json", "manifest.json")
+                continue
+            archive.write(path, arcname)
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as fh:
@@ -351,7 +370,7 @@ def main() -> None:
         xpi_path = OUT_DIR / f"{PKG_BASE}.xpi"
         zip_dir(dist_dir, zip_path)
         shutil.copy2(zip_path, crx_path)
-        shutil.copy2(zip_path, xpi_path)
+        zip_firefox_dir(dist_dir, xpi_path)
 
         check_dir = Path(tmp) / "check"
         with zipfile.ZipFile(zip_path, "r") as archive:
@@ -359,6 +378,14 @@ def main() -> None:
         validate_refs(check_dir)
         validate_user_profile(check_dir)
         for js_path in sorted(check_dir.rglob("*.js")):
+            node_check(js_path, esbuild)
+
+        firefox_check_dir = Path(tmp) / "firefox_check"
+        with zipfile.ZipFile(xpi_path, "r") as archive:
+            archive.extractall(firefox_check_dir)
+        validate_refs(firefox_check_dir)
+        validate_user_profile(firefox_check_dir)
+        for js_path in sorted(firefox_check_dir.rglob("*.js")):
             node_check(js_path, esbuild)
 
     revision = git_value("rev-parse", "--short", "HEAD")

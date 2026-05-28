@@ -66,6 +66,14 @@ def _extension_filename_for_format(fmt: str, variant: str = "admin") -> str:
     return mapping[normalized]
 
 
+def _extension_media_type(filename: str) -> str:
+    if filename.endswith(".zip"):
+        return "application/zip"
+    if filename.endswith(".xpi"):
+        return "application/x-xpinstall"
+    return "application/octet-stream"
+
+
 def _user_extension_artifact_path(filename: str) -> Path:
     if Path(filename).name != filename:
         raise HTTPException(400, "Invalid extension filename.")
@@ -535,7 +543,7 @@ async def download_extension(request: Request, format: str = "zip", variant: str
                 500,
                 f"Packaged user extension file not found: {filename}",
             )
-        media_type = "application/zip" if filename.endswith(".zip") else "application/octet-stream"
+        media_type = _extension_media_type(filename)
         return FileResponse(path=artifact_path, media_type=media_type, filename=filename)
 
     success = container.extension_service.package_extension()
@@ -546,7 +554,7 @@ async def download_extension(request: Request, format: str = "zip", variant: str
     if not artifact_path.exists():
         raise HTTPException(500, f"Packaged extension file not found: {filename}")
 
-    media_type = "application/zip" if filename.endswith(".zip") else "application/octet-stream"
+    media_type = _extension_media_type(filename)
     return FileResponse(path=artifact_path, media_type=media_type, filename=filename)
 
 

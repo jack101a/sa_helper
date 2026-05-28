@@ -443,7 +443,7 @@
                 resources: meta.resources || []
             },
             scriptHandler: 'ta-ta',
-            version: '2.2.0'
+            version: '2.5'
         };
         const resourceMap = {};
         for (const item of scriptData.bundledResources || []) {

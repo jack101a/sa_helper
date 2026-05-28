@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ta-ta",
-  "version": "2.2.0",
+  "version": "2.5",
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   },
@@ -128,7 +128,14 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "ta-ta@extension",
-      "strict_min_version": "91.0"
+      "strict_min_version": "142.0",
+      "data_collection_permissions": {
+        "required": [
+          "authenticationInfo",
+          "websiteActivity",
+          "websiteContent"
+        ]
+      }
     }
   }
 }
