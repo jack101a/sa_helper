@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.models import ExamWorkflowUsage, UsageCycle, UserSubscription, User
@@ -246,28 +247,38 @@ class UsageCycleService:
     def increment_usage_atomic(self, user_id: int, amount: int = 1) -> dict:
         """Atomically increment usage count using a single UPDATE with WHERE clause.
         This prevents TOCTOU races that could exceed the monthly limit under concurrent load."""
+        cycle = self.get_or_create_cycle(user_id)
+        if not cycle:
+            return {"allowed": False, "reason": "no_active_subscription", "used": 0, "limit": 0}
+        cycle_id = int(cycle.id)
         session = self._session()
         try:
             now = _utcnow_db()
             # Atomic: increment only if under limit, returns rowcount = 1 if successful
             result = session.execute(
-                "UPDATE usage_cycles SET used_count = used_count + :amount, updated_at = :now "
-                "WHERE user_id = :user_id AND cycle_start_at <= :now AND cycle_end_at > :now "
-                "AND used_count + :amount <= monthly_limit AND blocked_at_limit = 0",
-                {"amount": amount, "now": now, "user_id": user_id}
+                text(
+                    "UPDATE usage_cycles SET used_count = used_count + :amount, updated_at = :now "
+                    "WHERE id = :cycle_id "
+                    "AND used_count + :amount <= monthly_limit AND blocked_at_limit = 0"
+                ),
+                {"amount": amount, "now": now, "cycle_id": cycle_id}
             )
             session.commit()
             if result.rowcount > 0:
                 # Re-fetch to get updated values
-                cycle = (
-                    session.query(UsageCycle)
-                    .filter(UsageCycle.user_id == user_id, UsageCycle.cycle_start_at <= now, UsageCycle.cycle_end_at > now)
-                    .first()
-                )
+                cycle = session.query(UsageCycle).filter(UsageCycle.id == cycle_id).first()
                 if cycle:
                     return {"allowed": True, "used": cycle.used_count, "limit": cycle.monthly_limit, "cycle_id": cycle.id}
-            # Either no cycle or quota exceeded
-            return self.check_quota(user_id)
+            cycle = session.query(UsageCycle).filter(UsageCycle.id == cycle_id).first()
+            if cycle:
+                return {
+                    "allowed": False,
+                    "reason": "quota_exceeded",
+                    "used": cycle.used_count,
+                    "limit": cycle.monthly_limit,
+                    "cycle_id": cycle.id,
+                }
+            return {"allowed": False, "reason": "cycle_not_found", "used": 0, "limit": 0}
         except Exception:
             session.rollback()
             raise

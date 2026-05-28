@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.db import Base
 from app.core.models import SubscriptionPlan, User, UserApiKey, UserSubscription
 from app.core.security import hash_api_key
+from app.services.usage_cycle_service import UsageCycleService
 from app.services.user_key_service import UserKeyService
 
 
@@ -112,3 +113,28 @@ def test_validate_user_key_distinguishes_revoked_key():
     result = UserKeyService(Session, settings).validate_key(plain)
 
     assert result["auth_error"] == "revoked_key"
+
+
+def test_increment_usage_atomic_works_with_sqlalchemy_two():
+    Session = _session_factory()
+    user_id = _seed_user_with_plan(Session)
+    svc = UsageCycleService(Session)
+
+    result = svc.increment_usage_atomic(user_id, amount=1)
+
+    assert result["allowed"] is True
+    assert result["used"] == 1
+    assert result["limit"] == 100
+
+
+def test_increment_usage_atomic_blocks_without_incrementing_over_limit():
+    Session = _session_factory()
+    user_id = _seed_user_with_plan(Session)
+    svc = UsageCycleService(Session)
+
+    result = svc.increment_usage_atomic(user_id, amount=101)
+
+    assert result["allowed"] is False
+    assert result["reason"] == "quota_exceeded"
+    assert result["used"] == 0
+    assert result["limit"] == 100
