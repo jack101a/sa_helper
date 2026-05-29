@@ -1,4 +1,4 @@
-// content.js - ta-ta Extension (V2.2)
+// content.js - ta-ta Extension (V2.6.1)
 // Slim bootloader for modularized content script.
 // Modules: shared_utils.js, sarathi_harden.js, captcha.js, exam.js, autofill.js, stall_automation.js
 
