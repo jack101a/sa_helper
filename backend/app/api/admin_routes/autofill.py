@@ -134,6 +134,30 @@ async def delete_autofill_proposal(request: Request, proposal_id: int) -> Any:
     return JSONResponse({"ok": True})
 
 
+@router.post("/api/autofill/proposals/bulk-delete")
+async def bulk_delete_autofill_proposals(request: Request) -> Any:
+    """Permanently delete multiple autofill proposals."""
+    denied = _admin_guard(request)
+    if denied:
+        return denied
+    container = request.app.state.container
+    try:
+        body = await request.json()
+        proposal_ids = body.get("proposal_ids", [])
+        if not isinstance(proposal_ids, list):
+            raise ValueError("proposal_ids must be a list")
+        deleted = 0
+        missing = 0
+        for pid in proposal_ids:
+            if container.db.delete_autofill_proposal(int(pid)):
+                deleted += 1
+            else:
+                missing += 1
+        return JSONResponse({"ok": True, "deleted": deleted, "missing": missing})
+    except Exception as e:
+        raise HTTPException(400, detail=str(e))
+
+
 @router.get("/api/autofill/export")
 async def export_autofill_rules(request: Request) -> Any:
     """Export all approved autofill rules as JSON."""

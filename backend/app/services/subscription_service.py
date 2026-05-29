@@ -6,9 +6,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
-
-from app.core.models import SubscriptionPlan, UserSubscription, User
+from app.core.models import PaymentRecord, SubscriptionPlan, UsageCycle, UserSubscription, User
 
 
 class SubscriptionService:
@@ -105,7 +103,7 @@ class SubscriptionService:
             session.close()
 
     def delete_plan(self, plan_id: int, target_plan_id: int | None = None) -> dict | None:
-        """Deactivate a plan and optionally migrate linked subscriptions to another plan."""
+        """Delete a plan, migrating required subscription references first."""
         session = self._session()
         try:
             plan = session.query(SubscriptionPlan).filter(SubscriptionPlan.id == plan_id).first()
@@ -125,33 +123,58 @@ class SubscriptionService:
                 if not target_plan.is_active:
                     raise ValueError("Target plan must be active")
 
+            subs = session.query(UserSubscription).filter(UserSubscription.plan_id == plan_id).all()
+            live_subs = [sub for sub in subs if sub.status in {"active", "pending"}]
+            historical_subs = [sub for sub in subs if sub.status not in {"active", "pending"}]
+            if live_subs and target_plan is None:
+                raise ValueError("Select a target plan before deleting a plan linked to subscriptions")
+
+            now = datetime.now(timezone.utc)
             migrated_count = 0
+            deleted_subscription_count = 0
             if target_plan is not None:
-                subs = (
-                    session.query(UserSubscription)
-                    .filter(
-                        UserSubscription.plan_id == plan_id,
-                        or_(
-                            UserSubscription.status == "active",
-                            UserSubscription.status == "pending",
-                        ),
-                    )
-                    .all()
-                )
                 for sub in subs:
                     sub.plan_id = int(target_plan.id)
                     sub.monthly_limit_snapshot = int(target_plan.monthly_limit)
-                    sub.updated_at = datetime.now(timezone.utc)
+                    sub.updated_at = now
                 migrated_count = len(subs)
+            else:
+                historical_subscription_ids = [int(sub.id) for sub in historical_subs]
+                if historical_subscription_ids:
+                    (
+                        session.query(UsageCycle)
+                        .filter(UsageCycle.subscription_id.in_(historical_subscription_ids))
+                        .delete(synchronize_session=False)
+                    )
+                    (
+                        session.query(PaymentRecord)
+                        .filter(PaymentRecord.subscription_id.in_(historical_subscription_ids))
+                        .update(
+                            {
+                                PaymentRecord.subscription_id: None,
+                                PaymentRecord.plan_id: None,
+                                PaymentRecord.updated_at: now,
+                            },
+                            synchronize_session=False,
+                        )
+                    )
+                for sub in historical_subs:
+                    session.delete(sub)
+                deleted_subscription_count = len(historical_subs)
 
-            plan.is_active = False
-            plan.updated_at = datetime.now(timezone.utc)
+            payments = session.query(PaymentRecord).filter(PaymentRecord.plan_id == plan_id).all()
+            for payment in payments:
+                payment.plan_id = int(target_plan.id) if target_plan is not None else None
+                payment.updated_at = now
+
+            session.delete(plan)
             session.commit()
-            session.refresh(plan)
             return {
-                "plan": plan,
+                "plan_id": int(plan_id),
                 "migrated_count": migrated_count,
                 "target_plan_id": int(target_plan.id) if target_plan is not None else None,
+                "payment_refs_updated": len(payments),
+                "deleted_subscription_count": deleted_subscription_count,
             }
         except Exception:
             session.rollback()

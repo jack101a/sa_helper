@@ -95,15 +95,31 @@ export function PlansPanel({ showToast }) {
         body: JSON.stringify(body),
       });
       const moved = Number(result?.migrated_count || 0);
+      const removedSubs = Number(result?.deleted_subscription_count || 0);
       if (moved > 0) {
-        showToast(`Plan deactivated. Migrated ${moved} linked subscription(s).`);
+        showToast(`Plan deleted. Migrated ${moved} linked subscription(s).`);
+      } else if (removedSubs > 0) {
+        showToast(`Plan deleted. Removed ${removedSubs} old subscription record(s).`);
       } else {
-        showToast("Plan deactivated");
+        showToast("Plan deleted");
       }
       closeDeleteModal();
       fetchPlans();
     } catch (e) {
       showToast(e.message || "Failed to deactivate plan", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleActiveToggle = async (plan, nextActive) => {
+    setSaving(true);
+    try {
+      await apiPutJson(`/admin/api/plans/${plan.id}`, { is_active: nextActive });
+      showToast(nextActive ? "Plan enabled" : "Plan disabled");
+      fetchPlans();
+    } catch (e) {
+      showToast(e.message || "Failed to update plan status", "error");
     } finally {
       setSaving(false);
     }
@@ -135,6 +151,20 @@ export function PlansPanel({ showToast }) {
       allowed_services: { ...defaultAllowedServices, ...(plan.allowed_services || {}) },
     });
   };
+
+  const activeSwitchClass = (active) => [
+    "relative inline-flex h-6 w-11 items-center rounded-full border transition-colors disabled:opacity-50",
+    active
+      ? "bg-emerald-500/80 border-emerald-400/60"
+      : isDark
+        ? "bg-slate-800 border-slate-600"
+        : "bg-slate-200 border-slate-300",
+  ].join(" ");
+
+  const switchKnobClass = (active) => [
+    "inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+    active ? "translate-x-5" : "translate-x-1",
+  ].join(" ");
 
   return (
     <div className="space-y-6">
@@ -263,18 +293,29 @@ export function PlansPanel({ showToast }) {
                           </div>
                         </td>
                         <td className="p-3">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${p.is_active ? "bg-emerald-500/20 text-emerald-400" : "bg-slate-500/20 text-slate-400"}`}>
-                            {p.is_active ? "Active" : "Inactive"}
-                          </span>
+                          <div className={`inline-flex items-center gap-2 text-xs ${t_textMuted}`}>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={!!p.is_active}
+                              disabled={saving}
+                              onClick={() => handleActiveToggle(p, !p.is_active)}
+                              className={activeSwitchClass(!!p.is_active)}
+                              title={p.is_active ? "Disable plan" : "Enable plan"}
+                            >
+                              <span className={switchKnobClass(!!p.is_active)} />
+                            </button>
+                            <span className={`px-2 py-0.5 rounded-full font-medium ${p.is_active ? "bg-emerald-500/20 text-emerald-400" : "bg-slate-500/20 text-slate-400"}`}>
+                              {p.is_active ? "Active" : "Inactive"}
+                            </span>
+                          </div>
                         </td>
                         <td className="p-3">
                           <div className="flex items-center justify-end gap-1">
                             <button onClick={() => openEdit(p)} className={iconBtn} title="Edit"><Edit3 size={14} /></button>
-                            {p.is_active && (
-                              <button onClick={() => openDeleteModal(p.id)} className={iconBtn} title="Deactivate" disabled={saving}>
-                                <Trash2 size={14} className="text-rose-400" />
-                              </button>
-                            )}
+                            <button onClick={() => openDeleteModal(p.id)} className={iconBtn} title="Delete plan" disabled={saving}>
+                              <Trash2 size={14} className="text-rose-400" />
+                            </button>
                           </div>
                         </td>
                       </>
@@ -366,18 +407,18 @@ export function PlansPanel({ showToast }) {
       {deletePlanId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={closeDeleteModal}>
           <div className={`${glassPanel} rounded-2xl p-6 w-full max-w-md border ${t_borderLight}`} onClick={(e) => e.stopPropagation()}>
-            <h3 className={`text-lg font-semibold mb-3 ${t_textHeading}`}>Deactivate Plan</h3>
+            <h3 className={`text-lg font-semibold mb-3 ${t_textHeading}`}>Delete Plan</h3>
             <p className={`text-sm mb-4 ${t_textMuted}`}>
-              Move linked users to another active plan before deactivation.
+              Move linked subscriptions to another active plan before deleting.
             </p>
             <div className="space-y-2">
-              <label className={`text-xs block ${t_textMuted}`}>Target Plan (optional)</label>
+              <label className={`text-xs block ${t_textMuted}`}>Target Plan</label>
               <select
                 className={glassInput}
                 value={deleteTargetPlanId}
                 onChange={(e) => setDeleteTargetPlanId(e.target.value)}
               >
-                <option value="">Do not migrate linked users</option>
+                <option value="">No target plan</option>
                 {plans
                   .filter((p) => p.is_active && p.id !== deletePlanId)
                   .map((p) => (
@@ -389,7 +430,7 @@ export function PlansPanel({ showToast }) {
             </div>
             <div className="flex gap-2 pt-4">
               <button type="button" onClick={handleDelete} className={solidButton} disabled={saving}>
-                {saving ? <Loader2 size={16} className="animate-spin" /> : "Deactivate"}
+                {saving ? <Loader2 size={16} className="animate-spin" /> : "Delete"}
               </button>
               <button type="button" onClick={closeDeleteModal} className={`px-4 py-2 rounded-xl text-sm ${t_textMuted} border ${t_borderLight}`}>
                 Cancel

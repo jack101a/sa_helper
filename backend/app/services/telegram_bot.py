@@ -171,10 +171,8 @@ class TelegramBotService:
 
             self.set_state(chat_id, STATE_NAME)
             return (
-                "🤖 *Welcome to ta-ta Extension!*\n\n"
-                "Automate your MCQ exams with our browser extension.\n\n"
-                "To get started, use /register\n\n"
-                "Already registered? Use /my_status"
+                "Hello and welcome to ta-ta Extensions.\n"
+                "Use this bot to set up your account, check plan status, and manage your connected services."
             )
         finally:
             session.close()

@@ -72,11 +72,16 @@ async def update_plan(request: Request, plan_id: int) -> Any:
     if denied:
         return denied
     container = request.app.state.container
-    body = await request.json()
-    plan = container.subscription_service.update_plan(plan_id, **body)
-    if not plan:
-        return JSONResponse({"error": "Plan not found"}, status_code=404)
-    return JSONResponse(plan.to_dict())
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            return JSONResponse({"error": "Invalid payload"}, status_code=400)
+        plan = container.subscription_service.update_plan(plan_id, **body)
+        if not plan:
+            return JSONResponse({"error": "Plan not found"}, status_code=404)
+        return JSONResponse(plan.to_dict())
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
 
 
 @router.delete("/api/plans/{plan_id}")
@@ -100,6 +105,8 @@ async def delete_plan(request: Request, plan_id: int) -> Any:
         )
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
     if not result:
         return JSONResponse({"error": "Plan not found"}, status_code=404)
@@ -109,12 +116,17 @@ async def delete_plan(request: Request, plan_id: int) -> Any:
         after_json=json.dumps({
             "target_plan_id": result.get("target_plan_id"),
             "migrated_count": result.get("migrated_count", 0),
+            "payment_refs_updated": result.get("payment_refs_updated", 0),
+            "deleted_subscription_count": result.get("deleted_subscription_count", 0),
         }),
     )
     return JSONResponse({
-        **result["plan"].to_dict(),
+        "ok": True,
+        "plan_id": result.get("plan_id", plan_id),
         "migrated_count": result.get("migrated_count", 0),
         "target_plan_id": result.get("target_plan_id"),
+        "payment_refs_updated": result.get("payment_refs_updated", 0),
+        "deleted_subscription_count": result.get("deleted_subscription_count", 0),
     })
 
 

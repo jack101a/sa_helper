@@ -489,6 +489,7 @@ export function AutofillProposalsPanel({
   handleRejectAutofillProposal,
   handleBulkApproveAutofillProposals,
   handleBulkRejectAutofillProposals,
+  handleBulkDeleteAutofillProposals,
   handleEditAutofillProposal,
   handleDeleteAutofillProposal,
   handleImportAutofillRules,
@@ -767,6 +768,10 @@ export function AutofillProposalsPanel({
           <button onClick={() => { handleBulkRejectAutofillProposals(selectedIds); clearSel(); }}
             className="px-2 py-1 rounded text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20 cursor-pointer flex items-center gap-1 whitespace-nowrap">
             <XCircle size={12}/> Reject
+          </button>
+          <button onClick={() => { handleBulkDeleteAutofillProposals(selectedIds); clearSel(); }}
+            className="px-2 py-1 rounded text-[10px] bg-rose-600/15 text-rose-400 border border-rose-600/30 cursor-pointer flex items-center gap-1 whitespace-nowrap">
+            <Trash2 size={12}/> Delete selected
           </button>
           <button onClick={clearSel} className={`text-[10px] ${t_textMuted} cursor-pointer whitespace-nowrap`}>clear</button>
         </div>
@@ -1086,6 +1091,7 @@ AutofillProposalsPanel.propTypes = {
   handleRejectAutofillProposal: PropTypes.func.isRequired,
   handleBulkApproveAutofillProposals: PropTypes.func.isRequired,
   handleBulkRejectAutofillProposals: PropTypes.func.isRequired,
+  handleBulkDeleteAutofillProposals: PropTypes.func.isRequired,
   handleEditAutofillProposal: PropTypes.func.isRequired,
   handleDeleteAutofillProposal: PropTypes.func.isRequired,
   handleImportAutofillRules: PropTypes.func.isRequired,

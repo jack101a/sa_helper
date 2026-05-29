@@ -71,6 +71,17 @@ export function useProposalHandlers({ showToast }) {
     onError: () => showToast("Failed to delete proposal", "error"),
   });
 
+  const bulkDeleteAutofill = useMutation({
+    mutationFn: (ids) => apiPostJson("/admin/api/autofill/proposals/bulk-delete", { proposal_ids: ids.map(Number) }),
+    onSuccess: (body, ids) => {
+      const deleted = Number(body?.deleted || 0);
+      const missing = Number(body?.missing || 0);
+      showToast(`Deleted ${deleted}/${ids.length} autofill rule(s).${missing ? ` Missing: ${missing}` : ""}`);
+      invalidate();
+    },
+    onError: () => showToast("Failed to bulk delete autofill rules", "error"),
+  });
+
   const importAutofill = useMutation({
     mutationFn: (rules) => apiPostJson("/admin/api/autofill/import", { rules }),
     onSuccess: (body) => {
@@ -149,6 +160,11 @@ export function useProposalHandlers({ showToast }) {
     handleRejectAutofillProposal: (id) => { if (window.confirm("Reject proposal?")) rejectAutofill.mutate(id); },
     handleBulkApproveAutofillProposals: (ids) => bulkApproveAutofill.mutate(ids),
     handleBulkRejectAutofillProposals: (ids) => bulkRejectAutofill.mutate(ids),
+    handleBulkDeleteAutofillProposals: (ids) => {
+      if (window.confirm(`Permanently delete ${ids.length} selected autofill proposal(s)?`)) {
+        bulkDeleteAutofill.mutate(ids);
+      }
+    },
     handleEditAutofillProposal: (id, patch) => editAutofill.mutateAsync({ id, patch }).then(() => true).catch(() => false),
     handleDeleteAutofillProposal: (id) => { if (window.confirm("Permanently delete this autofill proposal?")) deleteAutofill.mutate(id); },
     handleImportAutofillRules: (rules) => importAutofill.mutateAsync(rules).then(() => true).catch(() => false),

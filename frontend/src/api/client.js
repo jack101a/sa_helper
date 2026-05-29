@@ -11,17 +11,18 @@ async function handleResponse(resp) {
   let data;
   try { data = await resp.json(); } catch { data = null; }
   if (!resp.ok) {
-    const msg = data?.message || data?.detail || `Request failed (${resp.status})`;
+    const msg = data?.message || data?.detail || data?.error || `Request failed (${resp.status})`;
     throw new ApiError(msg, resp.status, data);
   }
   return data;
 }
 
 function buildOpts(opts = {}) {
+  const { headers = {}, ...rest } = opts;
   return {
     credentials: "include",
-    headers: { Accept: "application/json", "X-Admin-API": "1", ...(opts.headers || {}) },
-    ...opts,
+    ...rest,
+    headers: { Accept: "application/json", "X-Admin-API": "1", ...headers },
   };
 }
 
