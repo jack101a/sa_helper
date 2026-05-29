@@ -23,23 +23,42 @@ function DashboardPage() {
   const ctx = useAdminDataContext();
   const { t_textHeading, t_textMuted, t_rowHover, glassPanel, isDark } = useThemeContext();
 
-  const latencyValue = (() => {
-    const v = Math.max(0, Math.round(Number(ctx.stats.avg_processing_ms || 0)));
-    return v > 9999 ? "9999+" : String(v);
-  })();
+  const formatMs = (value) => {
+    const v = Math.max(0, Math.round(Number(value || 0)));
+    return `${v > 9999 ? "9999+" : String(v)}ms`;
+  };
+
+  const performance = ctx.stats.performance || {};
+  const windowMinutes = Number(performance.window_minutes || 15);
+  const performanceFor = (service) => {
+    const bucket = performance[service] || {};
+    const recent = bucket.recent || {};
+    const allTime = bucket.all_time || {};
+    const source = Number(recent.measured_requests || 0) > 0 ? recent : allTime;
+    const isRecent = source === recent;
+    return {
+      avg: formatMs(source.avg_processing_ms || 0),
+      meta: `${isRecent ? `last ${windowMinutes}m` : "all time"} | p95 ${formatMs(source.p95_processing_ms || 0)} | ${Number(source.measured_requests || 0).toLocaleString()} measured`,
+    };
+  };
+
+  const captchaPerf = performanceFor("captcha");
+  const examPerf = performanceFor("exam");
 
   const statCards = [
     { label: "Total Requests", value: ctx.stats.total_requests?.toLocaleString() || "0", color: "text-indigo-500", icon: BarChart3 },
     { label: "Success", value: ctx.stats.successful_requests?.toLocaleString() || "0", color: "text-emerald-500", icon: CheckCircle2 },
     { label: "Failed", value: ctx.stats.failed_requests?.toLocaleString() || "0", color: "text-rose-500", icon: XCircle },
-    { label: "Avg Latency", value: `${latencyValue}ms`, color: "text-cyan-500", icon: Timer },
+    { label: "Captcha Avg", value: captchaPerf.avg, meta: captchaPerf.meta, color: "text-cyan-500", icon: Timer },
+    { label: "Exam Avg", value: examPerf.avg, meta: examPerf.meta, color: "text-amber-500", icon: Timer },
+    { label: "Overall Avg", value: formatMs(ctx.stats.avg_processing_ms), meta: "all services", color: "text-sky-500", icon: Timer },
   ];
 
   return (
     <div className="space-y-8">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         {ctx.loading
-          ? Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
+          ? Array.from({ length: statCards.length }).map((_, i) => <SkeletonCard key={i} />)
           : statCards.map((s, i) => {
               const Icon = s.icon;
               return (
@@ -47,6 +66,7 @@ function DashboardPage() {
                   <div>
                     <p className={`text-sm font-medium mb-1 ${t_textMuted}`}>{s.label}</p>
                     <p className={`text-2xl sm:text-3xl font-bold tracking-tight ${t_textHeading}`}>{s.value}</p>
+                    {s.meta ? <p className={`mt-1 text-[11px] leading-snug ${t_textMuted}`}>{s.meta}</p> : null}
                   </div>
                   <div className={`p-3 rounded-xl border group-hover:scale-110 transition-transform ${isDark ? "bg-white/[0.05] border-white/5" : "bg-white border-white/60 shadow-sm"} ${s.color}`}>
                     <Icon size={24} />

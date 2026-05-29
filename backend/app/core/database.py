@@ -479,6 +479,7 @@ class Database:
         # ── Performance indexes ──────────────────────────────
         conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_task_status ON usage_events(task_type, status)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_key_id ON usage_events(key_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_task_created ON usage_events(task_type, created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_field_proposals_status ON field_mapping_proposals(status)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_autofill_proposals_status ON autofill_rule_proposals(status, created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_exam_learned_phash ON exam_learned(question_phash)")

@@ -1,6 +1,6 @@
 from __future__ import annotations
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from .base import BaseRepository
 from app.core.config import get_settings
@@ -176,6 +176,92 @@ class APIKeyRepository(BaseRepository):
                 )
                 conn.commit()
 
+    @staticmethod
+    def _percentile(values: list[int], percentile: float) -> int:
+        if not values:
+            return 0
+        ordered = sorted(values)
+        index = max(0, min(len(ordered) - 1, int(round((len(ordered) - 1) * percentile))))
+        return int(ordered[index])
+
+    def _get_service_performance(
+        self,
+        *,
+        task_type: str,
+        task_like: bool = False,
+        key_id: int | None = None,
+        since: datetime | None = None,
+    ) -> dict[str, Any]:
+        where = ["task_type LIKE ?" if task_like else "task_type = ?"]
+        params: list[Any] = [task_type]
+        if key_id is not None:
+            where.append("key_id = ?")
+            params.append(key_id)
+        if since is not None:
+            where.append("created_at >= ?")
+            params.append(since.isoformat())
+
+        where_sql = " AND ".join(where)
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT status, processing_ms
+                FROM usage_events
+                WHERE {where_sql}
+                """,
+                tuple(params),
+            ).fetchall()
+
+        total = len(rows)
+        ok = sum(1 for row in rows if str(row["status"]) == "ok")
+        errors = sum(1 for row in rows if str(row["status"]) == "error")
+        measured = [
+            int(row["processing_ms"] or 0)
+            for row in rows
+            if str(row["status"]) != "error" and int(row["processing_ms"] or 0) > 0
+        ]
+        avg_ms = round(sum(measured) / len(measured), 1) if measured else 0.0
+        return {
+            "total_requests": total,
+            "successful_requests": ok,
+            "failed_requests": total - ok,
+            "error_requests": errors,
+            "measured_requests": len(measured),
+            "avg_processing_ms": avg_ms,
+            "p50_processing_ms": self._percentile(measured, 0.50),
+            "p95_processing_ms": self._percentile(measured, 0.95),
+        }
+
+    def _get_service_performance_summary(self, key_id: int | None = None) -> dict[str, Any]:
+        since_15m = datetime.now(timezone.utc) - timedelta(minutes=15)
+        return {
+            "window_minutes": 15,
+            "captcha": {
+                "recent": self._get_service_performance(
+                    task_type="captcha:%",
+                    task_like=True,
+                    key_id=key_id,
+                    since=since_15m,
+                ),
+                "all_time": self._get_service_performance(
+                    task_type="captcha:%",
+                    task_like=True,
+                    key_id=key_id,
+                ),
+            },
+            "exam": {
+                "recent": self._get_service_performance(
+                    task_type="exam",
+                    key_id=key_id,
+                    since=since_15m,
+                ),
+                "all_time": self._get_service_performance(
+                    task_type="exam",
+                    key_id=key_id,
+                ),
+            },
+        }
+
     def get_usage_summary(self, key_id: int | None = None) -> dict[str, Any]:
         """Get usage summary, optionally filtered by key."""
         with self.connect() as conn:
@@ -202,6 +288,7 @@ class APIKeyRepository(BaseRepository):
                 "successful_requests": int(success),
                 "failed_requests": int(total - success),
                 "avg_processing_ms": float(avg_ms),
+                "performance": self._get_service_performance_summary(key_id=key_id),
             }
 
     def get_all_api_keys(self) -> list[dict[str, Any]]:
