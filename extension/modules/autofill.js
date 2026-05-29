@@ -187,18 +187,14 @@
         function setNativeValue(el, value) {
             if (el instanceof HTMLSelectElement) {
                 const target = String(value).trim().toLowerCase();
-                let found = false;
-                for (let i = 0; i < el.options.length; i++) {
-                    const opt = el.options[i];
-                    const optValue = String(opt.value || '').trim().toLowerCase();
-                    const optText = String(opt.text || '').trim().toLowerCase();
-                    if (optValue === target || optText === target || optText.includes(target)) {
-                        el.selectedIndex = i;
-                        found = true;
-                        break;
-                    }
+                const options = Array.from(el.options || []);
+                let match = options.find(opt => String(opt.value || '').trim().toLowerCase() === target)
+                    || options.find(opt => String(opt.text || '').trim().toLowerCase() === target);
+                if (!match && target.length >= 3) {
+                    match = options.find(opt => String(opt.text || '').trim().toLowerCase().includes(target));
                 }
-                if (!found) el.value = value;
+                if (match) el.selectedIndex = options.indexOf(match);
+                else el.value = value;
             } else {
                 const { set: valueSetter } = Object.getOwnPropertyDescriptor(el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value') || {};
                 if (valueSetter && valueSetter !== Object.getOwnPropertyDescriptor(el, 'value')?.set) {
@@ -262,7 +258,7 @@
                 const target = String(expected ?? '').trim().toLowerCase();
                 return String(el.value || '').trim().toLowerCase() === target
                     || String(selected?.text || '').trim().toLowerCase() === target
-                    || String(selected?.text || '').trim().toLowerCase().includes(target);
+                    || (target.length >= 3 && String(selected?.text || '').trim().toLowerCase().includes(target));
             }
             return String(el.value ?? '') === String(expected ?? '');
         }
@@ -404,13 +400,19 @@
             return [
                 rule.local_rule_id || rule.server_rule_id || rule.name || '',
                 rule.site?.pattern || '',
+                rule.site?.domain || '',
+                rule.site?.path || '',
                 step.order || '',
+                step.field_key || '',
                 step.action || '',
                 String(step.value ?? ''),
                 selector.strategy || '',
+                selector.primary || '',
                 selector.id || '',
+                selector.element_id || '',
                 selector.name || '',
-                selector.css || ''
+                selector.css || '',
+                selector.xpath || ''
             ].join('|');
         }
 
@@ -431,7 +433,7 @@
             const fillValue = resolveFillValue(step, profileData);
             const resolved = await waitForStepElement(step, fillValue, settings, execution);
             const el = resolved.el;
-            if (!resolved.ok || !el || _filledElements.has(el)) {
+            if (!resolved.ok || !el) {
                 if (settings.debugMode || settings.isMaster) {
                     debugLog('[Autofill] Step pending', { step, reason: resolved.reason, matches: resolved.matches, visibleMatches: resolved.visibleMatches });
                 }
@@ -457,7 +459,6 @@
                     return 'pending';
                 }
                 if (settings.flashFeedback && (settings.debugMode || settings.isMaster)) flashElement(el, true);
-                _filledElements.add(el);
                 _completedStepKeys.add(stepKey);
                 window.up_sendMsg('INCREMENT_STAT', { key: 'statFill' });
                 const delayMs = Number(step.runtime?.delay_ms ?? step.delay_ms ?? step.delayMs ?? execution.delay_ms ?? execution.delayMs ?? 100);
@@ -656,12 +657,18 @@
             return [
                 rule?.site?.match_mode || '',
                 rule?.site?.pattern || '',
+                rule?.site?.domain || '',
+                rule?.site?.path || '',
+                step.field_key || '',
                 step.action || '',
                 String(step.value ?? ''),
                 selector.strategy || '',
+                selector.primary || '',
                 selector.id || '',
+                selector.element_id || '',
                 selector.name || '',
-                selector.css || ''
+                selector.css || '',
+                selector.xpath || ''
             ].join('|');
         }
 
@@ -1199,8 +1206,9 @@
             _lastRecordedAt = now;
 
             const lastStep = session.steps[session.steps.length - 1];
-            if (action === 'text' && lastStep && stepTargetSignature(lastStep) === stepTargetSignature(step)) {
+            if (['text', 'select', 'checkbox', 'radio'].includes(action) && lastStep && stepTargetSignature(lastStep) === stepTargetSignature(step)) {
                 lastStep.value = value;
+                lastStep.action = action;
                 lastStep.meta = { ...(lastStep.meta || {}), updated_at: new Date().toISOString() };
             } else {
                 session.steps.push(step);

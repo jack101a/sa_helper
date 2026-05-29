@@ -1094,13 +1094,19 @@ async function hasSolverEntitlement() {
 function normalizeRuleStep(step = {}) {
     const selector = step.selector || {};
     return {
+        order: step.order || '',
+        field_key: step.field_key || '',
         action: step.action || '',
         value: String(step.value ?? ''),
         selector: {
             strategy: selector.strategy || '',
+            primary: selector.primary || '',
             id: selector.id || '',
+            element_id: selector.element_id || '',
             name: selector.name || '',
-            css: selector.css || ''
+            css: selector.css || '',
+            xpath: selector.xpath || '',
+            label: selector.label || ''
         }
     };
 }
@@ -1111,7 +1117,9 @@ function ruleSignature(rule = {}) {
         profile: rule.profile_scope || 'default',
         site: {
             match_mode: rule.site?.match_mode || '',
-            pattern: rule.site?.pattern || ''
+            pattern: rule.site?.pattern || '',
+            domain: rule.site?.domain || '',
+            path: rule.site?.path || ''
         },
         steps: steps.map(normalizeRuleStep)
     });

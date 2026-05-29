@@ -242,6 +242,7 @@ function normalizeStep(step, index = 0) {
   const runtime = step?.runtime || {};
   return {
     ...defaultStep(index),
+    originalStep: step && typeof step === "object" ? step : {},
     order: numberOr(step?.order, index + 1),
     field_key: step?.field_key || step?.field || "",
     label: step?.label || selector.label || element.label || "",
@@ -309,13 +310,19 @@ function ruleToForm(row) {
 }
 
 function stepToRule(step, index) {
+  const original = step.originalStep || {};
+  const originalSelector = original.selector || {};
+  const originalElement = original.element || {};
+  const originalRuntime = original.runtime || {};
   return compactObject({
+    ...original,
     order: numberOr(step.order, index + 1),
     field_key: step.field_key,
     label: step.label,
     action: step.action || "text",
     value: step.action === "click" ? "" : step.value,
     selector: compactObject({
+      ...originalSelector,
       strategy: step.strategy || "css",
       primary: step.primary || step.strategy || "css",
       id: step.id,
@@ -327,6 +334,7 @@ function stepToRule(step, index) {
       confidence: step.confidence === "" ? undefined : Number(step.confidence),
     }),
     element: compactObject({
+      ...originalElement,
       id: step.id,
       name: step.name,
       tag: step.tag,
@@ -334,7 +342,7 @@ function stepToRule(step, index) {
       placeholder: step.placeholder,
       aria_label: step.aria_label,
     }),
-    runtime: compactObject({ tag: step.tag, type: step.type, placeholder: step.placeholder }),
+    runtime: compactObject({ ...originalRuntime, tag: step.tag, type: step.type, placeholder: step.placeholder }),
     delay_ms: step.delay_ms === "" ? undefined : numberOr(step.delay_ms, 0),
     timeout_ms: step.timeout_ms === "" ? undefined : numberOr(step.timeout_ms, 0),
     required: step.required !== false,
