@@ -171,8 +171,11 @@ class TelegramBotService:
 
             self.set_state(chat_id, STATE_NAME)
             return (
-                "Hello and welcome to ta-ta Extensions.\n"
-                "Use this bot to set up your account, check plan status, and manage your connected services."
+                "👋 *Welcome to ta-ta Extensions*\n\n"
+                "Use this bot to register your account, choose a plan, submit payment proof, "
+                "and check your subscription after approval.\n\n"
+                "Tap *Register* to begin, or send your full name here to start registration.\n"
+                "Tap *Help* if you want the command guide first."
             )
         finally:
             session.close()
@@ -800,15 +803,35 @@ class TelegramBotService:
                     resize_keyboard=True,
                 )
 
+            def _guest_keyboard():
+                """Return a small onboarding keyboard for users not registered yet."""
+                return ReplyKeyboardMarkup(
+                    [
+                        [KeyboardButton("📝 Register"), KeyboardButton("❓ Help")],
+                    ],
+                    resize_keyboard=True,
+                )
+
+            def _is_registered_user(telegram_user_id: str) -> bool:
+                session = self._session()
+                try:
+                    return session.query(User).filter(
+                        User.telegram_user_id == str(telegram_user_id)
+                    ).first() is not None
+                finally:
+                    session.close()
+
             async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 uid = str(update.effective_user.id)
                 chat_id = update.effective_chat.id
+                was_registered = _is_registered_user(uid)
                 msg = self.handle_start(chat_id, uid)
-                # Only show keyboard for existing users (not during registration)
                 state = self.get_state(chat_id)
                 kwargs = {"parse_mode": "Markdown"}
-                if state["state"] != STATE_NAME:
+                if was_registered or state["state"] != STATE_NAME:
                     kwargs["reply_markup"] = _main_keyboard()
+                else:
+                    kwargs["reply_markup"] = _guest_keyboard()
                 try:
                     await update.message.reply_text(msg, **kwargs)
                 except Exception:
@@ -880,8 +903,10 @@ class TelegramBotService:
                 # New user — start name collection (asked only once)
                 self.set_state(chat_id, STATE_NAME)
                 await update.message.reply_text(
-                    "Let's register! What's your full name?",
-                    parse_mode="Markdown")
+                    "Let's register! What's your full name?\n\n"
+                    "_Send your name as a message, or tap Help if you need guidance._",
+                    parse_mode="Markdown",
+                    reply_markup=_guest_keyboard())
 
             async def renew_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 uid = str(update.effective_user.id)
@@ -958,7 +983,10 @@ class TelegramBotService:
                         return
                     self.set_state(chat_id, STATE_NAME)
                     await update.message.reply_text(
-                        "Let's register! What's your full name?", parse_mode="Markdown")
+                        "Let's register! What's your full name?\n\n"
+                        "_Send your name as a message, or tap Help if you need guidance._",
+                        parse_mode="Markdown",
+                        reply_markup=_guest_keyboard())
                     return
                 if text == "📊 My Status":
                     msg = self.handle_my_status(uid)
@@ -977,15 +1005,18 @@ class TelegramBotService:
                     await update.message.reply_text(msg, parse_mode="Markdown")
                     return
                 if text == "❓ Help":
+                    registered = _is_registered_user(uid)
                     await update.message.reply_text(
                         "🤖 *ta-ta Extension Bot*\n\n"
+                        "New here? Tap *Register* and send your full name, mobile number, select a plan, then submit payment proof for admin approval.\n\n"
                         "📋 *Commands:*\n"
                         "/start — Welcome & info\n"
                         "/register — Start registration\n"
                         "/renew — Renew subscription\n"
                         "/payment_status — Payment history\n"
                         "/help — This help",
-                        parse_mode="Markdown", reply_markup=_main_keyboard())
+                        parse_mode="Markdown",
+                        reply_markup=_main_keyboard() if registered else _guest_keyboard())
                     return
 
                 # ── State machine ───────────────────────────────────────────
@@ -1061,8 +1092,11 @@ class TelegramBotService:
                         logger.error("qr_photo_failed", extra={"context": {"error": str(e)}})
 
             async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+                uid = str(update.effective_user.id)
+                registered = _is_registered_user(uid)
                 await update.message.reply_text(
                     "🤖 *ta-ta Extension Bot*\n\n"
+                    "New here? Tap *Register* and send your full name, mobile number, select a plan, then submit payment proof for admin approval.\n\n"
                     "📋 *Commands:*\n"
                     "/start — Welcome & info\n"
                     "/register — Start registration\n"
@@ -1070,7 +1104,7 @@ class TelegramBotService:
                     "/payment_status — Payment history\n"
                     "/help — This help",
                     parse_mode="Markdown",
-                    reply_markup=_main_keyboard()
+                    reply_markup=_main_keyboard() if registered else _guest_keyboard()
                 )
 
             async def plan_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
