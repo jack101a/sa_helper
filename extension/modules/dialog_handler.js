@@ -20,39 +20,64 @@
         }
     }
     
+    const originalDialogs = {
+        alert: window.alert,
+        confirm: window.confirm,
+        prompt: window.prompt,
+        beforeUnloadValue: window.onbeforeunload,
+        beforeUnloadDescriptor: Object.getOwnPropertyDescriptor(window, 'onbeforeunload')
+    };
+    let dialogsSuppressed = false;
+
+    function restoreOnBeforeUnload() {
+        try {
+            if (originalDialogs.beforeUnloadDescriptor) {
+                Object.defineProperty(window, 'onbeforeunload', originalDialogs.beforeUnloadDescriptor);
+            } else {
+                window.onbeforeunload = originalDialogs.beforeUnloadValue || null;
+            }
+        } catch (_) {
+            try { window.onbeforeunload = originalDialogs.beforeUnloadValue || null; } catch (_) {}
+        }
+    }
+
     function init() {
         const shouldSuppress = document.documentElement.getAttribute('data-suppress-dialogs') === 'true';
-        
-        if (!shouldSuppress || !isStallExamRelatedUrl()) return;
+        if ((!shouldSuppress || !isStallExamRelatedUrl()) && dialogsSuppressed) {
+            dialogsSuppressed = false;
+            try { window.alert = originalDialogs.alert; } catch (_) {}
+            try { window.confirm = originalDialogs.confirm; } catch (_) {}
+            try { window.prompt = originalDialogs.prompt; } catch (_) {}
+            restoreOnBeforeUnload();
+            return;
+        }
+        if (!shouldSuppress || !isStallExamRelatedUrl() || dialogsSuppressed) return;
+        dialogsSuppressed = true;
 
         console.log('[ta-ta] JS Dialog Suppression Active');
 
-        // Override alert
         window.alert = function(msg) {
             console.log('[Suppressed Alert]:', msg);
             return undefined;
         };
 
-        // Override confirm
         window.confirm = function(msg) {
             console.log('[Suppressed Confirm]:', msg);
-            return true; // Always confirm
+            return true;
         };
 
-        // Override prompt
         window.prompt = function(msg, defaultVal) {
             console.log('[Suppressed Prompt]:', msg);
             return defaultVal || "";
         };
-        
-        // Prevent onbeforeunload
+
         window.onbeforeunload = null;
         Object.defineProperty(window, 'onbeforeunload', {
+            configurable: true,
             get: function() { return null; },
             set: function() {}
         });
     }
-
     // Run immediately
     init();
 

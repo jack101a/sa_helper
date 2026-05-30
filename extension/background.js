@@ -656,10 +656,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
               if (arguments[2] && arguments[2].toString().includes("403.jsp")) arguments[2] = authURL;
               return _replaceState.apply(this, arguments);
             };
-            // Block devtools alerts only
-            window.alert = function(msg) {
-              if (msg && msg.toString().toLowerCase().includes("devtools")) return;
-            };
             // Spoof window size probes
             try {
               Object.defineProperty(window, "outerHeight", { get: () => window.innerHeight + 100 });
@@ -718,7 +714,8 @@ async function clearStallData() {
                 '_stall_step4_done_at',
                 '_stall_flow_done_at',
                 'sp_vcam_image',
-                'stallVcamActive'
+                'stallVcamActive',
+                'suppressDialogs'
             ], resolve);
         });
     });
@@ -1839,10 +1836,12 @@ chrome.storage.local.get(['_automationState'], (stored) => {
             step: Number(stored._automationState.step || 1)
         };
         _persistAutomationState();
-        chrome.storage.local.set({ stallWorkspaceActive: true });
+        chrome.storage.local.set({ stallWorkspaceActive: true, suppressDialogs: true });
         _setStallKeepAlive(true);
         _stallKeepAliveTick();
         debugLog('[STALL] Restored automation state from storage, step:', automationState.step);
+    } else {
+        chrome.storage.local.set({ stallWorkspaceActive: false, suppressDialogs: false });
     }
     _stateResolve();
 });
@@ -1855,7 +1854,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
         automationState.step = 1;
         _persistAutomationState();
         _setStallKeepAlive(false);
-        chrome.storage.local.set({ stallWorkspaceActive: false, stallVcamActive: false, sp_vcam_enabled: false, sp_vcam_force_all: false }, () => {
+        chrome.storage.local.set({ stallWorkspaceActive: false, stallVcamActive: false, sp_vcam_enabled: false, sp_vcam_force_all: false, suppressDialogs: false }, () => {
             chrome.storage.local.remove(['_stall_appNo', '_stall_captcha', '_stall_step4_started_at', '_stall_step4_lock_at', '_stall_step4_done_at', 'stall_user_photo', 'sp_vcam_image']);
         });
         debugLog('[STALL] User closed the STALL tab; session stopped.');
@@ -2350,7 +2349,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         clearStallData().then(() => {
             if (automationState.active) {
                 automationState.step = 1;
-                chrome.storage.local.set({ stallWorkspaceActive: true, stallVcamActive: true, sp_vcam_enabled: true, sp_vcam_force_all: true });
+                chrome.storage.local.set({ stallWorkspaceActive: true, stallVcamActive: true, sp_vcam_enabled: true, sp_vcam_force_all: true, suppressDialogs: true });
             }
             _persistAutomationState();
             if (sender.tab?.id) {
@@ -2437,7 +2436,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             debugLog(`[Automation] Advanced to Step ${msg.step}`);
             if (Number(msg.step) >= 7) {
                 _setStallKeepAlive(false);
-                chrome.storage.local.set({ stallWorkspaceActive: false, _stall_completed_at: Date.now() });
+                chrome.storage.local.set({ stallWorkspaceActive: false, suppressDialogs: false, _stall_completed_at: Date.now() });
             }
 
             // Handle specific delays (e.g. 5 seconds between 3 and 4)
@@ -2460,7 +2459,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         automationState.step = 1;
         _persistAutomationState();
         _setStallKeepAlive(false);
-        chrome.storage.local.set({ stallWorkspaceActive: false, stallVcamActive: false, sp_vcam_enabled: false, sp_vcam_force_all: false }, () => {
+        chrome.storage.local.set({ stallWorkspaceActive: false, stallVcamActive: false, sp_vcam_enabled: false, sp_vcam_force_all: false, suppressDialogs: false }, () => {
             chrome.storage.local.remove(['stallStepScripts', '_stall_appNo', '_stall_captcha', '_stall_step4_started_at', '_stall_step4_lock_at', '_stall_step4_done_at', '_stall_flow_done_at', '_stall_language_done_at', '_stall_completed_at', 'stall_user_photo', 'sp_vcam_image']);
         });
         debugLog('[Automation] STALL session complete. MCQ Solver taking over.');

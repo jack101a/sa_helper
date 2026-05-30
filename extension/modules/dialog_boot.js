@@ -21,10 +21,17 @@
         }
     }
 
+    function stallWorkspaceIsActive(data) {
+        return data?.stallWorkspaceActive === true
+            || data?._automationState?.active === true;
+    }
+
     async function sync() {
         try {
-            const data = await chrome.storage.local.get('suppressDialogs');
-            const enabled = data.suppressDialogs === true && isStallExamRelatedUrl();
+            const data = await chrome.storage.local.get(['suppressDialogs', 'stallWorkspaceActive', '_automationState']);
+            const enabled = data.suppressDialogs === true
+                && isStallExamRelatedUrl()
+                && stallWorkspaceIsActive(data);
             document.documentElement.setAttribute('data-suppress-dialogs', enabled ? 'true' : 'false');
         } catch (e) {
             console.error('[ta-ta] Boot error:', e);
@@ -35,9 +42,8 @@
 
     // Also listen for changes to update the attribute in real-time
     chrome.storage.onChanged.addListener((changes) => {
-        if (changes.suppressDialogs) {
-            const enabled = changes.suppressDialogs.newValue === true && isStallExamRelatedUrl();
-            document.documentElement.setAttribute('data-suppress-dialogs', enabled ? 'true' : 'false');
+        if (changes.suppressDialogs || changes.stallWorkspaceActive || changes._automationState) {
+            sync();
         }
     });
 

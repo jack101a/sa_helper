@@ -24,7 +24,9 @@
     "http://*/*"
   ],
   "background": {
-    "scripts": ["background.js"]
+    "scripts": [
+      "background.js"
+    ]
   },
   "content_scripts": [
     {
@@ -42,7 +44,12 @@
     },
     {
       "matches": [
-        "https://sarathi.parivahan.gov.in/*"
+        "https://sarathi.parivahan.gov.in/sarathiservice/authenticationaction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/instruction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/examselectaction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/stallexam.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/stallexamaction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/stallLoginSubmit.do*"
       ],
       "js": [
         "modules/dialog_boot.js"
@@ -52,7 +59,12 @@
     },
     {
       "matches": [
-        "https://sarathi.parivahan.gov.in/*"
+        "https://sarathi.parivahan.gov.in/sarathiservice/authenticationaction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/instruction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/examselectaction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/stallexam.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/stallexamaction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/stallLoginSubmit.do*"
       ],
       "js": [
         "modules/vcam_inject.js"
@@ -63,7 +75,12 @@
     },
     {
       "matches": [
-        "https://sarathi.parivahan.gov.in/*"
+        "https://sarathi.parivahan.gov.in/sarathiservice/authenticationaction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/instruction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/examselectaction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/stallexam.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/stallexamaction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/stallLoginSubmit.do*"
       ],
       "js": [
         "modules/main_inject.js"
@@ -93,7 +110,12 @@
     },
     {
       "matches": [
-        "https://sarathi.parivahan.gov.in/*"
+        "https://sarathi.parivahan.gov.in/sarathiservice/authenticationaction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/instruction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/examselectaction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/stallexam.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/stallexamaction.do*",
+        "https://sarathi.parivahan.gov.in/sarathiservice/stallLoginSubmit.do*"
       ],
       "js": [
         "modules/sarathi_panel.js"
@@ -116,9 +138,9 @@
   },
   "web_accessible_resources": [
     {
-       "resources": [
-         "locator_picker.js"
-       ],
+      "resources": [
+        "locator_picker.js"
+      ],
       "matches": [
         "https://*/*",
         "http://*/*"

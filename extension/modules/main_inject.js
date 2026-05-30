@@ -19,21 +19,68 @@
 
     if (!isStallExamRelatedUrl()) return;
 
-    // ── Stealth & Anti-Debugger ──────────────────────────────────
-    window.alert = function() {};
-    window.confirm = function() { return true; };
-    window.prompt = function(msg, defaultVal) { return defaultVal || ''; };
-    window.close = function() {
-        console.log('[ta-ta] Suppressed window.close');
+    function dialogSuppressionAllowed() {
+        return document.documentElement.getAttribute('data-suppress-dialogs') === 'true';
+    }
+
+    const originalDialogs = {
+        alert: window.alert,
+        confirm: window.confirm,
+        prompt: window.prompt,
+        close: window.close,
+        beforeUnloadValue: window.onbeforeunload,
+        beforeUnloadDescriptor: Object.getOwnPropertyDescriptor(window, 'onbeforeunload')
     };
-    window.onbeforeunload = null;
+    let dialogsSuppressed = false;
+
+    function restoreOnBeforeUnload() {
+        try {
+            if (originalDialogs.beforeUnloadDescriptor) {
+                Object.defineProperty(window, 'onbeforeunload', originalDialogs.beforeUnloadDescriptor);
+            } else {
+                window.onbeforeunload = originalDialogs.beforeUnloadValue || null;
+            }
+        } catch (_) {
+            try { window.onbeforeunload = originalDialogs.beforeUnloadValue || null; } catch (_) {}
+        }
+    }
+
+    function syncDialogSuppression() {
+        const allowed = dialogSuppressionAllowed();
+        if (!allowed && dialogsSuppressed) {
+            dialogsSuppressed = false;
+            try { window.alert = originalDialogs.alert; } catch (_) {}
+            try { window.confirm = originalDialogs.confirm; } catch (_) {}
+            try { window.prompt = originalDialogs.prompt; } catch (_) {}
+            try { window.close = originalDialogs.close; } catch (_) {}
+            restoreOnBeforeUnload();
+            return;
+        }
+        if (!allowed || dialogsSuppressed) return;
+        dialogsSuppressed = true;
+        window.alert = function() {};
+        window.confirm = function() { return true; };
+        window.prompt = function(msg, defaultVal) { return defaultVal || ''; };
+        window.close = function() {
+            console.log('[ta-ta] Suppressed window.close for STALL workspace');
+        };
+        window.onbeforeunload = null;
+        try {
+            Object.defineProperty(window, 'onbeforeunload', {
+                configurable: true,
+                get: () => null,
+                set: () => {}
+            });
+        } catch (_) {}
+    }
+
+    syncDialogSuppression();
     try {
-        Object.defineProperty(window, 'onbeforeunload', {
-            get: () => null,
-            set: () => {}
+        new MutationObserver(syncDialogSuppression).observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ['data-suppress-dialogs']
         });
     } catch (_) {}
-
     try {
         const safeAuthUrl = 'https://sarathi.parivahan.gov.in/sarathiservice/authenticationaction.do?authtype=Anugnya';
         const originalPushState = history.pushState;

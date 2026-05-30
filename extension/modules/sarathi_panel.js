@@ -24,6 +24,27 @@ function isStallExamRelatedUrl(){
   }
 }
 
+function shouldSuppressDialogsForStall(){
+  return document.documentElement.getAttribute('data-suppress-dialogs') === 'true';
+}
+
+const panelDialogState = {
+  suppressed: false,
+  alert: window.alert
+};
+
+function syncPanelDialogSuppression(){
+  const allowed = shouldSuppressDialogsForStall();
+  if (!allowed && panelDialogState.suppressed) {
+    panelDialogState.suppressed = false;
+    try { window.alert = panelDialogState.alert; } catch {}
+    return;
+  }
+  if (!allowed || panelDialogState.suppressed) return;
+  panelDialogState.suppressed = true;
+  window.alert = function(){};
+}
+
 if (location.hostname !== 'sarathi.parivahan.gov.in') return;
 if (!isStallExamRelatedUrl()) return;
 if (typeof chrome === "undefined" || !chrome.runtime?.id) return;
@@ -115,7 +136,7 @@ async function applyDefaultsToDataUrl(inputDu){
   if (!isStallExamRelatedUrl()) return;
   try {
     document.querySelectorAll('script').forEach(s=>{ if (s.textContent.includes('debugger')) s.textContent = s.textContent.replace(/debugger;/g,''); });
-    window.alert = function(){};
+    syncPanelDialogSuppression();
     window.onkeydown = null; window.onkeyup = null; window.onkeypress = null;
     document.onkeydown = null; document.onkeyup = null; document.onkeypress = null;
     document.addEventListener('visibilitychange', e=>e.stopImmediatePropagation(), true);
@@ -138,6 +159,13 @@ async function applyDefaultsToDataUrl(inputDu){
   document.addEventListener("DOMContentLoaded", dom403Guard, {once:true});
   setTimeout(dom403Guard, 400); setTimeout(dom403Guard, 1200); setTimeout(dom403Guard, 2400);
 })();
+
+try {
+  new MutationObserver(syncPanelDialogSuppression).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['data-suppress-dialogs']
+  });
+} catch {}
 
 // ========== STYLES ==========
 (function ensureStyles(){
