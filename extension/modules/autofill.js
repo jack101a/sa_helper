@@ -37,6 +37,19 @@
 
         const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+        function isUserPackageBuild() {
+            try {
+                const manifest = chrome.runtime.getManifest();
+                return /\buser\b/i.test(String(manifest?.name || ''));
+            } catch (_) {
+                return false;
+            }
+        }
+
+        function shouldShowFillFeedback(settings) {
+            return !!(settings.flashFeedback && (settings.debugMode || settings.isMaster) && !isUserPackageBuild());
+        }
+
         // ── Selection Logic ───────────────────────────────────────────────
 
         const cssEscape = (value) => {
@@ -221,12 +234,14 @@
             }, 900);
         }
 
-        async function waitForStepElement(step, fillValue, settings, execution) {
+        async function waitForStepElement(step, fillValue, settings, execution, ruleType) {
             const runtime = step.runtime || {};
-            const timeoutMs = Math.min(15000, Math.max(100, Number(runtime.timeout_ms ?? step.timeout_ms ?? execution.wait_timeout_ms ?? 2500)));
+            const rawTimeout = runtime.timeout_ms ?? step.timeout_ms ?? execution.wait_timeout_ms;
+            const shouldWait = String(ruleType || 'instant').toLowerCase() === 'flow' || runtime.wait_for_element === true || step.wait_for_element === true || execution.wait_for_element === true;
+            const timeoutMs = shouldWait ? Math.min(15000, Math.max(100, Number(rawTimeout ?? 2500))) : 0;
             const started = Date.now();
             let last = { el: null, reason: 'not_found' };
-            while (Date.now() - started <= timeoutMs) {
+            do {
                 let resolved = resolveElement(step.selector, { preferVisible: true });
                 let el = resolved.el;
                 if (step.action === 'radio') {
@@ -243,8 +258,9 @@
                         return { ...resolved, el, ok: true };
                     }
                 }
+                if (!timeoutMs || Date.now() - started >= timeoutMs) break;
                 await sleep(120);
-            }
+            } while (Date.now() - started <= timeoutMs);
             return { ...last, ok: false };
         }
 
@@ -431,7 +447,8 @@
 
             const execution = rule.execution || {};
             const fillValue = resolveFillValue(step, profileData);
-            const resolved = await waitForStepElement(step, fillValue, settings, execution);
+            const ruleType = String(rule.rule_type || rule.ruleType || 'instant').toLowerCase();
+            const resolved = await waitForStepElement(step, fillValue, settings, execution, ruleType);
             const el = resolved.el;
             if (!resolved.ok || !el) {
                 if (settings.debugMode || settings.isMaster) {
@@ -448,17 +465,16 @@
             }
 
             try {
-                const ruleType = String(rule.rule_type || rule.ruleType || 'instant').toLowerCase();
                 await performAction(el, step, fillValue, ruleType);
                 const shouldVerify = step.runtime?.verify_after_fill !== false;
                 if (shouldVerify && !verifyStepValue(el, step, fillValue)) {
-                    if (settings.flashFeedback && (settings.debugMode || settings.isMaster)) flashElement(el, false);
+                    if (shouldShowFillFeedback(settings)) flashElement(el, false);
                     if (settings.debugMode || settings.isMaster) {
                         debugLog('[Autofill] Step verification failed', { step, expected: fillValue, actual: el.value, checked: el.checked });
                     }
                     return 'pending';
                 }
-                if (settings.flashFeedback && (settings.debugMode || settings.isMaster)) flashElement(el, true);
+                if (shouldShowFillFeedback(settings)) flashElement(el, true);
                 _completedStepKeys.add(stepKey);
                 window.up_sendMsg('INCREMENT_STAT', { key: 'statFill' });
                 const delayMs = Number(step.runtime?.delay_ms ?? step.delay_ms ?? step.delayMs ?? execution.delay_ms ?? execution.delayMs ?? 100);
