@@ -89,6 +89,7 @@ class SubscriptionPlan(Base):
     price_amount = Column(Integer, nullable=False, default=0)  # in smallest currency unit (e.g., paise)
     currency = Column(String(3), nullable=False, default="INR")
     is_active = Column(Boolean, nullable=False, default=True)
+    show_in_bot = Column(Boolean, nullable=False, default=True, server_default="1")
     max_devices = Column(Integer, default=1, nullable=False, server_default="1")
     allowed_services = Column(JSON, default=dict, nullable=True)  # e.g., {"captcha": true, "solver": true, "autofill": true}
     rate_limit_rpm = Column(Integer, default=60, nullable=False, server_default="60")
@@ -107,6 +108,7 @@ class SubscriptionPlan(Base):
             "price_amount": self.price_amount,
             "currency": self.currency,
             "is_active": self.is_active,
+            "show_in_bot": self.show_in_bot,
             "max_devices": self.max_devices,
             "allowed_services": self.allowed_services or {},
             "rate_limit_rpm": self.rate_limit_rpm,

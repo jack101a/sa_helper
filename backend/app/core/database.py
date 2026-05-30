@@ -420,6 +420,14 @@ class Database:
         if "services_json" not in key_columns:
             conn.execute("ALTER TABLE api_keys ADD COLUMN services_json TEXT NOT NULL DEFAULT '{\"autofill\":true,\"captcha\":true,\"stall\":true,\"solver\":true,\"custom\":false}'")
 
+        plan_table = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='subscription_plans'"
+        ).fetchone()
+        if plan_table:
+            plan_columns = {row["name"] for row in conn.execute("PRAGMA table_info(subscription_plans)")}
+            if "show_in_bot" not in plan_columns:
+                conn.execute("ALTER TABLE subscription_plans ADD COLUMN show_in_bot INTEGER NOT NULL DEFAULT 1")
+
         route_columns = {row["name"] for row in conn.execute("PRAGMA table_info(model_routes)")}
         if "model_filename" in route_columns and "ai_model_filename" not in route_columns:
             conn.execute("ALTER TABLE model_routes RENAME COLUMN model_filename TO ai_model_filename")

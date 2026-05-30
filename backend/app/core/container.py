@@ -10,6 +10,7 @@ from app.core.database import Database
 from app.core.db import init_db as init_sqlalchemy_db, get_session
 from app.core.paths import get_project_root
 from app.services.alert_service import AlertService
+from app.services.admin_notification_service import AdminNotificationService
 from app.services.audit_service import AuditService
 from app.services.autofill_service import AutofillService
 from app.services.cache_service import CacheService
@@ -67,6 +68,7 @@ class Container:
 
     # ── Platform Module ────────────────────────────────────────────────
     audit_service: AuditService = field(default=None)
+    admin_notification_service: AdminNotificationService = field(default=None)
     usage_cycle_service: UsageCycleService = field(default=None)
     rate_limiter: RateLimiter = field(default=None)
     backup_service: BackupService = field(default=None)
@@ -136,6 +138,7 @@ def build_container(settings: Settings) -> Container:
     subscription_service = SubscriptionService(session_factory=get_session)
     payment_service = PaymentService(session_factory=get_session)
     audit_service = AuditService(session_factory=get_session)
+    admin_notification_service = AdminNotificationService(session_factory=get_session)
     usage_cycle_service = UsageCycleService(session_factory=get_session)
     rate_limiter = RateLimiter(settings=settings)
     backup_service = BackupService(settings=settings)
@@ -157,6 +160,7 @@ def build_container(settings: Settings) -> Container:
         subscription_service=subscription_service,
         payment_service=payment_service,
         audit_service=audit_service,
+        admin_notification_service=admin_notification_service,
         usage_cycle_service=usage_cycle_service,
         rate_limiter=rate_limiter,
         backup_service=backup_service,

@@ -106,7 +106,12 @@ async def system_health(request: Request) -> Any:
     try:
         total_users = session.query(User).count()
         active_users = session.query(User).filter(User.status == "active").count()
-        pending_payments = session.query(PaymentRecord).filter(PaymentRecord.status == "pending").count()
+        pending_payments = session.query(PaymentRecord).filter(
+            PaymentRecord.status.in_([
+                "pending", "pending_payment", "screenshot_submitted", "ready_for_admin_approval",
+                "ocr_processing", "ocr_matched", "ocr_mismatch",
+            ])
+        ).count()
         active_subs = session.query(UserSubscription).filter(UserSubscription.status == "active").count()
     finally:
         session.close()

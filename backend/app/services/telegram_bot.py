@@ -19,6 +19,8 @@ import qrcode
 from app.core.models import User, SubscriptionPlan, PaymentRecord, UserSubscription
 from app.core.db import get_session
 from app.core.payment_links import build_upi_link
+from app.services.admin_notification_service import AdminNotificationService
+from app.services.audit_service import AuditService
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +81,8 @@ class TelegramBotService:
         self._payee_name = payee_name
         self._payment_note_prefix = payment_note_prefix
         self._currency = "INR"
+        self._audit_service = AuditService(self._session_factory)
+        self._admin_notifications = AdminNotificationService(self._session_factory)
 
         # Persist user states to survive bot restarts
         import os as _os
@@ -89,6 +93,29 @@ class TelegramBotService:
 
     def _session(self):
         return self._session_factory()
+
+    def _safe_audit_log(self, **kwargs):
+        try:
+            self._audit_service.log(**kwargs)
+        except Exception as exc:
+            logger.warning("telegram_audit_log_failed", extra={"context": {
+                "action": kwargs.get("action"),
+                "error": str(exc),
+            }})
+
+    def _notify_payment_in_background(self, payment_id: int, event_type: str):
+        def _send():
+            self._admin_notifications.notify_payment(payment_id, event_type)
+
+        try:
+            import threading
+            threading.Thread(target=_send, daemon=True).start()
+        except Exception as exc:
+            logger.warning("telegram_payment_notify_dispatch_failed", extra={"context": {
+                "event_type": event_type,
+                "payment_id": payment_id,
+                "error": str(exc),
+            }})
 
     def _public_base_url(self) -> str:
         raw = (
@@ -187,6 +214,7 @@ class TelegramBotService:
             plans = (
                 session.query(SubscriptionPlan)
                 .filter(SubscriptionPlan.is_active == True)
+                .filter(SubscriptionPlan.show_in_bot == True)
                 .order_by(SubscriptionPlan.price_amount)
                 .all()
             )
@@ -211,6 +239,7 @@ class TelegramBotService:
             plans = (
                 session.query(SubscriptionPlan)
                 .filter(SubscriptionPlan.is_active == True)
+                .filter(SubscriptionPlan.show_in_bot == True)
                 .order_by(SubscriptionPlan.price_amount)
                 .all()
             )
@@ -262,6 +291,7 @@ class TelegramBotService:
             plans = (
                 session.query(SubscriptionPlan)
                 .filter(SubscriptionPlan.is_active == True)
+                .filter(SubscriptionPlan.show_in_bot == True)
                 .order_by(SubscriptionPlan.price_amount)
                 .all()
             )
@@ -320,7 +350,13 @@ class TelegramBotService:
         """Build payment instructions for an exact plan id from inline callbacks."""
         session = self._session()
         try:
-            plan = session.query(SubscriptionPlan).filter(SubscriptionPlan.id == plan_id).first()
+            plan = (
+                session.query(SubscriptionPlan)
+                .filter(SubscriptionPlan.id == plan_id)
+                .filter(SubscriptionPlan.is_active == True)
+                .filter(SubscriptionPlan.show_in_bot == True)
+                .first()
+            )
             if not plan:
                 return {"text": "Plan not found. Please try again.", "qr_bytes": None, "qr_url": "", "qr_path": None, "inline_keyboard": None}
 
@@ -413,6 +449,7 @@ class TelegramBotService:
         session = self._session()
         try:
             # Check for existing user
+            created_user = False
             existing = session.query(User).filter(
                 User.telegram_user_id == str(telegram_user_id)
             ).first()
@@ -432,6 +469,7 @@ class TelegramBotService:
                 )
                 session.add(user)
                 session.flush()
+                created_user = True
 
             # Create payment record with all fields
             from datetime import timedelta
@@ -453,6 +491,37 @@ class TelegramBotService:
             )
             session.add(payment)
             session.commit()
+            payment_id = payment.id
+            user_id = user.id
+            plan_id = data.get("plan_id")
+
+            if created_user:
+                self._safe_audit_log(
+                    actor_type="bot",
+                    action="telegram_user_created",
+                    actor_id=user_id,
+                    target_type="user",
+                    target_id=user_id,
+                    after_json=json.dumps({
+                        "telegram_user_id": str(telegram_user_id),
+                        "telegram_chat_id": str(chat_id),
+                        "mobile_number": data.get("mobile_number"),
+                    }),
+                )
+            self._safe_audit_log(
+                actor_type="bot",
+                action="telegram_payment_created",
+                actor_id=user_id,
+                target_type="payment",
+                target_id=payment_id,
+                after_json=json.dumps({
+                    "payment_ref": data.get("payment_ref", ""),
+                    "upi_reference": upi_ref,
+                    "plan_id": plan_id,
+                    "amount": data.get("price_amount", 0),
+                    "status": "pending_payment",
+                }),
+            )
 
             ref = data.get("payment_ref", upi_ref)
             self.set_state(chat_id, STATE_COMPLETE)
@@ -529,11 +598,17 @@ class TelegramBotService:
                 )
                 used = cycle.used_count if cycle else 0
                 limit = sub.monthly_limit_snapshot or (plan.monthly_limit if plan else 0)
+                remaining = max(0, int(limit or 0) - int(used or 0))
                 status_msg += (
                     f"📦 Plan: *{plan.name if plan else 'Unknown'}*\n"
                     f"📅 Expires: {sub.end_at.strftime('%d %b %Y') if sub.end_at else 'N/A'}\n"
                     f"📊 Usage: {used}/{limit} solves\n"
                 )
+                if limit and remaining <= 0:
+                    status_msg += (
+                        "\n⚠️ Your solve quota is exhausted.\n"
+                        "Use /renew to buy or renew a plan.\n"
+                    )
             else:
                 status_msg += (
                     f"📦 Plan: *N/A*\n"
@@ -1221,6 +1296,7 @@ class TelegramBotService:
                 # Save to DB — look up existing payment by ref, or create new
                 session = self._session()
                 try:
+                    created_user = False
                     user = session.query(User).filter(
                         User.telegram_user_id == uid
                     ).first()
@@ -1239,6 +1315,7 @@ class TelegramBotService:
                         )
                         session.add(user)
                         session.flush()
+                        created_user = True
 
                     # Try to find existing payment record by payment_ref
                     existing_payment = None
@@ -1250,6 +1327,7 @@ class TelegramBotService:
 
                     if existing_payment:
                         # Update existing payment with screenshot + OCR data
+                        payment = existing_payment
                         existing_payment.payment_screenshot_path = str(filepath)
                         existing_payment.ocr_matched = ocr_matched
                         existing_payment.ocr_extracted_ref = extracted_ref
@@ -1260,7 +1338,6 @@ class TelegramBotService:
                         existing_payment.status = new_status
                         existing_payment.updated_at = datetime.now(timezone.utc)
                         session.commit()
-                        payment = existing_payment
                     else:
                         # No existing payment — create new record
                         payment = PaymentRecord(
@@ -1285,6 +1362,36 @@ class TelegramBotService:
                         )
                         session.add(payment)
                         session.commit()
+
+                    payment_id = payment.id
+                    user_id = user.id
+                    if created_user:
+                        self._safe_audit_log(
+                            actor_type="bot",
+                            action="telegram_user_created",
+                            actor_id=user_id,
+                            target_type="user",
+                            target_id=user_id,
+                            after_json=json.dumps({
+                                "telegram_user_id": uid,
+                                "telegram_chat_id": str(chat_id),
+                                "mobile_number": state["data"].get("mobile_number"),
+                            }),
+                        )
+                    self._safe_audit_log(
+                        actor_type="bot",
+                        action="telegram_payment_screenshot_uploaded",
+                        actor_id=user_id,
+                        target_type="payment",
+                        target_id=payment_id,
+                        after_json=json.dumps({
+                            "payment_ref": expected_ref,
+                            "detected_ref": extracted_ref,
+                            "ocr_matched": ocr_matched,
+                            "status": new_status,
+                        }),
+                    )
+                    self._notify_payment_in_background(payment_id, "payment_screenshot_submitted")
 
                     ref = expected_ref or "N/A"
                     reply = (

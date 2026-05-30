@@ -17,6 +17,7 @@ export function PlansPanel({ showToast }) {
     max_devices: 1,
     rate_limit_rpm: 60,
     rate_limit_burst: 10,
+    show_in_bot: true,
     allowed_services: defaultAllowedServices,
   };
   const [plans, setPlans] = useState([]);
@@ -125,6 +126,19 @@ export function PlansPanel({ showToast }) {
     }
   };
 
+  const handleBotVisibleToggle = async (plan, nextVisible) => {
+    setSaving(true);
+    try {
+      await apiPutJson(`/admin/api/plans/${plan.id}`, { show_in_bot: nextVisible });
+      showToast(nextVisible ? "Plan visible in bot" : "Plan hidden from bot");
+      fetchPlans();
+    } catch (e) {
+      showToast(e.message || "Failed to update bot visibility", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleQrUpload = async (planId, file) => {
     if (!file) return;
     setUploadingQrPlanId(planId);
@@ -148,6 +162,7 @@ export function PlansPanel({ showToast }) {
       max_devices: Number(plan.max_devices || 1),
       rate_limit_rpm: Number(plan.rate_limit_rpm || 60),
       rate_limit_burst: Number(plan.rate_limit_burst || 10),
+      show_in_bot: plan.show_in_bot !== false,
       allowed_services: { ...defaultAllowedServices, ...(plan.allowed_services || {}) },
     });
   };
@@ -204,6 +219,7 @@ export function PlansPanel({ showToast }) {
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>RPM</th>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Burst</th>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Services</th>
+                  <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Bot Visible</th>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>QR</th>
                   <th className={`text-left p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Active</th>
                   <th className={`text-right p-3 text-xs font-semibold uppercase tracking-wider ${t_textMuted}`}>Actions</th>
@@ -240,6 +256,16 @@ export function PlansPanel({ showToast }) {
                             ))}
                           </div>
                         </td>
+                        <td className="p-2">
+                          <label className={`flex items-center gap-2 text-xs ${t_textMuted}`}>
+                            <input
+                              type="checkbox"
+                              checked={!!form.show_in_bot}
+                              onChange={(e) => setForm({ ...form, show_in_bot: e.target.checked })}
+                            />
+                            <span>Show</span>
+                          </label>
+                        </td>
                         <td className="p-2">—</td>
                         <td className="p-2">—</td>
                         <td className="p-2">
@@ -264,6 +290,22 @@ export function PlansPanel({ showToast }) {
                             .filter(([, enabled]) => !!enabled)
                             .map(([name]) => name)
                             .join(", ") || "none"}
+                        </td>
+                        <td className="p-3">
+                          <div className={`inline-flex items-center gap-2 text-xs ${t_textMuted}`}>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={!!p.show_in_bot}
+                              disabled={saving || !p.is_active}
+                              onClick={() => handleBotVisibleToggle(p, !p.show_in_bot)}
+                              className={activeSwitchClass(!!p.show_in_bot)}
+                              title={p.show_in_bot ? "Hide from Telegram bot" : "Show in Telegram bot"}
+                            >
+                              <span className={switchKnobClass(!!p.show_in_bot)} />
+                            </button>
+                            <span>{p.show_in_bot ? "Shown" : "Hidden"}</span>
+                          </div>
                         </td>
                         <td className="p-3">
                           <div className="flex items-center gap-2">
@@ -391,6 +433,15 @@ export function PlansPanel({ showToast }) {
                   ))}
                 </div>
               </div>
+              <label className={`flex items-center gap-2 text-sm ${t_textHeading}`}>
+                <input
+                  type="checkbox"
+                  checked={!!form.show_in_bot}
+                  onChange={(e) => setForm({ ...form, show_in_bot: e.target.checked })}
+                  id="plan-show-in-bot"
+                />
+                <span>Show in Telegram bot</span>
+              </label>
               <div>
                 <label className={`text-xs block mb-1 ${t_textMuted}`}>Description</label>
                 <textarea className={glassInput} rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />

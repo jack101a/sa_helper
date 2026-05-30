@@ -152,7 +152,7 @@ class PaymentService:
         try:
             return session.query(PaymentRecord).filter(
                 PaymentRecord.status.in_([
-                    "pending_payment", "screenshot_submitted", "ready_for_admin_approval",
+                    "pending", "pending_payment", "screenshot_submitted", "ready_for_admin_approval",
                     "ocr_processing", "ocr_matched", "ocr_mismatch"
                 ])
             ).count()

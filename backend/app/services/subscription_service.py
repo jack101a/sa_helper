@@ -33,6 +33,7 @@ class SubscriptionService:
         allowed_services: dict | None = None,
         rate_limit_rpm: int = 60,
         rate_limit_burst: int = 10,
+        show_in_bot: bool = True,
     ) -> SubscriptionPlan:
         session = self._session()
         try:
@@ -48,6 +49,7 @@ class SubscriptionService:
                 allowed_services=allowed_services or {},
                 rate_limit_rpm=rate_limit_rpm,
                 rate_limit_burst=rate_limit_burst,
+                show_in_bot=bool(show_in_bot),
             )
             session.add(plan)
             session.commit()
@@ -89,6 +91,10 @@ class SubscriptionService:
             plan = session.query(SubscriptionPlan).filter(SubscriptionPlan.id == plan_id).first()
             if not plan:
                 return None
+            if kwargs.get("is_active") is False:
+                kwargs["show_in_bot"] = False
+            if kwargs.get("show_in_bot") is True and not kwargs.get("is_active", plan.is_active):
+                kwargs["show_in_bot"] = False
             for key, value in kwargs.items():
                 if hasattr(plan, key):
                     setattr(plan, key, value)
