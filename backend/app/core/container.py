@@ -9,7 +9,6 @@ from app.core.config import Settings
 from app.core.database import Database
 from app.core.db import init_db as init_sqlalchemy_db, get_session
 from app.core.paths import get_project_root
-from app.services.alert_service import AlertService
 from app.services.admin_notification_service import AdminNotificationService
 from app.services.audit_service import AuditService
 from app.services.autofill_service import AutofillService
@@ -55,8 +54,6 @@ class Container:
     autofill_service: AutofillService  # form autofill
 
     # ── Platform Module ────────────────────────────────────────────────
-    alert_service: AlertService        # WhatsApp admin alerts (config from DB)
-
     # ── Extension Module ───────────────────────────────────────────────
     extension_service: ExtensionService # Browser extension packaging
 
@@ -126,8 +123,6 @@ def build_container(settings: Settings) -> Container:
     autofill_service = AutofillService(db=db)
 
     # Alert service — reads phone/apikey/enabled from DB (admin dashboard)
-    alert_service = AlertService(db=db)
-
     # Extension service
     root_dir = get_project_root()
     output_dir = root_dir / "backend" / "app" / "static" / "extensions"
@@ -154,7 +149,6 @@ def build_container(settings: Settings) -> Container:
         exam_merge_service=exam_merge_service,
         exam_offline_import_service=exam_offline_import_service,
         autofill_service=autofill_service,
-        alert_service=alert_service,
         extension_service=extension_service,
         user_service=user_service,
         subscription_service=subscription_service,

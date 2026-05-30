@@ -55,7 +55,9 @@ RUN mkdir -p /app/backend/app/templates && \
     chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Environment variables
-ENV PYTHONPATH=/app/backend \
+ENV APP_ENV=production \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/backend \
     CONFIG_PATH=/app/backend/config/config.yaml \
     SQLITE_PATH=/app/backend/logs/app.db \
     ONNX_PATH=/app/data/models/model.onnx

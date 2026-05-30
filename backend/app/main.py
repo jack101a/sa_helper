@@ -7,7 +7,6 @@ import html
 import logging
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone, timedelta
 from pathlib import Path as _Path
 
 from fastapi import FastAPI
@@ -17,7 +16,8 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.admin import router as admin_router
 from app.api.routes import router as v1_router
-from app.core.config import get_settings
+from app.background_tasks import backup_scheduler, exam_merge_loop, subscription_expiry_loop
+from app.core.config import get_settings, require_runtime_auth
 from app.core.container import build_container
 from app.core.db import get_session
 from app.core.logging import configure_logging
@@ -28,6 +28,7 @@ from app.middleware.rate_limit_middleware import RateLimitMiddleware
 from app.middleware.security_headers_middleware import SecurityHeadersMiddleware
 
 settings = get_settings()
+require_runtime_auth(settings)
 configure_logging(settings=settings)
 container = build_container(settings=settings)
 logger = logging.getLogger(__name__)
@@ -39,180 +40,11 @@ def _env_enabled(name: str, default: str = "false") -> bool:
     return os.getenv(name, default).lower() in {"1", "true", "yes", "on"}
 
 
-async def _exam_merge_loop(container) -> None:
-    """Auto-merge verified learned questions into main bank on schedule."""
-    while True:
-        try:
-            interval_hours = 6
-            try:
-                interval_hours = max(1, int(container.db.get_setting("exam.merge_interval_hours", "6")))
-            except (ValueError, TypeError):
-                pass
-
-            merge_enabled = container.db.get_setting(
-                "exam.auto_merge_enabled", "true"
-            ).lower() in ("true", "1", "yes", "on")
-
-            if not merge_enabled:
-                await asyncio.sleep(3600)  # check again in 1 hour
-                continue
-
-            await asyncio.sleep(interval_hours * 3600)
-
-            result = container.exam_merge_service.merge_verified_to_main()
-            if result["merged"] > 0:
-                logger.info("exam_auto_merge", extra={"context": result})
-                # Send alert if alert_service exists
-                try:
-                    container.alert_service.send(
-                        f"📚 MCQ Bank Merge: {result['merged']} new questions merged "
-                        f"(total: {result['total_bank']})"
-                    )
-                except Exception:
-                    pass
-        except asyncio.CancelledError:
-            break
-        except Exception as e:
-            logger.error("exam_auto_merge_failed", extra={"context": {"error": str(e)}})
-            await asyncio.sleep(3600)  # retry in 1 hour on failure
-
-
-async def _backup_scheduler(container) -> None:
-    """Run automated system + user backups on schedule."""
-    # Wait 60 seconds after startup before first check
-    await asyncio.sleep(60)
-    while True:
-        try:
-            enabled = container.db.get_setting(
-                "backup.enabled", "true"
-            ).lower() in ("true", "1", "yes", "on")
-
-            if not enabled:
-                await asyncio.sleep(3600)
-                continue
-
-            interval_hours = 6
-            try:
-                interval_hours = max(1, int(container.db.get_setting("backup.interval_hours", "6")))
-            except (ValueError, TypeError):
-                pass
-
-            await asyncio.sleep(interval_hours * 3600)
-
-            # Create backups
-            sys_result = container.backup_service.create_system_backup()
-            user_result = container.backup_service.create_user_backup()
-
-            # rclone sync (non-critical)
-            for path in [sys_result["path"], user_result["path"]]:
-                try:
-                    container.backup_service.rclone_sync(path)
-                except Exception as e:
-                    logger.warning(f"backup_rclone_skip: {e}")
-
-            # Telegram backup (non-critical)
-            for path in [sys_result["path"], user_result["path"]]:
-                try:
-                    await container.backup_service.telegram_backup(path)
-                except Exception as e:
-                    logger.warning(f"backup_telegram_skip: {e}")
-
-            # Alert admin
-            try:
-                container.alert_service.send(
-                    f"✅ Backup: system ({sys_result['size']//1024}KB), "
-                    f"users ({user_result['size']//1024}KB)"
-                )
-            except Exception:
-                pass
-
-        except asyncio.CancelledError:
-            break
-        except Exception as e:
-            logger.error("backup_scheduler_failed", extra={"context": {"error": str(e)}})
-            await asyncio.sleep(3600)
-
-
-async def _subscription_expiry_loop(container) -> None:
-    """Check for expired subscriptions every hour."""
-    await asyncio.sleep(120)  # wait 2 min after startup
-    while True:
-        try:
-            token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-
-            # Check for subscriptions expiring in 3 days — send warning
-            try:
-                from app.core.models import UserSubscription, User
-                session = get_session()
-                now_dt = datetime.now(timezone.utc)
-                three_days = now_dt + timedelta(days=3)
-                soon = (
-                    session.query(UserSubscription)
-                    .filter(
-                        UserSubscription.status == "active",
-                        UserSubscription.end_at.between(now_dt, three_days),
-                    )
-                    .all()
-                )
-                if soon and token:
-                    from telegram import Bot
-                    bot = Bot(token=token)
-                    for sub in soon:
-                        user = session.query(User).filter(User.id == sub.user_id).first()
-                        if user and user.telegram_chat_id:
-                            days_left = (sub.end_at - now_dt).days
-                            try:
-                                await bot.send_message(
-                                    chat_id=int(user.telegram_chat_id),
-                                    text=(
-                                        "⏰ *Subscription Expiring Soon*\n\n"
-                                        f"Your plan expires in *{days_left} days*.\n"
-                                        "Use /renew to continue your service."
-                                    ),
-                                    parse_mode="Markdown",
-                                )
-                            except Exception:
-                                pass
-                session.close()
-            except Exception as e:
-                logger.warning(f"expiry_warning_failed: {e}")
-
-            expired_users = container.subscription_service.expire_overdue()
-            if expired_users:
-                logger.info(f"auto_expired: {len(expired_users)} subscriptions")
-                if token:
-                    try:
-                        from telegram import Bot
-                        bot = Bot(token=token)
-                        for user_info in expired_users:
-                            chat_id = user_info.get("telegram_chat_id")
-                            if chat_id:
-                                await bot.send_message(
-                                    chat_id=int(chat_id),
-                                    text=(
-                                        "⚠️ *Subscription Expired*\n\n"
-                                        "Your subscription has expired.\n"
-                                        "Use /renew to purchase a new plan."
-                                    ),
-                                    parse_mode="Markdown",
-                                )
-                    except Exception as e:
-                        logger.warning(f"expiry_notify_failed: {e}")
-        except asyncio.CancelledError:
-            break
-        except Exception as e:
-            logger.error(f"expiry_check_failed: {e}")
-        await asyncio.sleep(3600)  # check every hour
-
-
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     """Manage startup and shutdown lifecycle."""
     # ── Startup ───────────────────────────────────────────────────────────────
     await container.solver_service.start()
-    # Send WhatsApp notification that server is online (non-blocking)
-    container.alert_service.notify_server_start()
-    
     # Auto-package extension on start
     container.extension_service.package_extension()
 
@@ -237,9 +69,9 @@ async def lifespan(application: FastAPI):
     background_tasks: list[asyncio.Task] = []
     if _env_enabled("RUN_BACKGROUND_TASKS"):
         background_tasks = [
-            asyncio.create_task(_exam_merge_loop(container)),
-            asyncio.create_task(_backup_scheduler(container)),
-            asyncio.create_task(_subscription_expiry_loop(container)),
+            asyncio.create_task(exam_merge_loop(container)),
+            asyncio.create_task(backup_scheduler(container)),
+            asyncio.create_task(subscription_expiry_loop(container)),
         ]
 
     yield

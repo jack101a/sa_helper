@@ -10,12 +10,15 @@ import asyncio
 import logging
 import signal
 
-from app.main import (
-    _backup_scheduler,
-    _exam_merge_loop,
-    _subscription_expiry_loop,
-    container,
-)
+from app.background_tasks import backup_scheduler, exam_merge_loop, subscription_expiry_loop
+from app.core.config import get_settings
+from app.core.container import build_container
+from app.core.logging import configure_logging
+
+
+settings = get_settings()
+configure_logging(settings=settings)
+container = build_container(settings=settings)
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +30,9 @@ async def run() -> None:
         loop.add_signal_handler(sig, stop_event.set)
 
     tasks = [
-        asyncio.create_task(_exam_merge_loop(container), name="exam-merge-loop"),
-        asyncio.create_task(_backup_scheduler(container), name="backup-scheduler"),
-        asyncio.create_task(_subscription_expiry_loop(container), name="subscription-expiry-loop"),
+        asyncio.create_task(exam_merge_loop(container), name="exam-merge-loop"),
+        asyncio.create_task(backup_scheduler(container), name="backup-scheduler"),
+        asyncio.create_task(subscription_expiry_loop(container), name="subscription-expiry-loop"),
     ]
     logger.info("scheduler_started", extra={"context": {"tasks": [task.get_name() for task in tasks]}})
 

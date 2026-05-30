@@ -17,6 +17,7 @@ from pathlib import Path
 
 import qrcode
 from app.core.models import User, SubscriptionPlan, PaymentRecord, UserSubscription
+from app.core.config import get_settings, require_runtime_auth
 from app.core.db import get_session
 from app.core.payment_links import build_upi_link
 from app.services.admin_notification_service import AdminNotificationService
@@ -685,8 +686,6 @@ class TelegramBotService:
                 return "Your account is not active. Complete registration first."
 
             from app.services.user_key_service import UserKeyService
-            from app.core.config import get_settings
-
             svc = UserKeyService(session_factory=self._session_factory, settings=get_settings())
             key, plain = svc.rotate_key(user_id=user.id)
 
@@ -1481,10 +1480,10 @@ def _run_standalone() -> None:
 
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
-    from app.core.config import get_settings
     from app.core.db import init_db, get_session
 
     settings = get_settings()
+    require_runtime_auth(settings, require_admin_token=False)
     init_db(settings)
 
     wait_for_token = os.getenv("TELEGRAM_BOT_WAIT_FOR_TOKEN", "true").lower() in {"1", "true", "yes", "on"}
@@ -1510,10 +1509,10 @@ if False and __name__ == "__main__":
     import os, sys
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
-    from app.core.config import get_settings
     from app.core.db import init_db, get_session
 
     settings = get_settings()
+    require_runtime_auth(settings, require_admin_token=False)
     init_db(settings)
 
     token = _read_setting("TELEGRAM_BOT_TOKEN", settings.telegram.bot_token, "telegram.bot_token", get_session)
@@ -1544,8 +1543,10 @@ def start_bot(settings=None, session_factory=None) -> TelegramBotService | None:
     """
     import os, threading
     from sqlalchemy import text
+    settings = settings or get_settings()
+    require_runtime_auth(settings, require_admin_token=False)
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    if not token and settings:
+    if not token:
         token = settings.telegram.bot_token
     if not token and session_factory:
         try:

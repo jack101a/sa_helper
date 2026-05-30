@@ -58,12 +58,6 @@ _DEFAULT_CONFIG: dict[str, Any] = {
         "sign_hashes_path": "data/hashes/sign_hashes.json",
         "sign_labels_path": "data/hashes/sign_label.json",
     },
-    # ── WhatsApp admin alert ───────────────────────────────────────────────────
-    "alerts": {
-        "whatsapp_enabled": False,
-        "callmebot_phone": "",        # E.164 format: +91xxxxxxxxxx
-        "callmebot_apikey": "",
-    },
     # ── Telegram bot ────────────────────────────────────────────────────────────
     "telegram": {
         "bot_token": "",              # from @BotFather
@@ -94,25 +88,6 @@ class AuthConfig(BaseModel):
     key_length: int = 32
     default_expiry_days: int = 90
 
-    @field_validator("hash_salt")
-    @classmethod
-    def hash_salt_must_not_be_empty(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError(
-                "AUTH_HASH_SALT must not be empty — set it in your .env file. "
-                "An empty salt makes all API keys trivially equivalent."
-            )
-        return v
-
-    @field_validator("admin_token")
-    @classmethod
-    def admin_token_must_not_be_empty(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError(
-                "ADMIN_TOKEN must not be empty — set it in your .env file. "
-                "An empty token allows unauthenticated admin access."
-            )
-        return v
 
 
 class RateLimitConfig(BaseModel):
@@ -181,12 +156,6 @@ class ExamConfig(BaseModel):
     sign_labels_path: str = "data/hashes/sign_label.json"
 
 
-class AlertsConfig(BaseModel):
-    whatsapp_enabled: bool = False
-    callmebot_phone: str = ""
-    callmebot_apikey: str = ""
-
-
 class TelegramConfig(BaseModel):
     bot_token: str = ""
     bot_enabled: bool = False
@@ -209,7 +178,6 @@ class Settings(BaseModel):
     redis: RedisConfig = Field(default_factory=RedisConfig)
     retrain: RetrainConfig = Field(default_factory=RetrainConfig)
     exam: ExamConfig = Field(default_factory=ExamConfig)
-    alerts: AlertsConfig = Field(default_factory=AlertsConfig)
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
     payment: PaymentConfig = Field(default_factory=PaymentConfig)
 
@@ -280,10 +248,6 @@ def get_settings() -> Settings:
     config_dict.setdefault("queue", {})
     config_dict["queue"]["workers"] = int(os.getenv("QUEUE_WORKERS", config_dict["queue"].get("workers", 4)))
 
-    config_dict.setdefault("alerts", {})
-    config_dict["alerts"]["callmebot_phone"]  = os.getenv("CALLMEBOT_PHONE",  config_dict["alerts"].get("callmebot_phone", ""))
-    config_dict["alerts"]["callmebot_apikey"] = os.getenv("CALLMEBOT_APIKEY", config_dict["alerts"].get("callmebot_apikey", ""))
-
     config_dict.setdefault("telegram", {})
     config_dict["telegram"]["bot_token"]   = os.getenv("TELEGRAM_BOT_TOKEN", config_dict["telegram"].get("bot_token", ""))
     config_dict["telegram"]["bot_enabled"] = os.getenv("TELEGRAM_BOT_ENABLED", str(config_dict["telegram"].get("bot_enabled", False))).lower() in ("1", "true", "yes")
@@ -302,3 +266,26 @@ def get_settings() -> Settings:
         config_dict["logging"]["level"] = "DEBUG"
 
     return Settings(**config_dict)
+
+
+def require_runtime_auth(
+    settings: Settings,
+    *,
+    require_hash_salt: bool = True,
+    require_admin_token: bool = True,
+) -> None:
+    """Validate auth secrets for entrypoints that expose authenticated APIs.
+
+    Background-only processes can load Settings without admin secrets. The API
+    process must still fail fast when critical auth values are missing.
+    """
+    if require_hash_salt and not settings.auth.hash_salt.strip():
+        raise ValueError(
+            "AUTH_HASH_SALT must not be empty - set it in your .env file. "
+            "An empty salt makes all API keys trivially equivalent."
+        )
+    if require_admin_token and not settings.auth.admin_token.strip():
+        raise ValueError(
+            "ADMIN_TOKEN must not be empty - set it in your .env file. "
+            "An empty token allows unauthenticated admin access."
+        )

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import PropTypes from "prop-types";
-import { Download, Upload, Save, Bell, Globe, Shield, Loader2, Inbox, Send, CreditCard, Image, RotateCcw, Database, Users, RefreshCw, CloudUpload } from "lucide-react";
+import { Download, Upload, Save, Globe, Shield, Loader2, Inbox, Send, CreditCard, Image, RotateCcw, Database, Users, RefreshCw, CloudUpload } from "lucide-react";
 import { useThemeContext } from "../context/ThemeContext";
 import { apiGet, apiPostJson } from "../../api/client";
 import { EmptyState } from "./EmptyState";
@@ -495,7 +495,7 @@ export function SettingsPanel({
         {loadingGlobal ? (
           <div className="flex justify-center p-8"><Loader2 className="animate-spin text-indigo-500" /></div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="max-w-xl">
             <div className="space-y-4">
               <h4 className={`text-xs font-bold uppercase tracking-widest flex items-center gap-2 ${t_textMuted}`}>
                 <Shield size={14} /> Identity & Branding
@@ -508,41 +508,6 @@ export function SettingsPanel({
                   onChange={(e) => updateGlobal("platform.name", e.target.value)}
                   placeholder="Unified Platform" 
                 />
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <h4 className={`text-xs font-bold uppercase tracking-widest flex items-center gap-2 ${t_textMuted}`}>
-                <Bell size={14} /> Admin WhatsApp Alerts
-              </h4>
-              <div className="space-y-3">
-                <label className={`flex items-center gap-2 text-xs ${t_textMuted}`}>
-                  <input 
-                    type="checkbox" 
-                    checked={globalSettings["alerts.whatsapp_enabled"] === "true"} 
-                    onChange={(e) => updateGlobal("alerts.whatsapp_enabled", e.target.checked ? "true" : "false")} 
-                  />
-                  Enable WhatsApp Alerts (New Key, Critical Errors)
-                </label>
-                <div>
-                  <label className={`text-xs block mb-1 ${t_textMuted}`}>CallMeBot Phone (+91...)</label>
-                  <input 
-                    className={glassInput} 
-                    value={globalSettings["alerts.callmebot_phone"] || ""} 
-                    onChange={(e) => updateGlobal("alerts.callmebot_phone", e.target.value)}
-                    placeholder="+919876543210" 
-                  />
-                </div>
-                <div>
-                  <label className={`text-xs block mb-1 ${t_textMuted}`}>CallMeBot API Key</label>
-                  <input 
-                    type="password"
-                    className={glassInput} 
-                    value={globalSettings["alerts.callmebot_apikey"] || ""} 
-                    onChange={(e) => updateGlobal("alerts.callmebot_apikey", e.target.value)}
-                    placeholder="xxxxxx" 
-                  />
-                </div>
               </div>
             </div>
           </div>

@@ -75,12 +75,6 @@ async def api_create_key(
         logger.exception("api_key_create_backup_failed", extra={"context": {"key_id": key_id, "error": str(e)}})
         warnings.append("Auto-backup failed after key creation.")
 
-    try:
-        container.alert_service.notify_new_key(key_name=key_name, expires_at=expires)
-    except Exception as e:
-        logger.exception("api_key_create_alert_failed", extra={"context": {"key_id": key_id, "error": str(e)}})
-        warnings.append("WhatsApp notification failed after key creation.")
-
     return JSONResponse(
         status_code=201,
         content={"ok": True, "key_id": key_id, "api_key": plain, "expires_at": expires, "warnings": warnings},

@@ -50,7 +50,3 @@ exam:
   question_data_path: data/questions/questions.json
   sign_hashes_path: data/hashes/sign_hashes.json
   sign_labels_path: data/hashes/sign_label.json
-alerts:
-  whatsapp_enabled: false
-  callmebot_phone: ''
-  callmebot_apikey: ''

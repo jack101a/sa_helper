@@ -322,7 +322,7 @@ async def get_settings(request: Request):
     settings_list = container.db.get_all_settings()
     # Mask secrets for display
     masked = []
-    SECRET_KEYS = {"exam.litellm_api_key", "alerts.callmebot_apikey", "telegram.bot_token"}
+    SECRET_KEYS = {"exam.litellm_api_key", "telegram.bot_token"}
     for s in settings_list:
         row = dict(s)
         if row["key"] in SECRET_KEYS and row["value"]:
@@ -474,40 +474,6 @@ async def test_telegram_bot(request: Request):
         raise HTTPException(400, f"Telegram token test failed: {e}")
 
 
-@router.get("/api/alerts/config")
-async def get_alert_config(request: Request):
-    """Return current WhatsApp alert config status (no secrets exposed)."""
-    denied = _admin_guard(request)
-    if denied:
-        return denied
-    container = request.app.state.container
-    svc = container.alert_service
-    return {
-        "enabled":       svc._enabled(),
-        "phone_set":     bool(svc._phone()),
-        "apikey_set":    bool(svc._apikey()),
-        "phone_preview": (svc._phone()[:4] + "****" + svc._phone()[-3:]) if len(svc._phone()) > 7 else "not set",
-    }
-
-@router.post("/api/alerts/test")
-async def test_alert(request: Request):
-    """Send a test WhatsApp message to verify configuration."""
-    denied = _admin_guard(request)
-    if denied:
-        return denied
-    container = request.app.state.container
-    ok = container.alert_service.send("🧪 *Test Alert*\nUnified Platform WhatsApp alerts are working correctly!")
-    return {"ok": ok, "message": "Test message sent" if ok else "Failed — check CALLMEBOT_PHONE and CALLMEBOT_APIKEY in .env"}
-
-@router.post("/api/alerts/notify-key")
-async def notify_key_alert(request: Request, key_name: str = Form(...), expires_at: str = Form("")):
-    """Manually trigger a new-key WhatsApp notification (e.g. after sharing key with user)."""
-    denied = _admin_guard(request)
-    if denied:
-        return denied
-    container = request.app.state.container
-    container.alert_service.notify_new_key(key_name=key_name, expires_at=expires_at or None)
-    return {"ok": True}
 
 @router.post("/api/extension/repack")
 async def repack_extension(request: Request):
@@ -800,7 +766,7 @@ async def delete_userscript(request: Request, uid: str):
     return {"ok": True}
 
 
-# ── QR Code Image Upload ──────────────────────────────────────────────────────
+# â”€â”€ QR Code Image Upload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 _QR_DIR = get_project_root() / "data" / "uploads"
 _QR_DIR.mkdir(parents=True, exist_ok=True)

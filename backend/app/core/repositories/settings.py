@@ -21,10 +21,6 @@ class SettingsRepository(BaseRepository):
         "exam.learn_phash_max_distance": "3",
         "exam.learn_option_phash_max_distance": "3",
         "exam.solver_methods_ui": '[{"id":"auto_learned_bank","enabled":true,"priority":10},{"id":"ocr_db","enabled":true,"priority":20},{"id":"llm","enabled":true,"priority":30},{"id":"random_fallback","enabled":true,"priority":40}]',
-        # WhatsApp alerts
-        "alerts.whatsapp_enabled":  "false",
-        "alerts.callmebot_phone":   "",
-        "alerts.callmebot_apikey":  "",
         # General
         "platform.name":          "Unified Platform",
         # Telegram
@@ -48,9 +44,6 @@ class SettingsRepository(BaseRepository):
         "exam.learn_phash_max_distance": "Maximum pHash distance for learned image matching",
         "exam.learn_option_phash_max_distance": "Maximum pHash distance for remapping a learned answer to shuffled options",
         "exam.solver_methods_ui": "Live MCQ solving method order/toggle config",
-        "alerts.whatsapp_enabled":  "Enable WhatsApp admin alerts (true/false)",
-        "alerts.callmebot_phone":   "Admin WhatsApp number in E.164 format (+91XXXXXXXXXX)",
-        "alerts.callmebot_apikey":  "CallMeBot API key (get from callmebot.com)",
         "platform.name":            "Display name shown in admin dashboard",
         "telegram.bot_token":       "Telegram Bot API token from @BotFather",
         "telegram.bot_enabled":     "Enable Telegram bot (true/false)",
